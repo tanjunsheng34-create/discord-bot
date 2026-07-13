@@ -240,9 +240,10 @@ def generate_ach_image(achievement_rows, unlocked_count, total_count):
 # ---------- 交互 View ----------
 
 class ShopView(discord.ui.View):
-    def __init__(self, items, timeout=120):
+    def __init__(self, items, user_id, timeout=120):
         super().__init__(timeout=timeout)
-        for it in items[:5]:  # 最多 5 个按钮（Discord 限制）
+        self.user_id = user_id
+        for it in items[:5]:
             btn = discord.ui.Button(
                 label=f"{it['name']}",
                 emoji=it.get("emoji", "🛒"),
@@ -250,8 +251,8 @@ class ShopView(discord.ui.View):
                 custom_id=f"shop_buy_{it['id']}",
                 row=0,
             )
+            btn.callback = self.make_buy_callback(it['id'])
             self.add_item(btn)
-        # 第二行放余额按钮
         self.add_item(discord.ui.Button(
             label="My Balance",
             emoji="💰",
@@ -267,12 +268,115 @@ class ShopView(discord.ui.View):
             row=1,
         ))
 
+    def make_buy_callback(self, item_id):
+        async def callback(interaction: discord.Interaction):
+            if str(interaction.user.id) != self.user_id:
+                return await interaction.response.send_message("这不是你的商店页面。", ephemeral=True)
+            # 触发购买流程
+            await buy_item(interaction, str(interaction.user.id), item_id)
+        return callback
 
-class BuyConfirmView(discord.ui.View):
-    def __init__(self, item, timeout=30):
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+
+
+class AchFilter(discord.ui.View):
+    def __init__(self, rows, unlocked_ct, total_ct, user_id, timeout=60):
         super().__init__(timeout=timeout)
-        self.item = item
-        self.confirmed = False
+        self.rows = rows
+        self.unlocked_ct = unlocked_ct
+        self.total_ct = total_ct
+        self.user_id = user_id
+
+    @discord.ui.button(label="All", style=discord.ButtonStyle.primary, emoji="📋")
+    async def all_btn(self, interaction: discord.Interaction, button):
+        if str(interaction.user.id) != self.user_id:
+            return await interaction.response.send_message("这不是你的成就页。", ephemeral=True)
+        img2 = generate_ach_image(self.rows, self.unlocked_ct, self.total_ct)
+        await interaction.response.edit_message(attachments=[discord.File(img2, filename="ach.png")], view=self)
+
+    @discord.ui.button(label="Unlocked", style=discord.ButtonStyle.success, emoji="✅")
+    async def unlocked_btn(self, interaction: discord.Interaction, button):
+        if str(interaction.user.id) != self.user_id:
+            return await interaction.response.send_message("这不是你的成就页。", ephemeral=True)
+        filtered = [r for r in self.rows if r["unlocked"]]
+        img2 = generate_ach_image(filtered, len(filtered), self.total_ct)
+        await interaction.response.edit_message(attachments=[discord.File(img2, filename="ach.png")], view=self)
+
+    @discord.ui.button(label="Locked", style=discord.ButtonStyle.secondary, emoji="⬜")
+    async def locked_btn(self, interaction: discord.Interaction, button):
+        if str(interaction.user.id) != self.user_id:
+            return await interaction.response.send_message("这不是你的成就页。", ephemeral=True)
+        filtered = [r for r in self.rows if not r["unlocked"]]
+        img2 = generate_ach_image(filtered, self.unlocked_ct, self.total_ct)
+        await interaction.response.edit_message(attachments=[discord.File(img2, filename="ach.png")], view=self)
+
+
+# ---------- 购买逻辑（复用）----------
+async def buy_item(interaction: discord.Interaction, uid: str, item_id: int):
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT * FROM shop_items WHERE id=?", (item_id,))
+    item = cur.fetchone()
+    if not item:
+        conn.close(); return await interaction.response.send_message("物品不存在。", ephemeral=True)
+
+    bal = get_balance(uid)
+    if bal < item["price"]:
+        conn.close(); return await interaction.response.send_message(
+            f"余额不足！需要 {item['price']} coins，你有 {bal} coins。", ephemeral=True
+        )
+    conn.close()
+
+    class ConfirmBuy(discord.ui.View):
+        def __init__(self):
+            super().__init__(timeout=15)
+
+        @discord.ui.button(label="确认购买", style=discord.ButtonStyle.success, emoji="✅")
+        async def confirm(self, btn_i: discord.Interaction, button):
+            if str(btn_i.user.id) != uid:
+                return await btn_i.response.send_message("这不是你的购买单。", ephemeral=True)
+
+            conn2 = get_db(); cur2 = conn2.cursor()
+            bal2 = get_balance(uid)
+            if bal2 < item["price"]:
+                conn2.close(); return await btn_i.response.send_message(
+                    f"余额不足！{bal2} coins。", ephemeral=True
+                )
+
+            cur2.execute("UPDATE users SET score = score - ? WHERE discord_id = ?", (item["price"], uid))
+            cur2.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                         (uid, -item["price"], f"购买: {item['name']}"))
+            cur2.execute(
+                "INSERT INTO user_inventory (user_id, item_id, quantity) VALUES (?,?,1) "
+                "ON CONFLICT(user_id, item_id) DO UPDATE SET quantity = quantity + 1",
+                (uid, item_id),
+            )
+            conn2.commit(); conn2.close()
+
+            for child in self.children: child.disabled = True
+            await btn_i.response.edit_message(
+                content=f"✅ 购买成功！**{item['name']}**  -{item['price']} coins", view=self
+            )
+
+            check_achievement(uid, "商店购买")
+            conn3 = get_db(); cur3 = conn3.cursor()
+            cur3.execute("SELECT COUNT(*) as cnt FROM transactions WHERE discord_id=? AND reason LIKE '%购买%'", (uid,))
+            if cur3.fetchone()["cnt"] >= 5:
+                check_achievement(uid, "购买 5 次")
+            conn3.close()
+
+        @discord.ui.button(label="取消", style=discord.ButtonStyle.secondary, emoji="❌")
+        async def cancel(self, btn_i: discord.Interaction, button):
+            if str(btn_i.user.id) != uid:
+                return await btn_i.response.send_message("这不是你的购买单。", ephemeral=True)
+            for child in self.children: child.disabled = True
+            await btn_i.response.edit_message(content="已取消。", view=self)
+
+    await interaction.response.send_message(
+        f"确认购买 **{item['name']}**？\n价格: 🪙 {item['price']} | 余额: 🪙 {bal}",
+        view=ConfirmBuy(),
+    )
 
 
 # ---------- 工具函数 ----------
@@ -522,70 +626,7 @@ class Economy(commands.Cog):
     @app_commands.command(name="gmpt-buy", description="Buy item from shop / 购买商店物品")
     @app_commands.describe(item_id="Item ID from /gmpt-shop")
     async def buy_cmd(self, interaction: discord.Interaction, item_id: int):
-        uid = str(interaction.user.id)
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT * FROM shop_items WHERE id=?", (item_id,))
-        item = cur.fetchone()
-        if not item:
-            conn.close(); return await interaction.response.send_message("物品不存在。", ephemeral=True)
-
-        bal = get_balance(uid)
-        if bal < item["price"]:
-            conn.close(); return await interaction.response.send_message(
-                f"余额不足！需要 {item['price']} coins，你有 {bal} coins。", ephemeral=True
-            )
-
-        # 确认按钮
-        class ConfirmBuy(discord.ui.View):
-            def __init__(self):
-                super().__init__(timeout=15)
-
-            @discord.ui.button(label="确认购买", style=discord.ButtonStyle.success, emoji="✅")
-            async def confirm(self, btn_interaction: discord.Interaction, button: discord.ui.Button):
-                if str(btn_interaction.user.id) != uid:
-                    return await btn_interaction.response.send_message("这不是你的购买单。", ephemeral=True)
-
-                conn2 = get_db(); cur2 = conn2.cursor()
-                bal2 = get_balance(uid)
-                if bal2 < item["price"]:
-                    conn2.close(); return await btn_interaction.response.send_message(
-                        f"余额不足！需要 {item['price']} coins，你有 {bal2} coins。", ephemeral=True
-                    )
-
-                cur2.execute("UPDATE users SET score = score - ? WHERE discord_id = ?", (item["price"], uid))
-                cur2.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                             (uid, -item["price"], f"购买: {item['name']}"))
-                cur2.execute(
-                    "INSERT INTO user_inventory (user_id, item_id, quantity) VALUES (?,?,1) "
-                    "ON CONFLICT(user_id, item_id) DO UPDATE SET quantity = quantity + 1",
-                    (uid, item_id),
-                )
-                conn2.commit(); conn2.close()
-
-                for child in self.children: child.disabled = True
-                await btn_interaction.response.edit_message(
-                    content=f"✅ 购买成功！**{item['name']}**  -{item['price']} coins", view=self
-                )
-
-                check_achievement(uid, "商店购买")
-                conn3 = get_db(); cur3 = conn3.cursor()
-                cur3.execute("SELECT COUNT(*) as cnt FROM transactions WHERE discord_id=? AND reason LIKE '%购买%'", (uid,))
-                if cur3.fetchone()["cnt"] >= 5:
-                    check_achievement(uid, "购买 5 次")
-                conn3.close()
-
-            @discord.ui.button(label="取消", style=discord.ButtonStyle.secondary, emoji="❌")
-            async def cancel(self, btn_interaction: discord.Interaction, button: discord.ui.Button):
-                if str(btn_interaction.user.id) != uid:
-                    return await btn_interaction.response.send_message("这不是你的购买单。", ephemeral=True)
-                for child in self.children: child.disabled = True
-                await btn_interaction.response.edit_message(content="已取消。", view=self)
-
-        conn.close()
-        await interaction.response.send_message(
-            f"确认购买 **{item['name']}**？\n价格: 🪙 {item['price']} | 余额: 🪙 {bal}",
-            view=ConfirmBuy(),
-        )
+        await buy_item(interaction, str(interaction.user.id), item_id)
 
     # ========== 背包 ==========
     @app_commands.command(name="gmpt-inventory", description="View your inventory / 查看背包")
