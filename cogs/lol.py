@@ -3,12 +3,14 @@ Gaming Planet Bot — LOL 比赛 + OP.GG 战绩查询
 """
 import random
 import asyncio
+import io
 import discord
 from discord import app_commands
 from discord.ext import commands
 from database import get_db
 import aiohttp
 import os
+from PIL import Image, ImageDraw, ImageFont
 
 RIOT_KEY = os.getenv("RIOT_API_KEY", "")
 
@@ -34,17 +36,31 @@ REGIONS = {
 # ---------- Riot API 工具 ----------
 
 async def riot_request(session, url):
+    """返回 (status_code, data_or_None)。200 时返回数据，其他返回 None。"""
     headers = {"X-Riot-Token": RIOT_KEY}
-    async with session.get(url, headers=headers) as resp:
-        if resp.status == 200:
-            return await resp.json()
-        return None
+    try:
+        async with session.get(url, headers=headers) as resp:
+            if resp.status == 200:
+                return (200, await resp.json())
+            return (resp.status, None)
+    except Exception as e:
+        return (0, str(e))
 
 
 async def get_puuid(session, region, name, tag):
+    """返回 (puuid, None) 或 (None, error_msg)"""
     url = f"https://{region}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{name}/{tag}"
-    data = await riot_request(session, url)
-    return data["puuid"] if data else None
+    code, data = await riot_request(session, url)
+    if code == 200 and data:
+        return (data["puuid"], None)
+    elif code == 403:
+        return (None, "API Key 过期或无效（403 Forbidden）。请前往 https://developer.riotgames.com 重新生成。")
+    elif code == 404:
+        return (None, f"找不到玩家 `{name}#{tag}`。请检查 Riot ID 和 tag 是否正确。")
+    elif code == 429:
+        return (None, "请求太频繁，请稍后再试。")
+    else:
+        return (None, f"API 请求失败 (状态码: {code})。")
 
 
 def tier_emoji(tier):
@@ -54,6 +70,84 @@ def tier_emoji(tier):
         "DIAMOND": "🔹", "MASTER": "👑", "GRANDMASTER": "🏆", "CHALLENGER": "⚡"
     }
     return emojis.get(tier.upper(), "❓")
+
+
+# ---------- 对战图生成 ----------
+
+def _generate_battle_image(tournament_name, blue_team, red_team):
+    """
+    生成一张蓝队 vs 红队的对战图片。
+    """
+    W, H = 800, 100 + max(len(blue_team), len(red_team)) * 56
+    img = Image.new("RGB", (W, H), "#1a1a2e")
+    draw = ImageDraw.Draw(img)
+
+    try:
+        title_font = ImageFont.truetype("arial.ttf", 32)
+        team_font = ImageFont.truetype("arial.ttf", 28)
+    except Exception:
+        title_font = ImageFont.load_default()
+        team_font = ImageFont.load_default()
+
+    draw.text((W // 2, 20), tournament_name, fill="#f5c842", font=title_font, anchor="ma")
+    draw.line([(0, 60), (W, 60)], fill="#444", width=2)
+
+    draw.text((W // 4, 75), "BLUE TEAM", fill="#00b4d8", font=team_font, anchor="ma")
+    for i, name in enumerate(blue_team):
+        y = 110 + i * 52
+        draw.text((W // 4, y), name, fill="#e0e0e0", font=team_font, anchor="ma")
+
+    draw.text((W * 3 // 4, 75), "RED TEAM", fill="#e63946", font=team_font, anchor="ma")
+    for i, name in enumerate(red_team):
+        y = 110 + i * 52
+        draw.text((W * 3 // 4, y), name, fill="#e0e0e0", font=team_font, anchor="ma")
+
+    draw.line([(W // 2, 70), (W // 2, H)], fill="#555", width=2)
+    vs_y = 105 + max(len(blue_team), len(red_team)) * 26
+    draw.ellipse([(W // 2 - 40, vs_y - 40), (W // 2 + 40, vs_y + 40)], fill="#f5c842")
+    draw.text((W // 2, vs_y), "VS", fill="#1a1a2e", font=title_font, anchor="ma")
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return buf
+
+
+def _generate_result_image(tournament_name, winner_name, winner_players, loser_players):
+    """生成比赛结果图，胜方高亮。"""
+    W, H = 800, 130 + max(len(winner_players), len(loser_players)) * 56
+    img = Image.new("RGB", (W, H), "#1a1a2e")
+    draw = ImageDraw.Draw(img)
+
+    try:
+        title_font = ImageFont.truetype("arial.ttf", 30)
+        team_font = ImageFont.truetype("arial.ttf", 28)
+    except Exception:
+        title_font = ImageFont.load_default()
+        team_font = ImageFont.load_default()
+
+    draw.text((W // 2, 20), f"MATCH RESULT", fill="#f5c842", font=title_font, anchor="ma")
+    draw.text((W // 2, 55), tournament_name, fill="#c0c0c0", font=team_font, anchor="ma")
+    draw.line([(0, 80), (W, 80)], fill="#444", width=2)
+
+    # 胜方
+    draw.text((W // 4, 95), f"WINNER: {winner_name}", fill="#ffd700", font=team_font, anchor="ma")
+    for i, name in enumerate(winner_players):
+        y = 130 + i * 48
+        draw.text((W // 4, y), f"🏆 {name}", fill="#ffd700", font=team_font, anchor="ma")
+
+    # 败方
+    draw.text((W * 3 // 4, 95), "LOSER", fill="#999", font=team_font, anchor="ma")
+    for i, name in enumerate(loser_players):
+        y = 130 + i * 48
+        draw.text((W * 3 // 4, y), name, fill="#888", font=team_font, anchor="ma")
+
+    draw.line([(W // 2, 85), (W // 2, H)], fill="#555", width=2)
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return buf
 
 
 # ---------- Cog ----------
@@ -242,6 +336,17 @@ class GMPT(commands.Cog):
         if len(players) < 2: conn.close(); return await interaction.response.send_message("人数不足。", ephemeral=True)
         mid = min(t["team_size"], len(players)//2)
         ta, tb = players[:mid], players[mid:mid*2]
+
+        # 获取用户名用于图片
+        blue_names = []
+        red_names = []
+        for uid in ta:
+            member = interaction.guild.get_member(int(uid))
+            blue_names.append(member.display_name if member else uid)
+        for uid in tb:
+            member = interaction.guild.get_member(int(uid))
+            red_names.append(member.display_name if member else uid)
+
         cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (match_id, "蓝队 Blue"))
         aid = cur.lastrowid
         for u in ta: cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (aid, match_id, u))
@@ -250,12 +355,22 @@ class GMPT(commands.Cog):
         for u in tb: cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (bid, match_id, u))
         cur.execute("UPDATE tournaments SET status='closed' WHERE id=?", (match_id,))
         conn.commit(); conn.close()
-        await interaction.response.send_message(
-            f"**{t['name']}** 分队结果：\n\n"
-            f"🔵 **蓝队 Blue** (ID:{aid}): {' '.join(f'<@{u}>' for u in ta)}\n"
-            f"🔴 **红队 Red** (ID:{bid}): {' '.join(f'<@{u}>' for u in tb)}\n\n"
-            f"结算: `/gmpt-settle {match_id} <获胜队伍ID>`"
+
+        # 生成对战图
+        img_buf = _generate_battle_image(t["name"], blue_names, red_names)
+        f = discord.File(img_buf, filename="battle.png")
+
+        embed = discord.Embed(
+            title=f"Match: {t['name']}",
+            description=(
+                f"🔵 **蓝队 Blue** (ID:{aid}): {' '.join(f'<@{u}>' for u in ta)}\n"
+                f"🔴 **红队 Red** (ID:{bid}): {' '.join(f'<@{u}>' for u in tb)}\n\n"
+                f"结算: `/gmpt-settle {match_id} <获胜队伍ID>`"
+            ),
+            color=discord.Color.gold(),
         )
+        embed.set_image(url="attachment://battle.png")
+        await interaction.response.send_message(file=f, embed=embed)
 
     # ============ 结算 ============
     @app_commands.command(
@@ -285,10 +400,46 @@ class GMPT(commands.Cog):
             cur.execute("UPDATE users SET score=score+50 WHERE discord_id=?", (str(mvp.id),))
             mvp_text = f"\n🏅 MVP: {mvp.mention} +50"
         cur.execute("UPDATE tournaments SET status='finished' WHERE id=?", (match_id,))
-        conn.commit(); conn.close()
-        await interaction.response.send_message(
-            f"**{t['name']}** 结算完毕！\n胜方每人 +100 | 败方每人 +20{mvp_text}"
+        conn.commit()
+
+        # 获取两队玩家名用于生成结果图
+        winner_name = cur.execute("SELECT name FROM teams WHERE id=?", (win_team_id,)).fetchone()
+        winner_name = winner_name["name"] if winner_name else "胜方"
+        cur.execute("SELECT name FROM teams WHERE tournament_id=? AND id!=?", (match_id, win_team_id))
+        loser_row = cur.fetchone()
+        loser_name = loser_row["name"] if loser_row else "败方"
+
+        winner_ids = [r["discord_id"] for r in cur.execute(
+            "SELECT discord_id FROM registrations WHERE tournament_id=? AND team_id=?", (match_id, win_team_id)
+        )]
+        loser_ids = [r["discord_id"] for r in cur.execute(
+            "SELECT discord_id FROM registrations WHERE tournament_id=? AND team_id!=?", (match_id, win_team_id)
+        )]
+
+        win_names = []
+        los_names = []
+        for uid in winner_ids:
+            m = interaction.guild.get_member(int(uid))
+            win_names.append(m.display_name if m else uid)
+        for uid in loser_ids:
+            m = interaction.guild.get_member(int(uid))
+            los_names.append(m.display_name if m else uid)
+
+        conn.close()
+
+        img_buf = _generate_result_image(t["name"], winner_name, win_names, los_names)
+        f = discord.File(img_buf, filename="result.png")
+
+        embed = discord.Embed(
+            title=f"Match: {t['name']} - 已结算",
+            description=(
+                f"🏆 **{winner_name}** 胜方每人 +100\n"
+                f"💔 败方每人 +20{mvp_text}"
+            ),
+            color=discord.Color.gold(),
         )
+        embed.set_image(url="attachment://result.png")
+        await interaction.response.send_message(file=f, embed=embed)
 
     # ============ 查看玩家 ============
     @app_commands.command(
@@ -426,25 +577,21 @@ class GMPT(commands.Cog):
             return await interaction.followup.send("Riot API Key 未配置。")
 
         cont_region = REGIONS[region][1]
-        puuid = await get_puuid(self.session, cont_region, name, tag)
-        if not puuid:
-            return await interaction.followup.send(f"找不到玩家 `{name}#{tag}`。")
+        puuid, err = await get_puuid(self.session, cont_region, name, tag)
+        if err:
+            return await interaction.followup.send(err)
 
         # 查召唤师等级 + 头像
         url = f"https://{region}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/{puuid}"
-        summ = await riot_request(self.session, url)
-        if not summ:
-            return await interaction.followup.send("获取召唤师数据失败。")
+        code, summ = await riot_request(self.session, url)
+        if code != 200:
+            return await interaction.followup.send(f"获取召唤师数据失败 (状态码: {code})。")
 
         # 查段位
         url2 = f"https://{region}.api.riotgames.com/lol/league/v4/entries/by-summoner/{summ['id']}"
-        leagues = await riot_request(self.session, url2)
+        _, leagues = await riot_request(self.session, url2)
         if not leagues:
             leagues = []
-
-        # 查大师分段
-        url3 = f"https://{region}.api.riotgames.com/lol/league/v4/entries/by-summoner/{summ['id']}"
-        leagues = await riot_request(self.session, url3) or []
 
         icon = f"https://ddragon.leagueoflegends.com/cdn/13.24.1/img/profileicon/{summ['profileIconId']}.png"
         embed = discord.Embed(
@@ -492,9 +639,9 @@ class GMPT(commands.Cog):
             return await interaction.followup.send("Riot API Key 未配置。")
 
         cont_region = REGIONS[region][1]
-        puuid = await get_puuid(self.session, cont_region, name, tag)
-        if not puuid:
-            return await interaction.followup.send(f"找不到玩家 `{name}#{tag}`。")
+        puuid, err = await get_puuid(self.session, cont_region, name, tag)
+        if err:
+            return await interaction.followup.send(err)
 
         count = min(count, 10)
         url = f"https://{cont_region}.api.riotgames.com/lol/match/v5/matches/by-puuid/{puuid}/ids?start=0&count={count}"
@@ -547,13 +694,15 @@ class GMPT(commands.Cog):
         if not RIOT_KEY: return await interaction.followup.send("Riot API Key 未配置。")
 
         cont_region = REGIONS[region][1]
-        puuid = await get_puuid(self.session, cont_region, name, tag)
-        if not puuid: return await interaction.followup.send(f"找不到玩家。")
+        puuid, err = await get_puuid(self.session, cont_region, name, tag)
+        if err: return await interaction.followup.send(err)
 
         url = f"https://{region}.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/{puuid}"
-        data = await riot_request(self.session, url)
-        if not data:
+        code, data = await riot_request(self.session, url)
+        if code == 404:
             return await interaction.followup.send(f"`{name}#{tag}` 当前不在对局中。")
+        if code != 200:
+            return await interaction.followup.send(f"查询失败 (状态码: {code})。")
 
         part = next((p for p in data["participants"] if p["puuid"]==puuid), None)
         if not part: return await interaction.followup.send("数据异常。")
@@ -626,6 +775,34 @@ class GMPT(commands.Cog):
                     await ch.delete()
                 except:
                     pass
+
+    # ============ Riot API 状态检测 ============
+    @app_commands.command(
+        name="gmpt-riot-status",
+        description="Check Riot API Key status / 检测 API Key 是否有效",
+    )
+    async def riot_status(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        if not RIOT_KEY:
+            return await interaction.followup.send("❌ Riot API Key 未配置。请在 Railway 环境变量中设置 `RIOT_API_KEY`。")
+
+        # 用已知玩家测试 key 有效性
+        url = "https://asia.api.riotgames.com/riot/account/v1/accounts/by-riot-id/Hide%20on%20bush/KR1"
+        code, data = await riot_request(self.session, url)
+        if code == 200:
+            await interaction.followup.send(
+                f"✅ API Key 有效！\n测试玩家: `{data.get('gameName', 'N/A')}#{data.get('tagLine', 'N/A')}`\nPUUID: `{data['puuid']}`"
+            )
+        elif code == 403:
+            await interaction.followup.send(
+                "❌ API Key **已过期或无效** (403 Forbidden)。\n"
+                "Riot 开发密钥有效期仅 **24 小时**。\n"
+                "请前往 https://developer.riotgames.com 重新生成，然后更新 Railway 环境变量。"
+            )
+        elif code == 429:
+            await interaction.followup.send("⚠️ 请求太频繁，请稍后再试 (429)。")
+        else:
+            await interaction.followup.send(f"⚠️ 请求失败，状态码: {code}")
 
 
 async def setup(bot):
