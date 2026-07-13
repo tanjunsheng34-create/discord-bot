@@ -11,7 +11,6 @@ import aiohttp
 import os
 
 RIOT_KEY = os.getenv("RIOT_API_KEY", "")
-POSITIONS = ["上单 Top", "打野 JG", "中路 Mid", "ADC", "辅助 Sup"]
 
 REGIONS = {
     "kr": ("KR", "asia"),
@@ -203,17 +202,10 @@ class GMPT(commands.Cog):
         name="gmpt-join",
         description="Join a match / 报名",
     )
-    @app_commands.describe(match_id="Match ID", position="Your position")
-    @app_commands.choices(position=[
-        app_commands.Choice(name="上单 Top", value="Top"),
-        app_commands.Choice(name="打野 JG", value="JG"),
-        app_commands.Choice(name="中路 Mid", value="Mid"),
-        app_commands.Choice(name="ADC", value="ADC"),
-        app_commands.Choice(name="辅助 Sup", value="Sup"),
-    ])
+    @app_commands.describe(match_id="Match ID")
     async def join_match(
         self, interaction: discord.Interaction,
-        match_id: int, position: app_commands.Choice[str],
+        match_id: int,
     ):
         conn = get_db(); cur = conn.cursor()
         cur.execute("SELECT * FROM tournaments WHERE id=?", (match_id,))
@@ -231,7 +223,7 @@ class GMPT(commands.Cog):
             conn.commit()
         except: conn.close(); return await interaction.response.send_message("已报名。", ephemeral=True)
         conn.close()
-        await interaction.response.send_message(f"{interaction.user.mention} 报名成功！位置: **{position.name}** ({cnt+1}/{max_p})")
+        await interaction.response.send_message(f"{interaction.user.mention} 报名成功！({cnt+1}/{max_p})")
 
     # ============ 分队 ============
     @app_commands.command(
@@ -297,6 +289,98 @@ class GMPT(commands.Cog):
         await interaction.response.send_message(
             f"**{t['name']}** 结算完毕！\n胜方每人 +100 | 败方每人 +20{mvp_text}"
         )
+
+    # ============ 查看玩家 ============
+    @app_commands.command(
+        name="gmpt-players",
+        description="List match players / 查看报名玩家",
+    )
+    @app_commands.describe(match_id="Match ID")
+    async def players(self, interaction: discord.Interaction, match_id: int):
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT * FROM tournaments WHERE id=?", (match_id,))
+        t = cur.fetchone()
+        if not t: conn.close(); return await interaction.response.send_message("比赛不存在。", ephemeral=True)
+        cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=?", (match_id,))
+        rows = cur.fetchall(); conn.close()
+        if not rows: return await interaction.response.send_message("暂无玩家报名。")
+        max_p = t["max_teams"] * t["team_size"]
+        pings = " ".join(f"<@{r['discord_id']}>" for r in rows)
+        await interaction.response.send_message(
+            f"**{t['name']}** 报名玩家 ({len(rows)}/{max_p}):\n{pings}"
+        )
+
+    # ============ 踢人 ============
+    @app_commands.command(
+        name="gmpt-kick",
+        description="Kick a player / 踢出玩家",
+    )
+    @app_commands.describe(match_id="Match ID", player="Player to kick")
+    async def kick(
+        self, interaction: discord.Interaction,
+        match_id: int, player: discord.Member,
+    ):
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT created_by FROM tournaments WHERE id=?", (match_id,))
+        t = cur.fetchone()
+        if not t: conn.close(); return await interaction.response.send_message("比赛不存在。", ephemeral=True)
+        if str(interaction.user.id) != t["created_by"]:
+            conn.close(); return await interaction.response.send_message("只有比赛创建者可以踢人。", ephemeral=True)
+        cur.execute("DELETE FROM registrations WHERE tournament_id=? AND discord_id=?", (match_id, str(player.id)))
+        conn.commit(); conn.close()
+        await interaction.response.send_message(f"{player.mention} 已被踢出比赛。")
+
+    # ============ 取消比赛 ============
+    @app_commands.command(
+        name="gmpt-cancel",
+        description="Cancel a match / 取消比赛",
+    )
+    @app_commands.describe(match_id="Match ID")
+    async def cancel(self, interaction: discord.Interaction, match_id: int):
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT created_by, status FROM tournaments WHERE id=?", (match_id,))
+        t = cur.fetchone()
+        if not t: conn.close(); return await interaction.response.send_message("比赛不存在。", ephemeral=True)
+        if str(interaction.user.id) != t["created_by"]:
+            conn.close(); return await interaction.response.send_message("只有创建者可以取消。", ephemeral=True)
+        cur.execute("DELETE FROM registrations WHERE tournament_id=?", (match_id,))
+        cur.execute("DELETE FROM teams WHERE tournament_id=?", (match_id,))
+        cur.execute("DELETE FROM results WHERE tournament_id=?", (match_id,))
+        cur.execute("DELETE FROM tournaments WHERE id=?", (match_id,))
+        conn.commit(); conn.close()
+        await interaction.response.send_message(f"比赛 {match_id} 已取消，所有报名数据已清除。")
+
+    # ============ 历史记录 ============
+    @app_commands.command(
+        name="gmpt-history",
+        description="Match history / 历史比赛",
+    )
+    async def history(self, interaction: discord.Interaction):
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("""
+            SELECT t.id, t.name, t.team_size, r.win_team, r.mvp_id, t.created_at
+            FROM tournaments t
+            LEFT JOIN (
+                SELECT tournament_id,
+                       MAX(CASE WHEN rank=1 THEN team_id END) as win_team,
+                       NULL as mvp_id
+                FROM results GROUP BY tournament_id
+            ) r ON t.id = r.tournament_id
+            WHERE t.status='finished'
+            ORDER BY t.created_at DESC LIMIT 10
+        """)
+        rows = cur.fetchall()
+        if not rows: conn.close(); return await interaction.response.send_message("暂无历史比赛。")
+        lines = ["**历史比赛 Top 10**\n"]
+        for i, row in enumerate(rows, 1):
+            cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=? AND team_id=?", (row["id"], row["win_team"]))
+            winners = [f"<@{r['discord_id']}>" for r in cur.fetchall()]
+            lines.append(
+                f"`#{i}` **{row['name']}** | {row['team_size']}v{row['team_size']} | "
+                f"胜方: {' '.join(winners) if winners else '?'}"
+            )
+        conn.close()
+        await interaction.response.send_message("\n".join(lines))
 
     # ============ 排行榜 ============
     @app_commands.command(
