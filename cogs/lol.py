@@ -533,6 +533,44 @@ class GMPT(commands.Cog):
         conn.close()
         await interaction.response.send_message("\n".join(lines))
 
+    # ============ 选手直播通知 ============
+    @app_commands.command(
+        name="gmpt-stream",
+        description="Share your stream link / 分享直播链接",
+    )
+    @app_commands.describe(
+        match_id="Match ID",
+        link="Stream URL (Twitch/YouTube/Bilibili etc.)",
+    )
+    async def stream(self, interaction: discord.Interaction, match_id: int, link: str):
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT id, name FROM tournaments WHERE id=?", (match_id,))
+        t = cur.fetchone()
+        if not t:
+            conn.close(); return await interaction.response.send_message("比赛不存在。", ephemeral=True)
+        cur.execute(
+            "SELECT discord_id FROM registrations WHERE tournament_id=? AND discord_id=?",
+            (match_id, str(interaction.user.id)),
+        )
+        reg = cur.fetchone()
+        if not reg:
+            conn.close(); return await interaction.response.send_message("你未报名该比赛。", ephemeral=True)
+        cur.execute(
+            "SELECT discord_id FROM registrations WHERE tournament_id=? AND discord_id!=?",
+            (match_id, str(interaction.user.id)),
+        )
+        others = cur.fetchall(); conn.close()
+
+        pings = " ".join([f"<@{r['discord_id']}>" for r in others])
+        if not pings:
+            return await interaction.response.send_message("该比赛暂无其他选手。")
+        await interaction.response.send_message(
+            f"**📺 {interaction.user.display_name} 开播啦！**\n"
+            f"比赛: **{t['name']}** (ID: {match_id})\n"
+            f"{pings}\n"
+            f"直播链接: {link}"
+        )
+
     # ============ 排行榜 ============
     @app_commands.command(
         name="gmpt-rank",
