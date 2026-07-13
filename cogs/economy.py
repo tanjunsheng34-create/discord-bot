@@ -8,7 +8,12 @@ from discord import app_commands
 from discord.ext import commands
 from database import get_db
 from datetime import date, datetime
-from PIL import Image, ImageDraw, ImageFont
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+    print("[Economy] Pillow not installed — image features disabled")
 
 
 # ---------- 常量 ----------
@@ -57,6 +62,8 @@ FONT_PATH_BOLD = None
 
 def _find_fonts():
     """查找系统字体"""
+    if not PIL_AVAILABLE:
+        return
     import os
     candidates_sans = [
         "C:/Windows/Fonts/msyh.ttc",
@@ -82,6 +89,8 @@ def _find_fonts():
 
 
 def _get_font(size, bold=False):
+    if not PIL_AVAILABLE:
+        return None
     path = FONT_PATH_BOLD if bold else FONT_PATH_SANS
     if path:
         try:
@@ -93,6 +102,8 @@ def _get_font(size, bold=False):
 
 def generate_shop_image(items, user_balance):
     """生成商店图片 800x(160 + 每行105)"""
+    if not PIL_AVAILABLE:
+        return None
     row_h = 105
     header_h = 180
     footer_h = 60
@@ -168,6 +179,8 @@ def generate_shop_image(items, user_balance):
 
 def generate_ach_image(achievement_rows, unlocked_count, total_count):
     """生成成就图片 800x(160 + 每行75)"""
+    if not PIL_AVAILABLE:
+        return None
     row_h = 75
     header_h = 150
     footer_h = 50
@@ -616,10 +629,22 @@ class Economy(commands.Cog):
                 it["emoji"] = "🛒"
 
         img_buf = generate_shop_image(items, bal)
+        if img_buf is None:
+            # Pillow 不可用，降级为纯文本
+            embed = discord.Embed(title="🛒 GMPT COIN SHOP", color=0xFFD700)
+            embed.add_field(name="Your Balance", value=f"🪙 {bal} GMPT Coins", inline=False)
+            embed.add_field(name="Items", value="\n".join(
+                f"**#{it['id']}** {it.get('emoji','🛒')} {it['name']} — 🪙 {it['price']}\n_{it['description']}_"
+                for it in items
+            ), inline=False)
+            embed.set_footer(text="GMPT Bot • Economy System")
+            view = ShopView(items=items, user_id=uid)
+            return await interaction.response.send_message(embed=embed, view=view)
+
         f = discord.File(img_buf, filename="shop.png")
 
         # 构建按钮
-        view = ShopView(items=items)
+        view = ShopView(items=items, user_id=uid)
         await interaction.response.send_message(file=f, view=view)
 
     # ========== 购买（图片+确认按钮）==========
@@ -678,6 +703,24 @@ class Economy(commands.Cog):
 
         unlocked_ct = sum(1 for r in rows if r["unlocked"])
         img_buf = generate_ach_image(rows, unlocked_ct, len(rows))
+
+        if img_buf is None:
+            # Pillow 不可用，降级为纯文本
+            embed = discord.Embed(title="🏆 ACHIEVEMENTS", color=0x00DC82)
+            embed.add_field(name="Progress", value=f"{unlocked_ct} / {len(rows)} Unlocked", inline=False)
+            parts = []
+            for r in rows:
+                hidden = r.get("hidden", False) and not r.get("unlocked", False)
+                if hidden:
+                    parts.append("❓ ？？？ — Hidden achievement")
+                elif r["unlocked"]:
+                    parts.append(f"✅ **{r['name']}** — {r['description']} (+{r['reward']}🪙)")
+                else:
+                    parts.append(f"⬜ {r['name']} — {r['description']} (+{r['reward']}🪙)")
+            embed.add_field(name="", value="\n".join(parts), inline=False)
+            embed.set_footer(text="GMPT Bot • Economy System")
+            return await interaction.response.send_message(embed=embed)
+
         f = discord.File(img_buf, filename="achievements.png")
 
         # 筛选按钮：全部/已解锁/未解锁
