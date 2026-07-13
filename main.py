@@ -17,6 +17,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 COGS = [
     "cogs.lol",
+    "cogs.economy",
 ]
 
 

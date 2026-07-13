@@ -16,7 +16,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS users (
             discord_id   TEXT PRIMARY KEY,
             username     TEXT,
-            score        INTEGER DEFAULT 0,
+            score        INTEGER DEFAULT 500,
             created_at   TEXT DEFAULT (datetime('now'))
         );
 
@@ -54,6 +54,52 @@ def init_db():
             rank            INTEGER NOT NULL,
             score_awarded   INTEGER NOT NULL,
             FOREIGN KEY (tournament_id) REFERENCES tournaments(id)
+        );
+
+        -- === 经济系统 ===
+
+        CREATE TABLE IF NOT EXISTS daily_checkin (
+            discord_id  TEXT PRIMARY KEY,
+            last_date   TEXT NOT NULL,
+            streak      INTEGER DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS transactions (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            discord_id  TEXT NOT NULL,
+            amount      INTEGER NOT NULL,
+            reason      TEXT NOT NULL,
+            created_at  TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS achievements (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL,
+            description TEXT NOT NULL,
+            reward      INTEGER DEFAULT 0,
+            hidden      INTEGER DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS user_achievements (
+            user_id     TEXT NOT NULL,
+            achievement_id INTEGER NOT NULL,
+            unlocked_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(user_id, achievement_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS shop_items (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL,
+            description TEXT NOT NULL,
+            price       INTEGER NOT NULL,
+            item_type   TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS user_inventory (
+            user_id     TEXT NOT NULL,
+            item_id     INTEGER NOT NULL,
+            quantity    INTEGER DEFAULT 1,
+            UNIQUE(user_id, item_id)
         );
     """)
 

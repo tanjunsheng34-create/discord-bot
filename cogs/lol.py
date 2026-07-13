@@ -8,6 +8,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from database import get_db
+from cogs.economy import check_achievement, add_coins
 import aiohttp
 import os
 from PIL import Image, ImageDraw, ImageFont
@@ -388,19 +389,57 @@ class GMPT(commands.Cog):
         t = cur.fetchone()
         if not t: conn.close(); return await interaction.response.send_message("比赛不存在。", ephemeral=True)
         if t["status"] == "finished": conn.close(); return await interaction.response.send_message("已结算。", ephemeral=True)
+
+        # 胜方 +150 coins
         cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=? AND team_id=?", (match_id, win_team_id))
-        for r in cur.fetchall():
-            cur.execute("UPDATE users SET score=score+100 WHERE discord_id=?", (r["discord_id"],))
-        cur.execute("INSERT INTO results (tournament_id,team_id,rank,score_awarded) VALUES (?,?,1,100)", (match_id, win_team_id))
+        winner_ids = [r["discord_id"] for r in cur.fetchall()]
+        for wid in winner_ids:
+            cur.execute("UPDATE users SET score=score+150 WHERE discord_id=?", (wid,))
+            cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                         (wid, 150, f"比赛胜利 #{match_id}"))
+        cur.execute("INSERT INTO results (tournament_id,team_id,rank,score_awarded) VALUES (?,?,1,150)", (match_id, win_team_id))
+
+        # 败方 +50 coins
         cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=? AND team_id!=?", (match_id, win_team_id))
-        for r in cur.fetchall():
-            cur.execute("UPDATE users SET score=score+20 WHERE discord_id=?", (r["discord_id"],))
+        loser_ids = [r["discord_id"] for r in cur.fetchall()]
+        for lid in loser_ids:
+            cur.execute("UPDATE users SET score=score+50 WHERE discord_id=?", (lid,))
+            cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                         (lid, 50, f"比赛参与 #{match_id}"))
+
         mvp_text = ""
+        mvp_id = ""
         if mvp:
-            cur.execute("UPDATE users SET score=score+50 WHERE discord_id=?", (str(mvp.id),))
+            mvp_id = str(mvp.id)
+            cur.execute("UPDATE users SET score=score+50 WHERE discord_id=?", (mvp_id,))
+            cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                         (mvp_id, 50, f"MVP #{match_id}"))
             mvp_text = f"\n🏅 MVP: {mvp.mention} +50"
+
         cur.execute("UPDATE tournaments SET status='finished' WHERE id=?", (match_id,))
         conn.commit()
+
+        # === 成就检测 ===
+        all_participants = winner_ids + loser_ids
+        for pid in set(all_participants):
+            conn2 = get_db(); cur2 = conn2.cursor()
+            # 参赛次数
+            cur2.execute("SELECT COUNT(*) as cnt FROM registrations WHERE discord_id=?", (pid,))
+            match_cnt = cur2.fetchone()["cnt"]
+            conn2.close()
+            check_achievement(pid, "首次参赛")
+            if match_cnt >= 5:
+                check_achievement(pid, "参加 5 场")
+            if match_cnt >= 10:
+                check_achievement(pid, "参加 10 场")
+            if match_cnt >= 25:
+                check_achievement(pid, "参加 25 场")
+
+        for wid in winner_ids:
+            check_achievement(wid, "首胜")
+
+        if mvp_id:
+            check_achievement(mvp_id, "MVP")
 
         # 获取两队玩家名用于生成结果图
         winner_name = cur.execute("SELECT name FROM teams WHERE id=?", (win_team_id,)).fetchone()
@@ -408,13 +447,6 @@ class GMPT(commands.Cog):
         cur.execute("SELECT name FROM teams WHERE tournament_id=? AND id!=?", (match_id, win_team_id))
         loser_row = cur.fetchone()
         loser_name = loser_row["name"] if loser_row else "败方"
-
-        winner_ids = [r["discord_id"] for r in cur.execute(
-            "SELECT discord_id FROM registrations WHERE tournament_id=? AND team_id=?", (match_id, win_team_id)
-        )]
-        loser_ids = [r["discord_id"] for r in cur.execute(
-            "SELECT discord_id FROM registrations WHERE tournament_id=? AND team_id!=?", (match_id, win_team_id)
-        )]
 
         win_names = []
         los_names = []
