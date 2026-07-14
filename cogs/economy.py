@@ -660,7 +660,7 @@ class Economy(commands.Cog):
         if earned >= 15000: check_achievement(uid, "累计获得 15000")
 
     # ========== 已报名玩家 ==========
-    @app_commands.command(name="gmpt-players", description="List registered players / 列出已报名玩家")
+    @app_commands.command(name="gmpt-allplayers", description="List all registered players / 列出所有已报名玩家")
     async def players_cmd(self, interaction: discord.Interaction):
         conn = get_db(); cur = conn.cursor()
         cur.execute("SELECT DISTINCT r.discord_id, u.username FROM registrations r LEFT JOIN users u ON u.discord_id = r.discord_id ORDER BY u.username")
