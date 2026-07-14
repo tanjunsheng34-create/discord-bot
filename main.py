@@ -26,7 +26,9 @@ COGS = [
 async def on_ready():
     init_db()
     try:
-        # 同步命令（不清除旧的，避免 sync 失败导致零命令）
+        # 先清除 Discord 端所有全局旧命令残留（如已改名的 gmpt-players）
+        await bot.tree.clear_commands(guild=None)
+        # 重新同步当前所有已注册命令
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} commands")
     except Exception as e:
