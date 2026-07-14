@@ -679,6 +679,14 @@ class Economy(commands.Cog):
     # ========== 每日签到 ==========
     @app_commands.command(name="gmpt-daily", description="Daily check-in for coins / 每日签到")
     async def daily_cmd(self, interaction: discord.Interaction):
+        # 必须进入语音频道才能领取
+        if not interaction.user.voice or not interaction.user.voice.channel:
+            return await interaction.response.send_message(
+                "You must join a voice channel first to claim daily coins! / "
+                "请先加入语音频道才能领取每日签到金币！",
+                ephemeral=True,
+            )
+
         uid = str(interaction.user.id)
         today = date.today().isoformat()
         conn = get_db(); cur = conn.cursor()
