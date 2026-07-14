@@ -101,6 +101,14 @@ def init_db():
             quantity    INTEGER DEFAULT 1,
             UNIQUE(user_id, item_id)
         );
+
+        CREATE TABLE IF NOT EXISTS player_riot (
+            discord_id    TEXT PRIMARY KEY,
+            summoner_name TEXT NOT NULL,
+            tag_line      TEXT NOT NULL,
+            region        TEXT NOT NULL DEFAULT 'kr',
+            created_at    TEXT DEFAULT (datetime('now'))
+        );
     """)
 
     conn.commit()

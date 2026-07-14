@@ -893,5 +893,374 @@ class GMPT(commands.Cog):
             await interaction.followup.send(f"⚠️ 请求失败，状态码: {code}")
 
 
+    # ============ Riot 账号关联 ============
+    @app_commands.command(
+        name="gmpt-link-riot",
+        description="Link your Riot ID / 关联你的Riot账号",
+    )
+    @app_commands.describe(
+        summoner_name="Riot ID name (e.g. Hide on bush) / Riot ID名称",
+        tag_line="Riot ID tag (e.g. KR1, no #) / tag（不含#）",
+        region="Server region / 服务器",
+    )
+    @app_commands.choices(region=[
+        app_commands.Choice(name="KR (한국)", value="kr"),
+        app_commands.Choice(name="NA (北美)", value="na1"),
+        app_commands.Choice(name="EUW (欧西)", value="euw1"),
+        app_commands.Choice(name="EUNE (欧东北)", value="eun1"),
+        app_commands.Choice(name="JP (日本)", value="jp1"),
+        app_commands.Choice(name="BR (巴西)", value="br1"),
+        app_commands.Choice(name="LAN (拉美北)", value="la1"),
+        app_commands.Choice(name="LAS (拉美南)", value="la2"),
+        app_commands.Choice(name="OCE (大洋洲)", value="oc1"),
+        app_commands.Choice(name="TR (土耳其)", value="tr1"),
+        app_commands.Choice(name="RU (俄罗斯)", value="ru"),
+        app_commands.Choice(name="PH (菲律宾)", value="ph2"),
+        app_commands.Choice(name="SG (新加坡)", value="sg2"),
+        app_commands.Choice(name="TH (泰国)", value="th2"),
+        app_commands.Choice(name="TW (台湾)", value="tw2"),
+        app_commands.Choice(name="VN (越南)", value="vn2"),
+    ])
+    async def link_riot(
+        self, interaction: discord.Interaction,
+        summoner_name: str, tag_line: str, region: str,
+    ):
+        uid = str(interaction.user.id)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO player_riot (discord_id, summoner_name, tag_line, region) "
+            "VALUES (?,?,?,?) ON CONFLICT(discord_id) "
+            "DO UPDATE SET summoner_name=?, tag_line=?, region=?",
+            (uid, summoner_name, tag_line, region, summoner_name, tag_line, region),
+        )
+        conn.commit(); conn.close()
+        await interaction.response.send_message(
+            f"✅ Riot account linked: **{summoner_name}#{tag_line}** ({region.upper()})",
+            ephemeral=True,
+        )
+
+    # ============ 报名玩家段位显示 ============
+    @app_commands.command(
+        name="gmpt-ranks",
+        description="Show registered players with League ranks / 已报名玩家段位",
+    )
+    async def ranks_cmd(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT DISTINCT discord_id, username FROM registrations r LEFT JOIN users u ON u.discord_id = r.discord_id ORDER BY u.username")
+        rows = cur.fetchall()
+
+        if not rows:
+            conn.close()
+            return await interaction.followup.send("暂无已报名玩家 / No registered players")
+
+        if not RIOT_KEY:
+            conn.close()
+            lines = []
+            for i, row in enumerate(rows, 1):
+                name = row["username"] if row["username"] else row["discord_id"]
+                lines.append(f"{i}. {name} — Riot API Key 未配置")
+            return await interaction.followup.send("\n".join(lines))
+
+        lines = []
+        for i, row in enumerate(rows, 1):
+            uid = row["discord_id"]
+            name = row["username"] if row["username"] else uid
+
+            cur.execute("SELECT summoner_name, tag_line, region FROM player_riot WHERE discord_id=?", (uid,))
+            riot = cur.fetchone()
+
+            if not riot:
+                lines.append(f"{i}. {name} — 未关联 / Not linked")
+                continue
+
+            cont_region = REGIONS[riot["region"]][1]
+            puuid, err = await get_puuid(self.session, cont_region, riot["summoner_name"], riot["tag_line"])
+            if err:
+                lines.append(f"{i}. {name} ({riot['summoner_name']}#{riot['tag_line']}) — 查询失败: {err[:50]}")
+                continue
+
+            url = f"https://{riot['region']}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/{puuid}"
+            code, summ = await riot_request(self.session, url)
+            if code != 200:
+                lines.append(f"{i}. {name} ({riot['summoner_name']}#{riot['tag_line']}) — 获取召唤师失败")
+                continue
+
+            url2 = f"https://{riot['region']}.api.riotgames.com/lol/league/v4/entries/by-summoner/{summ['id']}"
+            _, leagues = await riot_request(self.session, url2)
+            leagues = leagues or []
+
+            solo = next((l for l in leagues if l["queueType"] == "RANKED_SOLO_5x5"), None)
+            rank_str = ""
+            if solo:
+                rank_str = f"{tier_emoji(solo['tier'])} {solo['tier']} {solo['rank']} ({solo['leaguePoints']}LP)"
+            else:
+                flex = next((l for l in leagues if l["queueType"] == "RANKED_FLEX_SR"), None)
+                if flex:
+                    rank_str = f"{tier_emoji(flex['tier'])} {flex['tier']} {flex['rank']} (Flex)"
+                else:
+                    rank_str = "Unranked 未定级"
+
+            lines.append(f"{i}. {name} — {rank_str}")
+
+        conn.close()
+        await interaction.followup.send("\n".join(lines))
+
+    # ============ 自定义分队 ============
+    @app_commands.command(
+        name="gmpt-custom-team",
+        description="Custom team assignment with buttons / 自定义分队（按钮交互）",
+    )
+    @app_commands.describe(match_id="Match ID / 比赛ID")
+    async def custom_team(self, interaction: discord.Interaction, match_id: int):
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT * FROM tournaments WHERE id=?", (match_id,))
+        t = cur.fetchone()
+        if not t:
+            conn.close()
+            return await interaction.response.send_message("比赛不存在。", ephemeral=True)
+        if t["status"] != "open":
+            conn.close()
+            return await interaction.response.send_message("该比赛已关闭或已分队。", ephemeral=True)
+
+        cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=?", (match_id,))
+        player_rows = cur.fetchall()
+        conn.close()
+
+        if not player_rows:
+            return await interaction.response.send_message("暂无玩家报名。", ephemeral=True)
+
+        player_ids = [r["discord_id"] for r in player_rows]
+        view = CustomTeamView(
+            captain_id=str(interaction.user.id),
+            player_ids=player_ids,
+            guild=interaction.guild,
+            match_id=match_id,
+            match_name=t["name"],
+            team_size=t["team_size"],
+        )
+        embed = view.build_embed()
+        await interaction.response.send_message(embed=embed, view=view)
+
+
+class CustomTeamView(discord.ui.View):
+    def __init__(self, captain_id, player_ids, guild, match_id, match_name, team_size, timeout=300):
+        super().__init__(timeout=timeout)
+        self.captain_id = captain_id
+        self.guild = guild
+        self.match_id = match_id
+        self.match_name = match_name
+        self.team_size = team_size
+        self.all_player_ids = player_ids
+        self.team_a = []     # list of discord_id strings
+        self.team_b = []     # list of discord_id strings
+        self.selected_player = None
+
+        # Build initial select menu
+        self._rebuild_select()
+
+    def _get_unassigned(self):
+        return [pid for pid in self.all_player_ids if pid not in self.team_a and pid not in self.team_b]
+
+    def _rebuild_select(self):
+        """Rebuild the player select menu based on current unassigned players."""
+        # Remove old select if exists
+        for child in list(self.children):
+            if isinstance(child, discord.ui.Select):
+                self.remove_item(child)
+
+        unassigned = self._get_unassigned()
+        options = []
+        for pid in unassigned:
+            member = self.guild.get_member(int(pid))
+            label = member.display_name if member else pid
+            options.append(discord.SelectOption(label=label[:25], value=pid, description=f"ID: {pid}"))
+
+        if not options:
+            options.append(discord.SelectOption(label="(无待分配玩家)", value="__none__", default=False))
+
+        select = discord.ui.Select(
+            placeholder="选择一个玩家 / Select a player...",
+            options=options[:25],  # Discord max 25
+            custom_id="custom_team_select",
+            row=0,
+        )
+        select.callback = self.select_callback
+        self.add_item(select)
+
+    async def select_callback(self, interaction: discord.Interaction):
+        if str(interaction.user.id) != self.captain_id:
+            return await interaction.response.send_message("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
+        val = interaction.data["values"][0]
+        if val == "__none__":
+            return await interaction.response.defer()
+        self.selected_player = val
+        member = self.guild.get_member(int(val))
+        name = member.display_name if member else val
+        await interaction.response.send_message(f"已选择: {name}，点击加入A队或B队", ephemeral=True)
+
+    @discord.ui.button(label="加入A队", style=discord.ButtonStyle.primary, emoji="🔵", row=1, custom_id="custom_team_a")
+    async def add_to_a(self, interaction: discord.Interaction, button):
+        if str(interaction.user.id) != self.captain_id:
+            return await interaction.response.send_message("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
+        if not self.selected_player:
+            return await interaction.response.send_message("请先从下拉菜单选择一个玩家。", ephemeral=True)
+        if len(self.team_a) >= self.team_size:
+            return await interaction.response.send_message(f"A队已满 ({self.team_size}人)。", ephemeral=True)
+        if self.selected_player in self.team_a or self.selected_player in self.team_b:
+            return await interaction.response.send_message("该玩家已分配。", ephemeral=True)
+
+        self.team_a.append(self.selected_player)
+        self.selected_player = None
+        self._rebuild_select()
+        embed = self.build_embed()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="加入B队", style=discord.ButtonStyle.danger, emoji="🔴", row=1, custom_id="custom_team_b")
+    async def add_to_b(self, interaction: discord.Interaction, button):
+        if str(interaction.user.id) != self.captain_id:
+            return await interaction.response.send_message("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
+        if not self.selected_player:
+            return await interaction.response.send_message("请先从下拉菜单选择一个玩家。", ephemeral=True)
+        if len(self.team_b) >= self.team_size:
+            return await interaction.response.send_message(f"B队已满 ({self.team_size}人)。", ephemeral=True)
+        if self.selected_player in self.team_a or self.selected_player in self.team_b:
+            return await interaction.response.send_message("该玩家已分配。", ephemeral=True)
+
+        self.team_b.append(self.selected_player)
+        self.selected_player = None
+        self._rebuild_select()
+        embed = self.build_embed()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="清空", style=discord.ButtonStyle.secondary, emoji="🔄", row=2, custom_id="custom_team_clear")
+    async def clear_teams(self, interaction: discord.Interaction, button):
+        if str(interaction.user.id) != self.captain_id:
+            return await interaction.response.send_message("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
+        self.team_a.clear()
+        self.team_b.clear()
+        self.selected_player = None
+        self._rebuild_select()
+        embed = self.build_embed()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="确认", style=discord.ButtonStyle.success, emoji="✅", row=2, custom_id="custom_team_confirm")
+    async def confirm_teams(self, interaction: discord.Interaction, button):
+        if str(interaction.user.id) != self.captain_id:
+            return await interaction.response.send_message("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
+
+        total = len(self.team_a) + len(self.team_b)
+        all_players = len(self.all_player_ids)
+        if total < min(2, all_players):
+            return await interaction.response.send_message("请至少分配2名玩家到队伍中。", ephemeral=True)
+
+        # Write teams to database
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (self.match_id, "A队 Team A"))
+        aid = cur.lastrowid
+        for uid in self.team_a:
+            cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?",
+                        (aid, self.match_id, uid))
+        cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (self.match_id, "B队 Team B"))
+        bid = cur.lastrowid
+        for uid in self.team_b:
+            cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?",
+                        (bid, self.match_id, uid))
+        cur.execute("UPDATE tournaments SET status='closed' WHERE id=?", (self.match_id,))
+        conn.commit(); conn.close()
+
+        # Build result message
+        a_names = []
+        for uid in self.team_a:
+            m = self.guild.get_member(int(uid))
+            a_names.append(m.mention if m else f"<@{uid}>")
+        b_names = []
+        for uid in self.team_b:
+            m = self.guild.get_member(int(uid))
+            b_names.append(m.mention if m else f"<@{uid}>")
+
+        # Disable all buttons
+        for child in self.children:
+            child.disabled = True
+
+        embed = discord.Embed(
+            title=f"Team Assignment: {self.match_name}",
+            description="✅ 分队确认完毕",
+            color=discord.Color.gold(),
+        )
+        embed.add_field(
+            name=f"🔵 Team A (ID: {aid})",
+            value="\n".join(a_names) if a_names else "(空)",
+            inline=True,
+        )
+        embed.add_field(
+            name=f"🔴 Team B (ID: {bid})",
+            value="\n".join(b_names) if b_names else "(空)",
+            inline=True,
+        )
+        unassigned = [pid for pid in self.all_player_ids if pid not in self.team_a and pid not in self.team_b]
+        if unassigned:
+            u_names = []
+            for uid in unassigned:
+                m = self.guild.get_member(int(uid))
+                u_names.append(m.mention if m else f"<@{uid}>")
+            embed.add_field(
+                name="⚠️ 未分配 / Unassigned",
+                value="\n".join(u_names),
+                inline=False,
+            )
+
+        settle_hint = (
+            f"结算: `/gmpt-settle {self.match_id} <获胜队伍ID>`"
+        )
+        embed.set_footer(text=f"Match ID: {self.match_id} | {settle_hint}")
+
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    def build_embed(self):
+        a_names = []
+        for uid in self.team_a:
+            m = self.guild.get_member(int(uid))
+            a_names.append(m.display_name if m else uid)
+        b_names = []
+        for uid in self.team_b:
+            m = self.guild.get_member(int(uid))
+            b_names.append(m.display_name if m else uid)
+        unassigned = self._get_unassigned()
+        u_names = []
+        for uid in unassigned:
+            m = self.guild.get_member(int(uid))
+            u_names.append(m.display_name if m else uid)
+
+        desc_parts = []
+        desc_parts.append("使用下拉菜单选择玩家，点击按钮分配到队伍。")
+        desc_parts.append("Use dropdown to select player, then click team button.")
+
+        embed = discord.Embed(
+            title=f"Custom Team: {self.match_name}",
+            description="\n".join(desc_parts),
+            color=discord.Color.blue(),
+        )
+        embed.add_field(
+            name=f"🔵 Team A ({len(self.team_a)}/{self.team_size})",
+            value="\n".join(a_names) if a_names else "(空)",
+            inline=True,
+        )
+        embed.add_field(
+            name=f"🔴 Team B ({len(self.team_b)}/{self.team_size})",
+            value="\n".join(b_names) if b_names else "(空)",
+            inline=True,
+        )
+        if u_names:
+            embed.add_field(
+                name=f"⚪ 待分配 ({len(u_names)})",
+                value="\n".join(u_names),
+                inline=False,
+            )
+        embed.set_footer(text=f"Match ID: {self.match_id} | 队长: {self.guild.get_member(int(self.captain_id)).display_name if self.guild.get_member(int(self.captain_id)) else self.captain_id}")
+        return embed
+
+
 async def setup(bot):
     await bot.add_cog(GMPT(bot))

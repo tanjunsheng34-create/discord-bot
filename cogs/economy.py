@@ -1072,6 +1072,33 @@ class Economy(commands.Cog):
         view = AchFilter(all_rows=rows, unlocked_ct=unlocked_ct, total_ct=len(rows), user_id=uid)
         await interaction.response.send_message(file=f, view=view)
 
+    # ========== 管理员加钱 ==========
+    @app_commands.command(name="gmpt-add-coins", description="Add/remove coins for a player / 给玩家加减金币（管理员）")
+    @app_commands.describe(player="Target player / 目标玩家", amount="Amount (positive to add, negative to remove) / 数量（正加负减）")
+    async def add_coins_cmd(self, interaction: discord.Interaction, player: discord.Member, amount: int):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message(
+                "Admin only. / 仅管理员可使用此命令。", ephemeral=True
+            )
+
+        uid = str(player.id)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO users (discord_id, username) VALUES (?,?) ON CONFLICT(discord_id) DO NOTHING",
+            (uid, player.name),
+        )
+        conn.commit(); conn.close()
+
+        reason = f"Admin adjustment by {interaction.user.display_name} / 管理员调整"
+        add_coins(uid, amount, reason)
+        new_balance = get_balance(uid)
+
+        action = "Added" if amount >= 0 else "Removed"
+        prep = "to" if amount >= 0 else "from"
+        await interaction.response.send_message(
+            f"✅ {action} {abs(amount)} coins {prep} {player.mention}. New balance: {new_balance}"
+        )
+
     # ========== 价格管理 ==========
     @app_commands.command(name="gmpt-shop-edit", description="Edit shop item price / 修改商店价格（管理员）")
     @app_commands.describe(item_id="Item ID", new_price="New price / 新价格")
