@@ -266,14 +266,6 @@ def generate_ach_image(achievement_rows, unlocked_count, total_count, page=None,
         hidden = row.get("hidden", False) and not unlocked
 
         if hidden:
-            bar_color = (80, 80, 90, 150)
-        elif unlocked:
-            bar_color = (0, 220, 130, 200)
-        else:
-            bar_color = (100, 100, 110, 120)
-        draw.rectangle([(30, y + 12), (38, y + row_h - 12)], fill=bar_color)
-
-        if hidden:
             draw.text((52, y + 18), "❓  ？？？", fill=(80, 80, 90), font=name_font)
             draw.text((52, y + 48), "Hidden achievement / 隐藏成就", fill=(60, 60, 70), font=desc_font)
         elif unlocked:
@@ -666,6 +658,23 @@ class Economy(commands.Cog):
         conn2.close()
         if earned >= 5000: check_achievement(uid, "累计获得 5000")
         if earned >= 15000: check_achievement(uid, "累计获得 15000")
+
+    # ========== 已报名玩家 ==========
+    @app_commands.command(name="gmpt-players", description="List registered players / 列出已报名玩家")
+    async def players_cmd(self, interaction: discord.Interaction):
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT DISTINCT r.discord_id, u.username FROM registrations r LEFT JOIN users u ON u.discord_id = r.discord_id ORDER BY u.username")
+        rows = cur.fetchall(); conn.close()
+
+        if not rows:
+            return await interaction.response.send_message("暂无已报名玩家 / No registered players")
+
+        lines = []
+        for i, row in enumerate(rows, 1):
+            name = row["username"] if row["username"] else row["discord_id"]
+            lines.append(f"{i}. {name}")
+
+        await interaction.response.send_message("\n".join(lines))
 
     # ========== 每日签到 ==========
     @app_commands.command(name="gmpt-daily", description="Daily check-in for coins / 每日签到")
