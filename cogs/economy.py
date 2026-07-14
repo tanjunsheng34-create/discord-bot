@@ -30,6 +30,7 @@ DEFAULT_SHOP = [
     {"name": "个人资料头衔", "desc": "在余额页显示自定义头衔", "price": 1000, "type": "title", "emoji": "🏷️"},
     {"name": "昵称炸弹", "desc": "强制修改一位选手的昵称24h", "price": 1500, "type": "nickname", "emoji": "💣"},
     {"name": "自定义颜色角色", "desc": "获得自定义颜色的专属角色", "price": 2000, "type": "role_color", "emoji": "🎨"},
+    {"name": "至尊传说称号", "desc": "专属传说级称号，全服广播", "price": 100000, "type": "legendary_title", "emoji": "👑"},
 ]
 
 ACHIEVEMENTS = [
@@ -101,71 +102,83 @@ def _get_font(size, bold=False):
 
 
 def generate_shop_image(items, user_balance):
-    """生成商店图片 800x(160 + 每行105)"""
+    """生成商店图片，大卡片布局"""
     if not PIL_AVAILABLE:
         return None
-    row_h = 105
-    header_h = 180
+    row_h = 110
+    header_h = 200
     footer_h = 60
 
     w = 800
     h = header_h + len(items) * row_h + footer_h
 
-    img = Image.new("RGBA", (w, h), (30, 30, 40, 255))
+    img = Image.new("RGBA", (w, h), (22, 22, 32, 255))
     draw = ImageDraw.Draw(img)
 
     # 背景渐变装饰条
     for i in range(w):
-        c = int(70 + 30 * (i / w))
-        draw.line([(i, 0), (i, header_h)], fill=(c, c, c + 20, 255))
+        c = int(50 + 40 * (i / w))
+        draw.line([(i, 0), (i, header_h)], fill=(c, c, c + 25, 255))
 
     # 标题
-    title_font = _get_font(32, bold=True)
+    title_font = _get_font(36, bold=True)
     draw.text((40, 25), "GMPT COIN SHOP", fill=(255, 215, 0), font=title_font)
 
     # 余额
     balance_font = _get_font(18)
-    draw.text((40, 70), f"YOUR BALANCE", fill=(150, 150, 160), font=balance_font)
-    coin_font = _get_font(24, bold=True)
-    draw.text((40, 92), f"🪙 {user_balance} GMPT Coins", fill=(255, 215, 0), font=coin_font)
+    draw.text((40, 75), "YOUR BALANCE", fill=(150, 150, 160), font=balance_font)
+    coin_font = _get_font(26, bold=True)
+    draw.text((40, 98), f"🪙 {user_balance} GMPT Coins", fill=(255, 215, 0), font=coin_font)
 
     # 提示
     hint_font = _get_font(15)
-    draw.text((40, 140), "Click the buttons below to purchase", fill=(120, 120, 130), font=hint_font)
+    draw.text((40, 145), "Click the buttons below to purchase", fill=(120, 120, 130), font=hint_font)
 
     # 分隔线
-    draw.line([(40, 170), (w - 40, 170)], fill=(80, 80, 100, 255), width=1)
+    draw.line([(40, 178), (w - 40, 178)], fill=(80, 80, 100, 255), width=1)
 
-    # 每行商品
+    # 每行商品（大卡片）
     name_font = _get_font(20, bold=True)
     desc_font = _get_font(14)
     price_font = _get_font(18, bold=True)
     id_font = _get_font(12)
 
     for idx, it in enumerate(items):
-        y = header_h + idx * row_h + 10
+        y = header_h + idx * row_h
 
-        # 左侧色条
-        draw.rectangle([(30, y), (36, y + 85)], fill=(0, 180, 255, 200))
+        # 行背景交替
+        if idx % 2 == 0:
+            draw.rectangle([(0, y), (w, y + row_h)], fill=(30, 30, 42, 60))
+
+        # 左侧色条（根据价格分级）
+        if it['price'] >= 100000:
+            bar_color = (255, 215, 0, 220)
+        elif it['price'] >= 2000:
+            bar_color = (180, 100, 255, 200)
+        else:
+            bar_color = (0, 180, 255, 200)
+        draw.rectangle([(30, y + 10), (38, y + row_h - 10)], fill=bar_color)
 
         # ID
-        draw.text((48, y + 2), f"#{it['id']}", fill=(100, 100, 110), font=id_font)
+        draw.text((52, y + 12), f"#{it['id']}", fill=(100, 100, 110), font=id_font)
 
         # 名称 + emoji
-        draw.text((48, y + 18), f"{it.get('emoji','')}  {it['name']}", fill=(255, 255, 255), font=name_font)
+        draw.text((52, y + 32), f"{it.get('emoji','')}  {it['name']}", fill=(255, 255, 255), font=name_font)
 
         # 描述
-        draw.text((48, y + 48), it['description'], fill=(160, 160, 170), font=desc_font)
+        draw.text((52, y + 60), it['description'], fill=(160, 160, 170), font=desc_font)
 
-        # 价格
+        # 价格徽章
         price_str = f"🪙 {it['price']}"
         pb = draw.textbbox((0, 0), price_str, font=price_font)
         pw = pb[2] - pb[0]
-        draw.text((w - pw - 50, y + 18), price_str, fill=(255, 215, 0), font=price_font)
+        badge_x = w - pw - 60
+        draw.rounded_rectangle([badge_x - 6, y + 24, badge_x + pw + 6, y + 56], radius=6, fill=(50, 50, 60, 220))
+        draw.text((badge_x, y + 28), price_str, fill=(255, 215, 0), font=price_font)
 
         # 分隔线
         if idx < len(items) - 1:
-            draw.line([(40, y + row_h), (w - 40, y + row_h)], fill=(60, 60, 75, 180), width=1)
+            draw.line([(40, y + row_h), (w - 40, y + row_h)], fill=(55, 55, 70, 100), width=1)
 
     # 底部文字
     bot_font = _get_font(14)
@@ -178,68 +191,91 @@ def generate_shop_image(items, user_balance):
 
 
 def generate_ach_image(achievement_rows, unlocked_count, total_count):
-    """生成成就图片 800x(160 + 每行75)"""
+    """生成成就图片，大卡片布局"""
     if not PIL_AVAILABLE:
         return None
-    row_h = 75
-    header_h = 150
+    row_h = 100
+    header_h = 180
     footer_h = 50
 
     w = 800
     h = header_h + len(achievement_rows) * row_h + footer_h
 
-    img = Image.new("RGBA", (w, h), (30, 30, 40, 255))
+    img = Image.new("RGBA", (w, h), (22, 22, 32, 255))
     draw = ImageDraw.Draw(img)
 
-    # 标题栏
+    # 顶部渐变标题栏
     for i in range(w):
-        c = int(70 + 30 * (i / w))
-        draw.line([(i, 0), (i, header_h)], fill=(c, c, c + 20, 255))
+        c = int(50 + 40 * (i / w))
+        draw.line([(i, 0), (i, header_h)], fill=(c, c, c + 25, 255))
 
-    title_font = _get_font(32, bold=True)
-    draw.text((40, 25), "ACHIEVEMENTS", fill=(0, 220, 130), font=title_font)
+    title_font = _get_font(36, bold=True)
+    draw.text((40, 25), "ACHIEVEMENTS", fill=(0, 230, 140), font=title_font)
 
-    count_font = _get_font(20)
-    draw.text((40, 70), f"{unlocked_count} / {total_count}  UNLOCKED", fill=(200, 200, 210), font=count_font)
+    # 进度条背景
+    bar_x, bar_y, bar_w, bar_h_val = 40, 75, w - 80, 18
+    draw.rounded_rectangle([bar_x, bar_y, bar_x + bar_w, bar_y + bar_h_val], radius=9, fill=(50, 50, 60, 255))
+    if total_count > 0:
+        fill_w = int(bar_w * unlocked_count / total_count)
+        if fill_w > 0:
+            draw.rounded_rectangle([bar_x, bar_y, bar_x + fill_w, bar_y + bar_h_val], radius=9, fill=(0, 200, 120, 255))
+
+    count_font = _get_font(18)
+    draw.text((40, 102), f"{unlocked_count} / {total_count}  UNLOCKED", fill=(200, 200, 210), font=count_font)
 
     # 图例
-    legend_font = _get_font(14)
-    draw.text((40, 110), "✅ Unlocked", fill=(0, 220, 130), font=legend_font)
-    draw.text((180, 110), "⬜ Locked", fill=(130, 130, 140), font=legend_font)
-    draw.text((310, 110), "❓ Hidden", fill=(90, 90, 100), font=legend_font)
+    legend_font = _get_font(15)
+    draw.text((40, 135), "✅ Unlocked", fill=(0, 220, 130), font=legend_font)
+    draw.text((180, 135), "⬜ Locked", fill=(130, 130, 140), font=legend_font)
+    draw.text((310, 135), "❓ Hidden", fill=(90, 90, 100), font=legend_font)
 
-    draw.line([(40, 135), (w - 40, 135)], fill=(80, 80, 100, 255), width=1)
+    draw.line([(40, 162), (w - 40, 162)], fill=(80, 80, 100, 255), width=1)
 
-    name_font = _get_font(17, bold=True)
-    desc_font = _get_font(13)
-    reward_font = _get_font(14, bold=True)
+    # 成就条目（大卡片）
+    name_font = _get_font(19, bold=True)
+    desc_font = _get_font(14)
+    reward_font = _get_font(16, bold=True)
 
     for idx, row in enumerate(achievement_rows):
-        y = header_h + idx * row_h + 8
+        y = header_h + idx * row_h
+
+        # 行背景交替
+        if idx % 2 == 0:
+            draw.rectangle([(0, y), (w, y + row_h)], fill=(30, 30, 42, 60))
 
         emoji = row.get("emoji", "❓")
         unlocked = row.get("unlocked", False)
         hidden = row.get("hidden", False) and not unlocked
 
+        # 左侧状态指示条
         if hidden:
-            draw.text((48, y + 14), "❓  ？？？", fill=(80, 80, 90), font=name_font)
-            draw.text((48, y + 40), "Hidden achievement", fill=(60, 60, 70), font=desc_font)
+            bar_color = (80, 80, 90, 150)
         elif unlocked:
-            name_color = (0, 220, 130)
-            desc_color = (160, 180, 165)
-            draw.text((48, y + 14), f"✅  {row['name']}", fill=name_color, font=name_font)
-            draw.text((48, y + 40), row['description'], fill=desc_color, font=desc_font)
+            bar_color = (0, 220, 130, 200)
+        else:
+            bar_color = (100, 100, 110, 120)
+        draw.rectangle([(30, y + 12), (38, y + row_h - 12)], fill=bar_color)
+
+        if hidden:
+            draw.text((52, y + 18), "❓  ？？？", fill=(80, 80, 90), font=name_font)
+            draw.text((52, y + 48), "Hidden achievement", fill=(60, 60, 70), font=desc_font)
+        elif unlocked:
+            draw.text((52, y + 18), f"✅  {row['name']}", fill=(0, 220, 130), font=name_font)
+            draw.text((52, y + 48), row['description'], fill=(180, 190, 180), font=desc_font)
             reward_str = f"+{row['reward']} 🪙"
             pb = draw.textbbox((0, 0), reward_str, font=reward_font)
             pw = pb[2] - pb[0]
-            draw.text((w - pw - 50, y + 14), reward_str, fill=(0, 200, 100), font=reward_font)
+            # 奖励徽章背景
+            badge_x = w - pw - 60
+            draw.rounded_rectangle([badge_x - 6, y + 12, badge_x + pw + 6, y + 42], radius=6, fill=(0, 160, 80, 200))
+            draw.text((badge_x, y + 16), reward_str, fill=(255, 255, 255), font=reward_font)
         else:
-            draw.text((48, y + 14), f"⬜  {row['name']}", fill=(140, 140, 150), font=name_font)
-            draw.text((48, y + 40), row['description'], fill=(100, 100, 110), font=desc_font)
-            draw.text((w - 80, y + 14), f"+{row['reward']}", fill=(100, 100, 110), font=reward_font)
+            draw.text((52, y + 18), f"⬜  {row['name']}", fill=(140, 140, 150), font=name_font)
+            draw.text((52, y + 48), row['description'], fill=(100, 100, 110), font=desc_font)
+            draw.text((w - 90, y + 18), f"+{row['reward']}", fill=(100, 100, 110), font=reward_font)
 
         if idx < len(achievement_rows) - 1:
-            draw.line([(40, y + row_h), (w - 40, y + row_h)], fill=(55, 55, 70, 150), width=1)
+            draw.line([(40, y + row_h), (w - 40, y + row_h)], fill=(55, 55, 70, 100), width=1)
 
     bot_font = _get_font(14)
     draw.text((40, h - 30), "GMPT Bot • Economy System", fill=(100, 100, 110), font=bot_font)
@@ -256,30 +292,43 @@ class ShopView(discord.ui.View):
     def __init__(self, items, user_id, timeout=120):
         super().__init__(timeout=timeout)
         self.user_id = user_id
-        for it in items[:5]:
+        # 最多 7 个购买按钮，分布在两行
+        for idx, it in enumerate(items[:7]):
+            r = 0 if idx < 4 else 1
             btn = discord.ui.Button(
-                label=f"{it['name']}",
+                label=f"{it['name'][:12]}",
                 emoji=it.get("emoji", "🛒"),
                 style=discord.ButtonStyle.primary,
                 custom_id=f"shop_buy_{it['id']}",
-                row=0,
+                row=r,
             )
             btn.callback = self.make_buy_callback(it['id'])
             self.add_item(btn)
-        self.add_item(discord.ui.Button(
-            label="My Balance",
-            emoji="💰",
-            style=discord.ButtonStyle.secondary,
-            custom_id="shop_balance",
-            row=1,
-        ))
-        self.add_item(discord.ui.Button(
-            label="Inventory",
-            emoji="🎒",
-            style=discord.ButtonStyle.secondary,
-            custom_id="shop_inv",
-            row=1,
-        ))
+
+    @discord.ui.button(label="My Balance", emoji="💰", style=discord.ButtonStyle.secondary, row=1)
+    async def balance_btn(self, interaction: discord.Interaction, button):
+        if str(interaction.user.id) != self.user_id:
+            return await interaction.response.send_message("这不是你的商店页面。", ephemeral=True)
+        bal = get_balance(str(interaction.user.id))
+        await interaction.response.send_message(f"🪙 余额: **{bal}** GMPT Coins", ephemeral=True)
+
+    @discord.ui.button(label="Inventory", emoji="🎒", style=discord.ButtonStyle.secondary, row=1)
+    async def inv_btn(self, interaction: discord.Interaction, button):
+        if str(interaction.user.id) != self.user_id:
+            return await interaction.response.send_message("这不是你的商店页面。", ephemeral=True)
+        uid = str(interaction.user.id)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("""
+            SELECT si.name, inv.quantity
+            FROM user_inventory inv
+            JOIN shop_items si ON si.id = inv.item_id
+            WHERE inv.user_id=?
+        """, (uid,))
+        rows = cur.fetchall(); conn.close()
+        if not rows:
+            return await interaction.response.send_message("背包是空的。", ephemeral=True)
+        lines = [f"📦 **{r['name']}** x{r['quantity']}" for r in rows]
+        await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
     def make_buy_callback(self, item_id):
         async def callback(interaction: discord.Interaction):
