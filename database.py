@@ -151,6 +151,37 @@ def init_db():
             reported_by     TEXT,
             reported_at     TEXT
         );
+
+        -- === Captain Draft / 队长选秀 ===
+
+        CREATE TABLE IF NOT EXISTS draft_sessions (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            tournament_id   INTEGER,
+            status          TEXT DEFAULT 'setup',
+            snake_round     INTEGER DEFAULT 0,
+            pick_index      INTEGER DEFAULT 0,
+            created_by      TEXT,
+            created_at      TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS draft_captains (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            draft_id        INTEGER NOT NULL,
+            captain_id      TEXT NOT NULL,
+            team_name       TEXT NOT NULL,
+            pick_order      INTEGER NOT NULL,
+            tier_score      INTEGER DEFAULT 0,
+            UNIQUE(draft_id, captain_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS draft_picks (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            draft_id        INTEGER NOT NULL,
+            captain_id      TEXT NOT NULL,
+            player_id       TEXT NOT NULL,
+            pick_number     INTEGER NOT NULL,
+            UNIQUE(draft_id, player_id)
+        );
     """)
 
     conn.commit()

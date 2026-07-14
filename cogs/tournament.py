@@ -1,6 +1,5 @@
 """
-GMPT Bot — Tournament System (Swiss / Elimination)
-Create, signup, bracket, standings, report, economy rewards.
+GMPT Bot — Tournament System (Swiss / Elimination / Captain Draft)
 """
 import os
 import discord
@@ -8,9 +7,9 @@ from discord import app_commands
 from discord.ext import commands
 from database import get_db
 from cogs.economy import add_coins
-from cogs.lol import get_puuid, riot_request, REGIONS, tier_emoji
 import aiohttp
 from datetime import datetime
+from collections import defaultdict
 
 RIOT_KEY = os.getenv("RIOT_API_KEY", "")
 
@@ -19,13 +18,15 @@ TIER_SEED = {"CHALLENGER": 1, "GRANDMASTER": 2, "MASTER": 3,
              "DIAMOND": 4, "EMERALD": 5, "PLATINUM": 6,
              "GOLD": 7, "SILVER": 8, "BRONZE": 9, "IRON": 10}
 
+# ---------- tier → 分数 (Captain Draft) ----------
+TIER_SCORE = {
+    "CHALLENGER": 5, "GRANDMASTER": 5, "MASTER": 5,
+    "DIAMOND": 4, "EMERALD": 3, "PLATINUM": 3,
+    "GOLD": 2, "SILVER": 1, "BRONZE": 1, "IRON": 1, "UNRANKED": 1,
+}
+
 # ---------- Swiss 配对算法 ----------
 def swiss_pairing(players, tournament_id):
-    """
-    players: list of dicts {discord_id, points, seed}
-    existing_matchups: set of frozenset(player_id pairs)
-    Returns (matches, bye_player) where matches = [(id_a, id_b), ...], bye_player = discord_id or None
-    """
     conn = get_db()
     cur = conn.cursor()
     cur.execute(
@@ -39,7 +40,6 @@ def swiss_pairing(players, tournament_id):
             existing.add(pair)
     conn.close()
 
-    # 按积分降序 -> seed 升序排序
     players.sort(key=lambda p: (-p["points"], p["seed"]))
 
     if len(players) == 0:
@@ -68,7 +68,6 @@ def swiss_pairing(players, tournament_id):
                     players[i + 1], players[j] = players[j], players[i + 1]
                     swapped = True
                     break
-            # fallback: allow rematch
 
         used.add(a["discord_id"])
         used.add(players[i + 1]["discord_id"])
@@ -84,7 +83,6 @@ def get_tournament_or_none(cur, tid):
 
 
 async def fetch_player_tier(session, uid):
-    """根据 player_riot 表查询玩家 Riot 段位，返回 (tier_str, None) 或 (None, error)"""
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT summoner_name, tag_line, region FROM player_riot WHERE discord_id=?", (uid,))
@@ -92,20 +90,25 @@ async def fetch_player_tier(session, uid):
     conn.close()
 
     if not riot:
-        return (None, "未关联")
+        return (None, "未关联", None)
 
     if not RIOT_KEY:
-        return (None, "API Key 未配置")
+        return (None, "API Key 未配置", None)
 
-    cont_region = REGIONS[riot["region"]][1]
+    cont_region = {"kr": "asia", "jp": "asia", "na": "americas", "euw": "europe",
+                   "eune": "europe", "oce": "americas", "br": "americas",
+                   "lan": "americas", "las": "americas", "tr": "europe", "ru": "europe"}.get(
+        riot["region"], "asia")
+    from cogs.lol import get_puuid, riot_request
+
     puuid, err = await get_puuid(session, cont_region, riot["summoner_name"], riot["tag_line"])
     if err:
-        return (None, err[:50])
+        return (None, err[:50], None)
 
     url = f"https://{riot['region']}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/{puuid}"
     code, summ = await riot_request(session, url)
     if code != 200:
-        return (None, "获取召唤师失败")
+        return (None, "获取召唤师失败", None)
 
     url2 = f"https://{riot['region']}.api.riotgames.com/lol/league/v4/entries/by-summoner/{summ['id']}"
     _, leagues = await riot_request(session, url2)
@@ -113,22 +116,299 @@ async def fetch_player_tier(session, uid):
 
     solo = next((l for l in leagues if l["queueType"] == "RANKED_SOLO_5x5"), None)
     if solo:
-        return (f"{solo['tier']} {solo['rank']}", solo["tier"])
+        return (f"{solo['tier']} {solo['rank']}", solo["tier"], TIER_SCORE.get(solo["tier"].upper(), 1))
     flex = next((l for l in leagues if l["queueType"] == "RANKED_FLEX_SR"), None)
     if flex:
-        return (f"{flex['tier']} {flex['rank']} (Flex)", flex["tier"])
-    return ("Unranked", "UNRANKED")
+        return (f"{flex['tier']} {flex['rank']} (Flex)", flex["tier"], TIER_SCORE.get(flex["tier"].upper(), 1))
+    return ("Unranked", "UNRANKED", 1)
 
 
 def tier_sort_key(tier_name):
-    """将 tier 名转为排序键"""
     order = {"CHALLENGER": 0, "GRANDMASTER": 1, "MASTER": 2,
              "DIAMOND": 3, "EMERALD": 4, "PLATINUM": 5,
              "GOLD": 6, "SILVER": 7, "BRONZE": 8, "IRON": 9, "UNRANKED": 10}
     return order.get(tier_name.upper() if tier_name else "UNRANKED", 10)
 
 
-# ---------- Cog ----------
+def _display_name(guild, discord_id):
+    if not guild:
+        return f"<@{discord_id}>"
+    member = guild.get_member(int(discord_id))
+    return member.display_name if member else f"<@{discord_id}>"
+
+
+# =============================================================================
+# DraftView — 队长选秀交互界面
+# =============================================================================
+class DraftView(discord.ui.View):
+    def __init__(self, draft_id, captains_info, available_players, guild, timeout=600):
+        super().__init__(timeout=timeout)
+        self.draft_id = draft_id
+        self.captains = captains_info  # list of {captain_id, team_name, pick_order, tier_score}
+        self.available_players = available_players  # list of (discord_id, tier_score, display_name, tier_str)
+        self.guild = guild
+        self.drafted_players = []  # (captain_id, player_id)
+        self.current_pick = 0
+        self.snake_round = 1
+        self.snake_direction = 1  # 1 = forward, -1 = backward
+        self._pending_pick = None
+
+        # Sort captains by pick_order
+        self.captains.sort(key=lambda c: c["pick_order"])
+        self._rebuild_select()
+
+    @property
+    def current_captain(self):
+        if not self.captains:
+            return None
+        idx = self.current_pick % len(self.captains)
+        return self.captains[idx]
+
+    def _get_unassigned(self):
+        drafted_ids = {p[1] for p in self.drafted_players}
+        return [p for p in self.available_players if p[0] not in drafted_ids]
+
+    def _get_team_players(self, captain_id):
+        return [p[1] for p in self.drafted_players if p[0] == captain_id]
+
+    def _get_team_score(self, captain_id):
+        cap = next((c for c in self.captains if c["captain_id"] == captain_id), None)
+        cap_score = cap["tier_score"] if cap else 0
+        team_picks = self._get_team_players(captain_id)
+        pick_score = 0
+        for pid in team_picks:
+            player_info = next((p for p in self.available_players if p[0] == pid), None)
+            if player_info:
+                pick_score += player_info[1]
+        return cap_score + pick_score
+
+    def _rebuild_select(self):
+        for child in list(self.children):
+            if isinstance(child, discord.ui.Select):
+                self.remove_item(child)
+
+        unassigned = self._get_unassigned()
+        options = []
+        for pid, score, name, tier_str in unassigned:
+            desc = f"Score: {score} | {tier_str}"
+            options.append(discord.SelectOption(
+                label=name[:25], value=pid,
+                description=desc[:50],
+            ))
+
+        if not options:
+            options.append(discord.SelectOption(
+                label="(无待选玩家 / No players left)",
+                value="__none__", default=False
+            ))
+
+        select = discord.ui.Select(
+            placeholder="选择玩家 / Pick a player...",
+            options=options[:25],
+            custom_id="draft_select",
+            row=0,
+        )
+        select.callback = self.select_callback
+        self.add_item(select)
+
+    async def select_callback(self, interaction: discord.Interaction):
+        cap = self.current_captain
+        if not cap:
+            return await interaction.response.send_message("Draft error.", ephemeral=True)
+        if str(interaction.user.id) != cap["captain_id"]:
+            return await interaction.response.send_message(
+                f"现在轮到 **{_display_name(self.guild, cap['captain_id'])}** 选人 / Not your turn!",
+                ephemeral=True,
+            )
+
+        val = interaction.data["values"][0]
+        if val == "__none__":
+            return await interaction.response.defer()
+
+        self._pending_pick = val
+        player_info = next((p for p in self.available_players if p[0] == val), None)
+        pname = player_info[2] if player_info else val
+        await interaction.response.send_message(
+            f"已选择: **{pname}**，点击下方按钮确认挑入你的队伍 / "
+            f"Selected: **{pname}**, click button to confirm.",
+            ephemeral=True,
+        )
+
+    @discord.ui.button(label="确认选入 / Confirm Pick", style=discord.ButtonStyle.success,
+                       emoji="✅", row=1, custom_id="draft_confirm")
+    async def confirm_pick(self, interaction: discord.Interaction, button):
+        cap = self.current_captain
+        if not cap:
+            return await interaction.response.send_message("Draft error.", ephemeral=True)
+        if str(interaction.user.id) != cap["captain_id"]:
+            return await interaction.response.send_message(
+                f"现在轮到 **{_display_name(self.guild, cap['captain_id'])}** 选人 / Not your turn!",
+                ephemeral=True,
+            )
+
+        if not self._pending_pick:
+            return await interaction.response.send_message(
+                "请先从下拉菜单选择一个玩家 / Pick a player first.",
+                ephemeral=True,
+            )
+
+        # Check if already drafted
+        if self._pending_pick in [p[1] for p in self.drafted_players]:
+            self._pending_pick = None
+            return await interaction.response.send_message("该玩家已被选走。", ephemeral=True)
+
+        # Save to DB
+        conn = get_db(); cur = conn.cursor()
+        pick_num = len(self.drafted_players) + 1
+        cur.execute(
+            "INSERT INTO draft_picks (draft_id, captain_id, player_id, pick_number) VALUES (?,?,?,?)",
+            (self.draft_id, cap["captain_id"], self._pending_pick, pick_num),
+        )
+        conn.commit(); conn.close()
+
+        self.drafted_players.append((cap["captain_id"], self._pending_pick))
+        self._pending_pick = None
+
+        # Advance pick
+        self.current_pick += 1
+        if self.current_pick > 0 and self.current_pick % len(self.captains) == 0:
+            self.snake_round += 1
+            self.snake_direction *= -1
+
+        # Check if draft complete
+        unassigned = self._get_unassigned()
+        if not unassigned or len(unassigned) == 0:
+            for child in self.children:
+                child.disabled = True
+
+        self._rebuild_select()
+        embed = self.build_embed()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="跳过 / Skip Turn", style=discord.ButtonStyle.secondary,
+                       emoji="⏭️", row=1, custom_id="draft_skip")
+    async def skip_turn(self, interaction: discord.Interaction, button):
+        cap = self.current_captain
+        if not cap:
+            return await interaction.response.send_message("Draft error.", ephemeral=True)
+        if str(interaction.user.id) != cap["captain_id"]:
+            return await interaction.response.send_message(
+                f"现在轮到 **{_display_name(self.guild, cap['captain_id'])}** 选人 / Not your turn!",
+                ephemeral=True,
+            )
+
+        # Find any unassigned player and auto-pick the first one
+        unassigned = self._get_unassigned()
+        if not unassigned:
+            return await interaction.response.send_message("没有可选的玩家了 / No players left.", ephemeral=True)
+
+        auto_pick = unassigned[0]  # auto-pick first available
+
+        conn = get_db(); cur = conn.cursor()
+        pick_num = len(self.drafted_players) + 1
+        cur.execute(
+            "INSERT INTO draft_picks (draft_id, captain_id, player_id, pick_number) VALUES (?,?,?,?)",
+            (self.draft_id, cap["captain_id"], auto_pick[0], pick_num),
+        )
+        conn.commit(); conn.close()
+
+        self.drafted_players.append((cap["captain_id"], auto_pick[0]))
+        self._pending_pick = None
+
+        self.current_pick += 1
+        if self.current_pick > 0 and self.current_pick % len(self.captains) == 0:
+            self.snake_round += 1
+            self.snake_direction *= -1
+
+        unassigned = self._get_unassigned()
+        if not unassigned or len(unassigned) == 0:
+            for child in self.children:
+                child.disabled = True
+
+        self._rebuild_select()
+        embed = self.build_embed()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="结束选秀 / End Draft", style=discord.ButtonStyle.danger,
+                       emoji="🏁", row=2, custom_id="draft_end")
+    async def end_draft(self, interaction: discord.Interaction, button):
+        cap = self.current_captain
+        if not cap:
+            return await interaction.response.send_message("Draft error.", ephemeral=True)
+        if str(interaction.user.id) != cap["captain_id"]:
+            # Allow any captain to end
+            is_any_captain = any(c["captain_id"] == str(interaction.user.id) for c in self.captains)
+            if not is_any_captain:
+                return await interaction.response.send_message(
+                    "Only captains can end the draft. / 仅队长可结束选秀。",
+                    ephemeral=True,
+                )
+
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("UPDATE draft_sessions SET status='completed' WHERE id=?", (self.draft_id,))
+        conn.commit(); conn.close()
+
+        for child in self.children:
+            child.disabled = True
+        self._rebuild_select()
+        embed = self.build_embed()
+        embed.title = f"Draft Complete — {embed.title.replace('Draft — ', '')}"
+        embed.description = "✅ 队长选秀已完成！ / Captain Draft completed!"
+        embed.color = discord.Color.gold()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    def build_embed(self):
+        embed = discord.Embed(
+            title=f"Draft — Round {self.snake_round}",
+            description=f"Pick #{self.current_pick + 1} — 轮到: **{_display_name(self.guild, self.current_captain['captain_id']) if self.current_captain else 'N/A'}**",
+            color=discord.Color.blue(),
+        )
+
+        # Team rosters
+        for cap in self.captains:
+            team = self._get_team_players(cap["captain_id"])
+            total_score = self._get_team_score(cap["captain_id"])
+            names = [_display_name(self.guild, pid) for pid in team]
+            embed.add_field(
+                name=f"{cap['team_name']} (总 {total_score} pts)",
+                value="\n".join(names) if names else "(暂无队员 / Empty)",
+                inline=True,
+            )
+
+        # Balance report
+        scores = [self._get_team_score(c["captain_id"]) for c in self.captains]
+        if len(scores) >= 2:
+            balance_lines = []
+            for i, cap in enumerate(self.captains):
+                balance_lines.append(
+                    f"{cap['team_name']}: **{scores[i]}** pts (队长 {cap['tier_score']})"
+                )
+            diff = max(scores) - min(scores) if scores else 0
+            balance_lines.append(f"差距 / Gap: **{diff}** pts")
+            embed.add_field(
+                name="DRAFT BALANCE REPORT",
+                value="\n".join(balance_lines),
+                inline=False,
+            )
+
+        # Remaining players
+        unassigned = self._get_unassigned()
+        if unassigned:
+            remaining = [f"{p[2]} ({p[3]}, {p[1]}pts)" for p in unassigned]
+            if len(remaining) > 10:
+                remaining = remaining[:10] + [f"... 还有 {len(unassigned) - 10} 人"]
+            embed.add_field(
+                name=f"待选池 / Available ({len(unassigned)})",
+                value="\n".join(remaining),
+                inline=False,
+            )
+
+        return embed
+
+
+# =============================================================================
+# Tournament Cog
+# =============================================================================
 class Tournament(commands.Cog):
     """锦标赛 Tournament System"""
 
@@ -143,63 +423,35 @@ class Tournament(commands.Cog):
         if self.session:
             await self.session.close()
 
-    # ========== 创建锦标赛 ==========
-    @app_commands.command(
+    tournament = app_commands.Group(
         name="gmpt-tournament",
         description="Tournament commands / 锦标赛命令",
     )
+
+    # =====================================================================
+    # create
+    # =====================================================================
+    @tournament.command(
+        name="create",
+        description="Create a tournament / 创建赛事",
+    )
     @app_commands.describe(
-        action="Action / 操作",
         tournament_name="Tournament name / 赛事名称",
         tournament_format="Format / 赛制",
         rounds="Number of Swiss rounds / Swiss 轮数",
         max_players="Max players / 最大人数",
     )
-    @app_commands.choices(action=[
-        app_commands.Choice(name="Create / 创建", value="create"),
-        app_commands.Choice(name="Signup / 报名", value="signup"),
-        app_commands.Choice(name="Players / 报名列表", value="players"),
-        app_commands.Choice(name="Start / 开始", value="start"),
-        app_commands.Choice(name="Bracket / 对阵图", value="bracket"),
-        app_commands.Choice(name="Standings / 排名", value="standings"),
-        app_commands.Choice(name="Report / 上报比分", value="report"),
-        app_commands.Choice(name="List / 赛事列表", value="list"),
-    ])
     @app_commands.choices(tournament_format=[
         app_commands.Choice(name="Swiss (瑞士轮)", value="swiss"),
         app_commands.Choice(name="Elimination (淘汰赛)", value="elimination"),
     ])
-    async def tournament_cmd(
+    async def create_cmd(
         self, interaction: discord.Interaction,
-        action: str,
-        tournament_name: str = None,
+        tournament_name: str,
         tournament_format: str = "swiss",
         rounds: int = 3,
         max_players: int = 32,
-        tournament_id: int = None,
-        match_id: int = None,
-        score_a: int = 0,
-        score_b: int = 0,
     ):
-        if action == "create":
-            await self._create(interaction, tournament_name, tournament_format, rounds, max_players)
-        elif action == "signup":
-            await self._signup(interaction, tournament_id)
-        elif action == "players":
-            await self._players(interaction, tournament_id)
-        elif action == "start":
-            await self._start(interaction, tournament_id)
-        elif action == "bracket":
-            await self._bracket(interaction, tournament_id)
-        elif action == "standings":
-            await self._standings(interaction, tournament_id)
-        elif action == "report":
-            await self._report(interaction, tournament_id, match_id, score_a, score_b)
-        elif action == "list":
-            await self._list(interaction)
-
-    # ---------- create ----------
-    async def _create(self, interaction, tournament_name, tournament_format, rounds, max_players):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message(
                 "仅管理员可创建锦标赛。", ephemeral=True
@@ -226,14 +478,19 @@ class Tournament(commands.Cog):
         ).set_footer(text=f"Tournament ID: {tid}")
         await interaction.response.send_message(embed=embed)
 
-    # ---------- signup ----------
-    async def _signup(self, interaction, tournament_id):
+    # =====================================================================
+    # signup
+    # =====================================================================
+    @tournament.command(
+        name="signup",
+        description="Sign up for a tournament / 报名参赛",
+    )
+    @app_commands.describe(tournament_id="Tournament ID (leave empty for latest) / 赛事ID（留空选最新）")
+    async def signup_cmd(self, interaction: discord.Interaction, tournament_id: int = None):
         await interaction.response.defer(ephemeral=False)
-
         conn = get_db(); cur = conn.cursor()
 
         if tournament_id is None:
-            # 自动选当前可报名的赛事
             cur.execute(
                 "SELECT id, name, max_players FROM tournaments WHERE status='signup' ORDER BY id DESC LIMIT 1"
             )
@@ -254,18 +511,16 @@ class Tournament(commands.Cog):
 
         uid = str(interaction.user.id)
 
-        # 检查段位限制
         tier_restriction = t["tier_restriction"]
         if tier_restriction:
             allowed = set(x.strip().upper() for x in tier_restriction.split(","))
-            _, tier_name = await fetch_player_tier(self.session, uid)
+            _, tier_name, _ = await fetch_player_tier(self.session, uid)
             if tier_name and tier_name.upper() not in allowed:
                 conn.close()
                 return await interaction.followup.send(
                     f"你的段位 **{tier_name}** 不符合本赛事要求（限 {', '.join(sorted(allowed))}）。"
                 )
 
-        # 检查是否已报名
         cur.execute(
             "SELECT id FROM tournament_players WHERE tournament_id=? AND discord_id=?",
             (tournament_id, uid),
@@ -274,7 +529,6 @@ class Tournament(commands.Cog):
             conn.close()
             return await interaction.followup.send("你已经报名了这个锦标赛。")
 
-        # 检查名额
         max_p = t["max_players"] or 32
         cur.execute("SELECT COUNT(*) as cnt FROM tournament_players WHERE tournament_id=?", (tournament_id,))
         cnt = cur.fetchone()["cnt"]
@@ -282,15 +536,12 @@ class Tournament(commands.Cog):
             conn.close()
             return await interaction.followup.send(f"报名已满（{max_p}人）。")
 
-        # 获取段位并计算 seed
-        tier_display, tier_key = await fetch_player_tier(self.session, uid)
+        tier_display, tier_key, _ = await fetch_player_tier(self.session, uid)
         if tier_display is None:
             tier_display = "未关联"
             tier_key = "UNRANKED"
 
         seed_val = TIER_SEED.get(tier_key.upper() if tier_key else "UNRANKED", 10)
-
-        # 同一 tier 内按报名顺序递增 seed（微调避免 seed 完全相同）
         cur.execute(
             "SELECT MAX(seed) as max_seed FROM tournament_players WHERE tournament_id=? AND tier=?",
             (tournament_id, tier_key.upper()),
@@ -314,8 +565,15 @@ class Tournament(commands.Cog):
             f"锦标赛: **{t['name']}** | 段位: **{tier_display}** | ({cnt+1}/{max_p})"
         )
 
-    # ---------- players ----------
-    async def _players(self, interaction, tournament_id):
+    # =====================================================================
+    # players
+    # =====================================================================
+    @tournament.command(
+        name="players",
+        description="List registered players / 报名列表",
+    )
+    @app_commands.describe(tournament_id="Tournament ID (leave empty for latest) / 赛事ID（留空选最新）")
+    async def players_cmd(self, interaction: discord.Interaction, tournament_id: int = None):
         conn = get_db(); cur = conn.cursor()
 
         if tournament_id is None:
@@ -353,11 +611,15 @@ class Tournament(commands.Cog):
 
         await interaction.response.send_message("\n".join(lines))
 
-    # ---------- start ----------
-    async def _start(self, interaction, tournament_id):
-        if tournament_id is None:
-            return await interaction.response.send_message("请提供 tournament_id。", ephemeral=True)
-
+    # =====================================================================
+    # start
+    # =====================================================================
+    @tournament.command(
+        name="start",
+        description="Start tournament / 开始比赛（管理员/创建者）",
+    )
+    @app_commands.describe(tournament_id="Tournament ID / 赛事ID")
+    async def start_cmd(self, interaction: discord.Interaction, tournament_id: int):
         conn = get_db(); cur = conn.cursor()
         t = get_tournament_or_none(cur, tournament_id)
         if not t:
@@ -374,7 +636,6 @@ class Tournament(commands.Cog):
             conn.close()
             return await interaction.response.send_message("锦标赛状态不允许开始。", ephemeral=True)
 
-        # 获取所有报名玩家，按 seed 排序
         cur.execute(
             "SELECT discord_id, seed, points FROM tournament_players WHERE tournament_id=? ORDER BY seed ASC",
             (tournament_id,),
@@ -384,7 +645,6 @@ class Tournament(commands.Cog):
             conn.close()
             return await interaction.response.send_message("至少需要 2 名玩家。", ephemeral=True)
 
-        # 生成 Round 1 对阵（按 seed 1vs2, 3vs4...）
         matches, bye = swiss_pairing(players, tournament_id)
 
         for i, (a_id, b_id) in enumerate(matches):
@@ -400,7 +660,6 @@ class Tournament(commands.Cog):
                 "VALUES (?,1,?,?,'bye')",
                 (tournament_id, len(matches) + 1, bye),
             )
-            # BYE 自动计分
             cur.execute(
                 "UPDATE tournament_players SET points=points+3, wins=wins+1 WHERE tournament_id=? AND discord_id=?",
                 (tournament_id, bye),
@@ -409,7 +668,6 @@ class Tournament(commands.Cog):
         cur.execute("UPDATE tournaments SET status='active' WHERE id=?", (tournament_id,))
         conn.commit()
 
-        # 生成 Embed 展示
         embed = discord.Embed(
             title=f"Round 1 — {t['name']}",
             description="Swiss 锦标赛已开始！",
@@ -423,16 +681,12 @@ class Tournament(commands.Cog):
             (tournament_id,),
         )
         for m in cur.fetchall():
-            a_name = self._get_display_name(interaction, m["player_a_id"])
+            a_name = _display_name(interaction.guild, m["player_a_id"])
             if m["player_b_id"]:
-                b_name = self._get_display_name(interaction, m["player_b_id"])
-                match_lines.append(
-                    f"`#{m['id']}` {a_name} vs {b_name} — {m['status']}"
-                )
+                b_name = _display_name(interaction.guild, m["player_b_id"])
+                match_lines.append(f"`#{m['id']}` {a_name} vs {b_name} — {m['status']}")
             else:
-                match_lines.append(
-                    f"`#{m['id']}` {a_name} — **BYE** (自动获胜)"
-                )
+                match_lines.append(f"`#{m['id']}` {a_name} — **BYE** (自动获胜)")
 
         embed.add_field(name="对阵表", value="\n".join(match_lines), inline=False)
         embed.set_footer(
@@ -442,8 +696,15 @@ class Tournament(commands.Cog):
         conn.close()
         await interaction.response.send_message(embed=embed)
 
-    # ---------- bracket ----------
-    async def _bracket(self, interaction, tournament_id):
+    # =====================================================================
+    # bracket
+    # =====================================================================
+    @tournament.command(
+        name="bracket",
+        description="View bracket / 查看对阵图",
+    )
+    @app_commands.describe(tournament_id="Tournament ID (leave empty for latest active) / 赛事ID")
+    async def bracket_cmd(self, interaction: discord.Interaction, tournament_id: int = None):
         conn = get_db(); cur = conn.cursor()
 
         if tournament_id is None:
@@ -458,8 +719,6 @@ class Tournament(commands.Cog):
             if not t:
                 conn.close()
                 return await interaction.response.send_message("锦标赛不存在。")
-
-        max_rounds = t["rounds"] or 3
 
         cur.execute(
             "SELECT * FROM tournament_matches WHERE tournament_id=? ORDER BY round, match_index",
@@ -477,8 +736,6 @@ class Tournament(commands.Cog):
             color=discord.Color.purple(),
         )
 
-        # 按 round 分组
-        from collections import defaultdict
         by_round = defaultdict(list)
         for m in matches:
             by_round[m["round"]].append(m)
@@ -486,21 +743,20 @@ class Tournament(commands.Cog):
         for rnd in sorted(by_round.keys()):
             lines = []
             for m in by_round[rnd]:
-                a_name = self._get_display_name(interaction, m["player_a_id"])
+                a_name = _display_name(interaction.guild, m["player_a_id"])
                 if m["player_b_id"]:
-                    b_name = self._get_display_name(interaction, m["player_b_id"])
+                    b_name = _display_name(interaction.guild, m["player_b_id"])
                     if m["status"] == "reported":
+                        winner = "👑" if m["winner_id"] == m["player_a_id"] else ""
                         lines.append(
-                            f"`#{m['id']}` **{a_name}** {m['score_a']}-{m['score_b']} {b_name}"
+                            f"`#{m['id']}` **{a_name}** {m['score_a']}-{m['score_b']} {b_name} {winner}"
                         )
                     else:
                         lines.append(
                             f"`#{m['id']}` {a_name} vs {b_name} (Pending)"
                         )
                 else:
-                    lines.append(
-                        f"`#{m['id']}` {a_name} — **BYE**"
-                    )
+                    lines.append(f"`#{m['id']}` {a_name} — **BYE**")
             embed.add_field(
                 name=f"Round {rnd}",
                 value="\n".join(lines) if lines else "(无)",
@@ -509,8 +765,15 @@ class Tournament(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    # ---------- standings ----------
-    async def _standings(self, interaction, tournament_id):
+    # =====================================================================
+    # standings
+    # =====================================================================
+    @tournament.command(
+        name="standings",
+        description="View standings / 查看排名",
+    )
+    @app_commands.describe(tournament_id="Tournament ID (leave empty for latest active) / 赛事ID")
+    async def standings_cmd(self, interaction: discord.Interaction, tournament_id: int = None):
         conn = get_db(); cur = conn.cursor()
 
         if tournament_id is None:
@@ -556,14 +819,24 @@ class Tournament(commands.Cog):
         embed.description = "\n".join(lines)
         await interaction.response.send_message(embed=embed)
 
-    # ---------- report ----------
-    async def _report(self, interaction, tournament_id, match_id, score_a, score_b):
-        if not tournament_id or not match_id:
-            return await interaction.response.send_message(
-                "用法: `/gmpt-tournament report tournament_id:<id> match_id:<id> score_a:<x> score_b:<y>`",
-                ephemeral=True,
-            )
-
+    # =====================================================================
+    # report
+    # =====================================================================
+    @tournament.command(
+        name="report",
+        description="Report match score / 上报比分",
+    )
+    @app_commands.describe(
+        tournament_id="Tournament ID / 赛事ID",
+        match_id="Match ID / 比赛ID",
+        score_a="Player A score / 玩家A分数",
+        score_b="Player B score / 玩家B分数",
+    )
+    async def report_cmd(
+        self, interaction: discord.Interaction,
+        tournament_id: int, match_id: int,
+        score_a: int = 0, score_b: int = 0,
+    ):
         conn = get_db(); cur = conn.cursor()
         t = get_tournament_or_none(cur, tournament_id)
         if not t:
@@ -593,18 +866,14 @@ class Tournament(commands.Cog):
             conn.close()
             return await interaction.response.send_message("仅比赛双方或管理员可上报比分。", ephemeral=True)
 
-        # 判定胜者
         winner_id = m["player_a_id"] if score_a > score_b else m["player_b_id"]
         loser_id = m["player_b_id"] if score_a > score_b else m["player_a_id"]
 
-        # 更新 match
         cur.execute(
             "UPDATE tournament_matches SET score_a=?, score_b=?, winner_id=?, status='reported', "
             "reported_by=?, reported_at=? WHERE id=?",
             (score_a, score_b, winner_id, uid, datetime.now().isoformat(), match_id),
         )
-
-        # 更新玩家战绩
         cur.execute(
             "UPDATE tournament_players SET wins=wins+1, points=points+3 WHERE tournament_id=? AND discord_id=?",
             (tournament_id, winner_id),
@@ -613,19 +882,12 @@ class Tournament(commands.Cog):
             "UPDATE tournament_players SET losses=losses+1 WHERE tournament_id=? AND discord_id=?",
             (tournament_id, loser_id),
         )
-        # 败方也有参与分
-        cur.execute(
-            "UPDATE tournament_players SET points=points+0 WHERE tournament_id=? AND discord_id=?",
-            (tournament_id, loser_id),
-        )
 
-        # 经济奖励
         add_coins(winner_id, 150, f"Tournament win / 锦标赛胜利 (Match #{match_id})")
         add_coins(loser_id, 50, f"Tournament loss / 锦标赛失利 (Match #{match_id})")
 
         conn.commit()
 
-        # 检查当前轮是否全部完成
         cur_round = m["round"]
         max_rounds = t["rounds"] or 3
 
@@ -635,13 +897,12 @@ class Tournament(commands.Cog):
             (tournament_id, cur_round),
         )
         stats = cur.fetchone()
-
         round_done = (stats["total"] == stats["done"])
 
         embed = discord.Embed(
             title=f"Match #{match_id} Reported",
             description=(
-                f"**{self._get_display_name(interaction, winner_id)}** wins!\n"
+                f"**{_display_name(interaction.guild, winner_id)}** wins!\n"
                 f"Score: **{score_a} - {score_b}**\n"
                 f"Winner +150 coins | Loser +50 coins"
             ),
@@ -650,10 +911,7 @@ class Tournament(commands.Cog):
 
         if round_done:
             if cur_round >= max_rounds:
-                # 锦标赛结束
                 cur.execute("UPDATE tournaments SET status='completed' WHERE id=?", (tournament_id,))
-
-                # 冠军 + 亚军奖励
                 cur.execute(
                     "SELECT discord_id FROM tournament_players WHERE tournament_id=? ORDER BY points DESC, wins DESC LIMIT 2",
                     (tournament_id,),
@@ -666,7 +924,6 @@ class Tournament(commands.Cog):
 
                 conn.commit()
 
-                # 最终排名
                 cur.execute(
                     "SELECT tp.discord_id, tp.wins, tp.losses, tp.points, u.username "
                     "FROM tournament_players tp "
@@ -686,17 +943,12 @@ class Tournament(commands.Cog):
                 for i, r in enumerate(final_rows, 1):
                     name = (r["username"] if r["username"] else r["discord_id"])[:14]
                     medal = "👑" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
-                    bonus = ""
-                    if i == 1:
-                        bonus = " +1000 coins"
-                    elif i == 2:
-                        bonus = " +500 coins"
+                    bonus = " +1000 coins" if i == 1 else (" +500 coins" if i == 2 else "")
                     rank_lines.append(
                         f"{medal} **{name}** — {r['wins']}W-{r['losses']}L — {r['points']}pts{bonus}"
                     )
                 embed.add_field(name="Final Standings", value="\n".join(rank_lines), inline=False)
             else:
-                # 生成下一轮 Swiss 对阵
                 cur.execute(
                     "SELECT discord_id, seed, points FROM tournament_players WHERE tournament_id=? ORDER BY points DESC, seed ASC",
                     (tournament_id,),
@@ -737,9 +989,9 @@ class Tournament(commands.Cog):
                 )
                 match_lines = []
                 for nm in cur.fetchall():
-                    a_name = self._get_display_name(interaction, nm["player_a_id"])
+                    a_name = _display_name(interaction.guild, nm["player_a_id"])
                     if nm["player_b_id"]:
-                        b_name = self._get_display_name(interaction, nm["player_b_id"])
+                        b_name = _display_name(interaction.guild, nm["player_b_id"])
                         match_lines.append(f"`#{nm['id']}` {a_name} vs {b_name}")
                     else:
                         match_lines.append(f"`#{nm['id']}` {a_name} — **BYE**")
@@ -748,8 +1000,14 @@ class Tournament(commands.Cog):
         conn.close()
         await interaction.response.send_message(embed=embed)
 
-    # ---------- list ----------
-    async def _list(self, interaction):
+    # =====================================================================
+    # list
+    # =====================================================================
+    @tournament.command(
+        name="list",
+        description="List all tournaments / 赛事列表",
+    )
+    async def list_cmd(self, interaction: discord.Interaction):
         conn = get_db(); cur = conn.cursor()
         cur.execute(
             "SELECT t.id, t.name, t.format, t.status, t.max_players, t.rounds, "
@@ -776,12 +1034,232 @@ class Tournament(commands.Cog):
 
         await interaction.response.send_message("\n".join(lines))
 
-    # ---------- 辅助 ----------
-    def _get_display_name(self, interaction, discord_id):
-        if not interaction.guild:
-            return f"<@{discord_id}>"
-        member = interaction.guild.get_member(int(discord_id))
-        return member.display_name if member else f"<@{discord_id}>"
+    # =====================================================================
+    # draft-setup — 队长选秀设置
+    # =====================================================================
+    @tournament.command(
+        name="draft-setup",
+        description="Setup captain draft / 设置队长选秀（管理员）",
+    )
+    @app_commands.describe(
+        captains="Captain IDs (comma-separated) / 队长 Discord ID（逗号分隔）",
+        tournament_id="Tournament ID (optional) / 赛事ID（可选）",
+    )
+    async def draft_setup_cmd(
+        self, interaction: discord.Interaction,
+        captains: str,
+        tournament_id: int = None,
+    ):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("仅管理员可设置队长选秀。", ephemeral=True)
+
+        captain_ids = [x.strip() for x in captains.split(",") if x.strip()]
+        if len(captain_ids) < 2:
+            return await interaction.response.send_message("至少需要 2 名队长。", ephemeral=True)
+
+        # Get available players from tournament_players (or all registered if no tournament)
+        conn = get_db(); cur = conn.cursor()
+        if tournament_id:
+            cur.execute(
+                "SELECT discord_id, tier FROM tournament_players WHERE tournament_id=?",
+                (tournament_id,),
+            )
+        else:
+            cur.execute("SELECT discord_id, 'UNRANKED' as tier FROM player_riot")
+        available = cur.fetchall()
+
+        if len(available) < len(captain_ids):
+            conn.close()
+            return await interaction.response.send_message(f"可用玩家 ({len(available)}) 少于队长数量 ({len(captain_ids)})。", ephemeral=True)
+
+        # Collect tier scores for captains + available players
+        available_players = []
+        for r in available:
+            tier_key = r["tier"].upper() if r["tier"] else "UNRANKED"
+            r_score = TIER_SCORE.get(tier_key, 1)
+            # Also try to get Riot data for more accurate tier
+            available_players.append((r["discord_id"], r_score, _display_name(interaction.guild, r["discord_id"]), tier_key))
+
+        # Also try to fetch Riot tiers for more accurate scores
+        for i, (pid, score, name, tier) in enumerate(available_players):
+            if not self.session:
+                break
+            try:
+                tier_display, tier_key, tier_score = await fetch_player_tier(self.session, pid)
+                if tier_key and tier_key != "UNRANKED":
+                    available_players[i] = (pid, tier_score, _display_name(interaction.guild, pid), tier_key.upper())
+            except Exception:
+                pass
+
+        # Create draft session
+        cur.execute(
+            "INSERT INTO draft_sessions (tournament_id, status, created_by) VALUES (?, 'active', ?)",
+            (tournament_id, str(interaction.user.id)),
+        )
+        draft_id = cur.lastrowid
+
+        # Register captains with tier scores
+        for i, cid in enumerate(captain_ids):
+            cap_score = 0
+            cap_tier = "UNRANKED"
+            if self.session:
+                try:
+                    _, tier_key, tier_score = await fetch_player_tier(self.session, cid)
+                    if tier_key:
+                        cap_score = tier_score
+                        cap_tier = tier_key.upper()
+                except Exception:
+                    pass
+
+            team_name = f"Team {_display_name(interaction.guild, cid)}"
+            cur.execute(
+                "INSERT INTO draft_captains (draft_id, captain_id, team_name, pick_order, tier_score) VALUES (?,?,?,?,?)",
+                (draft_id, cid, team_name, i + 1, cap_score),
+            )
+            # Remove captain from available pool
+            available_players = [p for p in available_players if p[0] != cid]
+
+        conn.commit(); conn.close()
+
+        # Build captains info for DraftView
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT captain_id, team_name, pick_order, tier_score FROM draft_captains WHERE draft_id=? ORDER BY pick_order", (draft_id,))
+        captains_info = [dict(r) for r in cur.fetchall()]
+        conn.close()
+
+        view = DraftView(draft_id, captains_info, available_players, interaction.guild)
+        embed = view.build_embed()
+
+        # Announce draft start
+        draft_link = f"Draft ID: {draft_id}"
+        embed.description = (
+            f"队长选秀已开始！\n"
+            f"轮到: **{_display_name(interaction.guild, view.current_captain['captain_id'])}**\n\n"
+            f"使用下拉菜单选人 → 点击确认按钮\n"
+            f"Use dropdown to pick → click Confirm\n\n"
+            f"{draft_link}"
+        )
+
+        await interaction.response.send_message(embed=embed, view=view)
+
+    # =====================================================================
+    # draft-status
+    # =====================================================================
+    @tournament.command(
+        name="draft-status",
+        description="View draft status / 查看选秀状态",
+    )
+    @app_commands.describe(draft_id="Draft ID / 选秀ID")
+    async def draft_status_cmd(self, interaction: discord.Interaction, draft_id: int):
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT * FROM draft_sessions WHERE id=?", (draft_id,))
+        draft = cur.fetchone()
+        if not draft:
+            conn.close()
+            return await interaction.response.send_message("选秀不存在。", ephemeral=True)
+
+        cur.execute("SELECT * FROM draft_captains WHERE draft_id=? ORDER BY pick_order", (draft_id,))
+        caps = cur.fetchall()
+
+        cur.execute("SELECT * FROM draft_picks WHERE draft_id=? ORDER BY pick_number", (draft_id,))
+        picks = cur.fetchall()
+        conn.close()
+
+        embed = discord.Embed(
+            title=f"Draft #{draft_id} — {draft['status']}",
+            color=discord.Color.blue(),
+        )
+
+        for cap in caps:
+            team_picks = [p for p in picks if p["captain_id"] == cap["captain_id"]]
+            names = [_display_name(interaction.guild, p["player_id"]) for p in team_picks]
+            embed.add_field(
+                name=f"{cap['team_name']} ({cap['tier_score']} pts)",
+                value="\n".join(names) if names else "(暂无队员 / Empty)",
+                inline=True,
+            )
+
+        await interaction.response.send_message(embed=embed)
+
+    # =====================================================================
+    # draft-roster
+    # =====================================================================
+    @tournament.command(
+        name="draft-roster",
+        description="View final draft roster / 查看最终选秀名单",
+    )
+    @app_commands.describe(draft_id="Draft ID / 选秀ID")
+    async def draft_roster_cmd(self, interaction: discord.Interaction, draft_id: int):
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT * FROM draft_sessions WHERE id=?", (draft_id,))
+        draft = cur.fetchone()
+        if not draft:
+            conn.close()
+            return await interaction.response.send_message("选秀不存在。", ephemeral=True)
+
+        cur.execute("SELECT * FROM draft_captains WHERE draft_id=? ORDER BY pick_order", (draft_id,))
+        caps = cur.fetchall()
+
+        cur.execute("SELECT * FROM draft_picks WHERE draft_id=? ORDER BY pick_number", (draft_id,))
+        picks = cur.fetchall()
+        conn.close()
+
+        embed = discord.Embed(
+            title=f"FINAL ROSTER — Draft #{draft_id}",
+            description="✅ 队长选秀最终名单",
+            color=discord.Color.gold(),
+        )
+
+        for cap in caps:
+            team_picks = [p for p in picks if p["captain_id"] == cap["captain_id"]]
+            names = []
+            total_score = cap["tier_score"]
+            for p in team_picks:
+                # Try to get tier score from available data
+                names.append(_display_name(interaction.guild, p["player_id"]))
+            total_score += len(team_picks)  # approximate
+
+            embed.add_field(
+                name=f"{cap['team_name']} (队长 {cap['tier_score']} pts)",
+                value="\n".join(names) if names else "(空)",
+                inline=True,
+            )
+
+        # Draft pick order summary
+        pick_lines = []
+        for p in picks:
+            cap_info = next((c for c in caps if c["captain_id"] == p["captain_id"]), None)
+            team_label = cap_info["team_name"] if cap_info else p["captain_id"]
+            pick_lines.append(
+                f"`#{p['pick_number']}` {team_label} → {_display_name(interaction.guild, p['player_id'])}"
+            )
+        if pick_lines:
+            embed.add_field(name="选秀顺序 / Pick Order", value="\n".join(pick_lines), inline=False)
+
+        await interaction.response.send_message(embed=embed)
+
+    # =====================================================================
+    # draft-cancel
+    # =====================================================================
+    @tournament.command(
+        name="draft-cancel",
+        description="Cancel a draft / 取消选秀（管理员）",
+    )
+    @app_commands.describe(draft_id="Draft ID / 选秀ID")
+    async def draft_cancel_cmd(self, interaction: discord.Interaction, draft_id: int):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("仅管理员可取消选秀。", ephemeral=True)
+
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT * FROM draft_sessions WHERE id=?", (draft_id,))
+        draft = cur.fetchone()
+        if not draft:
+            conn.close()
+            return await interaction.response.send_message("选秀不存在。", ephemeral=True)
+
+        cur.execute("UPDATE draft_sessions SET status='cancelled' WHERE id=?", (draft_id,))
+        conn.commit(); conn.close()
+        await interaction.response.send_message(f"Draft #{draft_id} 已取消 / cancelled.")
 
 
 async def setup(bot):
