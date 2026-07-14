@@ -111,5 +111,47 @@ def init_db():
         );
     """)
 
+    # --- 新增锦标赛字段（Swiss/Elimination Tournament System）---
+    for col, col_type in [
+        ("format", "TEXT DEFAULT 'swiss'"),
+        ("max_players", "INTEGER DEFAULT 32"),
+        ("rounds", "INTEGER DEFAULT 3"),
+        ("tier_restriction", "TEXT"),
+    ]:
+        try:
+            cursor.execute(f"ALTER TABLE tournaments ADD COLUMN {col} {col_type}")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+    cursor.executescript("""
+        CREATE TABLE IF NOT EXISTS tournament_players (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            tournament_id   INTEGER NOT NULL,
+            discord_id      TEXT NOT NULL,
+            wins            INTEGER DEFAULT 0,
+            losses          INTEGER DEFAULT 0,
+            draws           INTEGER DEFAULT 0,
+            points          INTEGER DEFAULT 0,
+            seed            INTEGER,
+            tier            TEXT,
+            UNIQUE(tournament_id, discord_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS tournament_matches (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            tournament_id   INTEGER NOT NULL,
+            round           INTEGER NOT NULL,
+            match_index     INTEGER NOT NULL,
+            player_a_id     TEXT NOT NULL,
+            player_b_id     TEXT,
+            score_a         INTEGER DEFAULT 0,
+            score_b         INTEGER DEFAULT 0,
+            winner_id       TEXT,
+            status          TEXT DEFAULT 'pending',
+            reported_by     TEXT,
+            reported_at     TEXT
+        );
+    """)
+
     conn.commit()
     conn.close()
