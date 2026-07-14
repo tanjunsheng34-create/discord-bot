@@ -2,7 +2,6 @@
 GMPT Bot — Tournament System (Swiss / Elimination)
 Create, signup, bracket, standings, report, economy rewards.
 """
-import asyncio
 import os
 import discord
 from discord import app_commands
@@ -151,8 +150,8 @@ class Tournament(commands.Cog):
     )
     @app_commands.describe(
         action="Action / 操作",
-        name="Tournament name / 赛事名称",
-        format="Format / 赛制",
+        tournament_name="Tournament name / 赛事名称",
+        tournament_format="Format / 赛制",
         rounds="Number of Swiss rounds / Swiss 轮数",
         max_players="Max players / 最大人数",
     )
@@ -166,15 +165,15 @@ class Tournament(commands.Cog):
         app_commands.Choice(name="Report / 上报比分", value="report"),
         app_commands.Choice(name="List / 赛事列表", value="list"),
     ])
-    @app_commands.choices(format=[
+    @app_commands.choices(tournament_format=[
         app_commands.Choice(name="Swiss (瑞士轮)", value="swiss"),
         app_commands.Choice(name="Elimination (淘汰赛)", value="elimination"),
     ])
     async def tournament_cmd(
         self, interaction: discord.Interaction,
         action: str,
-        name: str = None,
-        format: str = "swiss",
+        tournament_name: str = None,
+        tournament_format: str = "swiss",
         rounds: int = 3,
         max_players: int = 32,
         tournament_id: int = None,
@@ -183,7 +182,7 @@ class Tournament(commands.Cog):
         score_b: int = 0,
     ):
         if action == "create":
-            await self._create(interaction, name, format, rounds, max_players)
+            await self._create(interaction, tournament_name, tournament_format, rounds, max_players)
         elif action == "signup":
             await self._signup(interaction, tournament_id)
         elif action == "players":
@@ -200,26 +199,26 @@ class Tournament(commands.Cog):
             await self._list(interaction)
 
     # ---------- create ----------
-    async def _create(self, interaction, name, fmt, rounds, max_players):
+    async def _create(self, interaction, tournament_name, tournament_format, rounds, max_players):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message(
                 "仅管理员可创建锦标赛。", ephemeral=True
             )
-        if not name:
+        if not tournament_name:
             return await interaction.response.send_message("请提供赛事名称。", ephemeral=True)
 
         conn = get_db(); cur = conn.cursor()
         cur.execute(
             "INSERT INTO tournaments (name, format, max_players, rounds, status, created_by) "
             "VALUES (?,?,?,?,'signup',?)",
-            (name, fmt, max_players, rounds, str(interaction.user.id)),
+            (tournament_name, tournament_format, max_players, rounds, str(interaction.user.id)),
         )
         conn.commit(); tid = cur.lastrowid; conn.close()
 
         embed = discord.Embed(
-            title=f"Tournament: {name}",
+            title=f"Tournament: {tournament_name}",
             description=(
-                f"Format: **{fmt.upper()}** | Rounds: **{rounds}** | Max: **{max_players}**\n"
+                f"Format: **{tournament_format.upper()}** | Rounds: **{rounds}** | Max: **{max_players}**\n"
                 f"Status: **Signup**\n\n"
                 f"报名: `/gmpt-tournament signup tournament_id:{tid}`"
             ),
