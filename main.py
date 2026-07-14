@@ -34,9 +34,14 @@ async def on_ready():
 
 
 async def main():
+    import traceback
     for cog in COGS:
-        await bot.load_extension(cog)
-        print(f"Loaded: {cog}")
+        try:
+            await bot.load_extension(cog)
+            print(f"Loaded: {cog}")
+        except Exception as e:
+            print(f"FAILED to load {cog}: {e}")
+            traceback.print_exc()
     await bot.start(TOKEN)
 
 

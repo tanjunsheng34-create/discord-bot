@@ -11,7 +11,12 @@ from database import get_db
 from cogs.economy import check_achievement, add_coins
 import aiohttp
 import os
-from PIL import Image, ImageDraw, ImageFont
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+    print("[LOL] Pillow not installed — image features disabled")
 
 RIOT_KEY = os.getenv("RIOT_API_KEY", "")
 
@@ -358,20 +363,27 @@ class GMPT(commands.Cog):
         conn.commit(); conn.close()
 
         # 生成对战图
-        img_buf = _generate_battle_image(t["name"], blue_names, red_names)
-        f = discord.File(img_buf, filename="battle.png")
-
-        embed = discord.Embed(
-            title=f"Match: {t['name']}",
-            description=(
+        if PIL_AVAILABLE:
+            img_buf = _generate_battle_image(t["name"], blue_names, red_names)
+            f = discord.File(img_buf, filename="battle.png")
+            embed = discord.Embed(
+                title=f"Match: {t['name']}",
+                description=(
+                    f"🔵 **蓝队 Blue** (ID:{aid}): {' '.join(f'<@{u}>' for u in ta)}\n"
+                    f"🔴 **红队 Red** (ID:{bid}): {' '.join(f'<@{u}>' for u in tb)}\n\n"
+                    f"结算: `/gmpt-settle {match_id} <获胜队伍ID>`"
+                ),
+                color=discord.Color.gold(),
+            )
+            embed.set_image(url="attachment://battle.png")
+            await interaction.response.send_message(file=f, embed=embed)
+        else:
+            await interaction.response.send_message(
+                f"**Match: {t['name']}**\n\n"
                 f"🔵 **蓝队 Blue** (ID:{aid}): {' '.join(f'<@{u}>' for u in ta)}\n"
                 f"🔴 **红队 Red** (ID:{bid}): {' '.join(f'<@{u}>' for u in tb)}\n\n"
                 f"结算: `/gmpt-settle {match_id} <获胜队伍ID>`"
-            ),
-            color=discord.Color.gold(),
-        )
-        embed.set_image(url="attachment://battle.png")
-        await interaction.response.send_message(file=f, embed=embed)
+            )
 
     # ============ 结算 ============
     @app_commands.command(
@@ -459,19 +471,25 @@ class GMPT(commands.Cog):
 
         conn.close()
 
-        img_buf = _generate_result_image(t["name"], winner_name, win_names, los_names)
-        f = discord.File(img_buf, filename="result.png")
-
-        embed = discord.Embed(
-            title=f"Match: {t['name']} - 已结算",
-            description=(
+        if PIL_AVAILABLE:
+            img_buf = _generate_result_image(t["name"], winner_name, win_names, los_names)
+            f = discord.File(img_buf, filename="result.png")
+            embed = discord.Embed(
+                title=f"Match: {t['name']} - 已结算",
+                description=(
+                    f"🏆 **{winner_name}** 胜方每人 +100\n"
+                    f"💔 败方每人 +20{mvp_text}"
+                ),
+                color=discord.Color.gold(),
+            )
+            embed.set_image(url="attachment://result.png")
+            await interaction.response.send_message(file=f, embed=embed)
+        else:
+            await interaction.response.send_message(
+                f"**Match: {t['name']} - 已结算**\n\n"
                 f"🏆 **{winner_name}** 胜方每人 +100\n"
                 f"💔 败方每人 +20{mvp_text}"
-            ),
-            color=discord.Color.gold(),
-        )
-        embed.set_image(url="attachment://result.png")
-        await interaction.response.send_message(file=f, embed=embed)
+            )
 
     # ============ 查看玩家 ============
     @app_commands.command(
