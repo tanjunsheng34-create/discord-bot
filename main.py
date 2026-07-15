@@ -22,6 +22,7 @@ COGS = [
     "cogs.dashboard",
     "cogs.giveaway",
     "cogs.voice_tracker",
+    "cogs.admin_backup",
 ]
 
 

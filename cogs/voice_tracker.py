@@ -8,6 +8,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from database import get_db
+from cogs.tournament import ConfirmView
 
 # UTC+8 timezone
 UTC8 = timezone(timedelta(hours=8))
@@ -234,10 +235,13 @@ class VoiceTimeView(discord.ui.View):
         self.cog = cog
 
         if not is_admin:
-            # Remove "View Someone" button for non-admins
+            # Hide admin-only buttons for non-admins
             self.view_other_btn.disabled = True
             self.view_other_btn.style = discord.ButtonStyle.secondary
             self.view_other_btn.label = "View Someone (Admin Only)"
+            self.reset_all_voice_btn.disabled = True
+            self.reset_all_voice_btn.style = discord.ButtonStyle.secondary
+            self.reset_all_voice_btn.label = "Reset All Voice (Admin Only)"
 
     @discord.ui.button(label="View Self", style=discord.ButtonStyle.primary, emoji="👤", row=0)
     async def view_self_btn(self, interaction: discord.Interaction, button):
@@ -312,6 +316,43 @@ class VoiceTimeView(discord.ui.View):
         view = discord.ui.View(timeout=60)
         view.add_item(select)
         await interaction.response.send_message(view=view, ephemeral=True)
+
+    @discord.ui.button(label="Reset All Voice", style=discord.ButtonStyle.danger, emoji="🗑️", row=1)
+    async def reset_all_voice_btn(self, interaction: discord.Interaction, button):
+        """Admin-only: reset all voice tracker data to zero."""
+        if not self.is_admin:
+            return await interaction.response.send_message("Admin only.", ephemeral=True)
+
+        confirm = ConfirmView(timeout=60)
+        embed = discord.Embed(
+            title="Reset All Voice Data?",
+            description=(
+                "This will reset **all** voice tracking stats to zero for **everyone**.\n"
+                "所有人语音统计数据将被清零。\n\n"
+                "Are you sure? / 确定吗？"
+            ),
+            color=discord.Color.red(),
+        )
+        await interaction.response.send_message(embed=embed, view=confirm, ephemeral=True)
+        await confirm.wait()
+
+        if confirm.value is None or not confirm.value:
+            return await interaction.edit_original_response(
+                content="Cancelled.", embed=None, view=None
+            )
+
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("UPDATE voice_tracker SET total_seconds=0, login_days=0, total_joins=0")
+        affected = cur.rowcount
+        conn.commit()
+        conn.close()
+
+        await interaction.edit_original_response(
+            content=f"Reset {affected} voice tracking record(s). / 已重置 {affected} 条语音追踪记录。",
+            embed=None,
+            view=None,
+        )
 
 
 # =============================================================================
