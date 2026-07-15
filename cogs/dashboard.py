@@ -556,6 +556,7 @@ async def _execute_settle(match_id, win_team_id, mvp_id, guild, match_name):
     cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=? AND team_id=?", (match_id, win_team_id))
     winner_ids = [r["discord_id"] for r in cur.fetchall()]
     for wid in winner_ids:
+        cur.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (wid,))
         cur.execute("UPDATE users SET score=score+150 WHERE discord_id=?", (wid,))
         cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
                      (wid, 150, f"Match win #{match_id}"))
@@ -565,12 +566,14 @@ async def _execute_settle(match_id, win_team_id, mvp_id, guild, match_name):
     cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=? AND team_id!=?", (match_id, win_team_id))
     loser_ids = [r["discord_id"] for r in cur.fetchall()]
     for lid in loser_ids:
+        cur.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (lid,))
         cur.execute("UPDATE users SET score=score+50 WHERE discord_id=?", (lid,))
         cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
                      (lid, 50, f"Match participation #{match_id}"))
 
     # MVP +50
     if mvp_id:
+        cur.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (mvp_id,))
         cur.execute("UPDATE users SET score=score+50 WHERE discord_id=?", (mvp_id,))
         cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
                      (mvp_id, 50, f"MVP #{match_id}"))

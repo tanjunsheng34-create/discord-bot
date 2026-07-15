@@ -536,7 +536,13 @@ def add_coins(user_id: str, amount: int, reason: str):
 
 
 def get_balance(user_id: str) -> int:
+    """返回用户余额。首次访问自动创建用户行（初始500），确保后续 UPDATE 能生效。"""
     conn = get_db(); cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO users (discord_id, username) VALUES (?, 'unknown') ON CONFLICT(discord_id) DO NOTHING",
+        (user_id,),
+    )
+    conn.commit()
     cur.execute("SELECT score FROM users WHERE discord_id=?", (user_id,))
     row = cur.fetchone(); conn.close()
     return row["score"] if row else 500
