@@ -19,6 +19,7 @@ COGS = [
     "cogs.economy",
     "cogs.tournament",
     "cogs.lol",
+    "cogs.dashboard",
 ]
 
 
