@@ -25,15 +25,13 @@ COGS = [
 @bot.event
 async def on_ready():
     init_db()
+    print(f"Bot online: {bot.user}")
     try:
-        # 先清除 Discord 端所有全局旧命令残留（如已改名的 gmpt-players）
-        await bot.tree.clear_commands(guild=None)
-        # 重新同步当前所有已注册命令
-        synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} commands")
+        bot.tree.clear_commands(guild=None)
+        await bot.tree.sync()
+        print(f"Synced {len(await bot.tree.fetch_commands())} commands")
     except Exception as e:
         print(f"Sync error: {e}")
-    print(f"Bot online: {bot.user}")
 
 
 async def main():
