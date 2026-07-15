@@ -852,7 +852,7 @@ class DashboardView(discord.ui.View):
         view.add_item(select)
         await interaction.response.send_message(view=view, ephemeral=True)
 
-    @discord.ui.button(label="对阵表", style=discord.ButtonStyle.secondary, emoji="📋", row=1)
+    @discord.ui.button(label="对阵表", style=discord.ButtonStyle.secondary, emoji="📋", row=2)
     async def bracket_btn(self, interaction: discord.Interaction, button):
         conn = get_db(); cur = conn.cursor()
         cur.execute(
@@ -957,20 +957,28 @@ class Dashboard(commands.Cog):
         description="Open the unified control panel / 打开统一控制面板",
     )
     async def dashboard_cmd(self, interaction: discord.Interaction):
-        embed = discord.Embed(
-            title="GMPT 控制面板",
-            description=(
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
-                "**自定义分队 (Custom Team)** | **锦标赛 (Tournament)**\n"
-                "━━━━━━━━━━━━━━━━━━━━━━\n"
-                "选择一个功能开始操作\n\n"
-                "第一行: 创建比赛 | 报名参加 | 选队长 | 分 A/B 队 | 开打\n"
-                "第二行: 创建赛事 | 报名 | 选秀/选队长 | 上报比分 | 排名 | 对阵表"
-            ),
-            color=discord.Color.blurple(),
-        ).set_footer(text="GMPT Dashboard v1.0")
-        view = DashboardView(guild=interaction.guild, session=self.session)
-        await interaction.response.send_message(embed=embed, view=view)
+        await interaction.response.defer(thinking=False)
+        try:
+            embed = discord.Embed(
+                title="GMPT 控制面板",
+                description=(
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**自定义分队 (Custom Team)** | **锦标赛 (Tournament)**\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "选择一个功能开始操作\n\n"
+                    "第一行: 创建比赛 | 报名参加 | 选队长 | 分 A/B 队 | 开打\n"
+                    "第二行: 创建赛事 | 报名 | 选秀/选队长 | 上报比分 | 排名\n"
+                    "第三行: 对阵表"
+                ),
+                color=discord.Color.blurple(),
+            ).set_footer(text="GMPT Dashboard v1.1")
+            view = DashboardView(guild=interaction.guild, session=self.session)
+            await interaction.edit_original_response(embed=embed, view=view)
+        except Exception as e:
+            import traceback
+            print(f"[Dashboard] Error in dashboard_cmd: {e}")
+            traceback.print_exc()
+            await interaction.edit_original_response(content="控制面板加载失败，请稍后重试。")
 
 
 async def setup(bot):
