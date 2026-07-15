@@ -20,6 +20,8 @@ COGS = [
     "cogs.tournament",
     "cogs.lol",
     "cogs.dashboard",
+    "cogs.giveaway",
+    "cogs.voice_tracker",
 ]
 
 

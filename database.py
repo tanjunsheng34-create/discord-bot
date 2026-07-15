@@ -233,6 +233,37 @@ def init_db():
             total_seconds INTEGER DEFAULT 0,
             PRIMARY KEY (discord_id, join_time)
         );
+
+        -- === Giveaway system ===
+        CREATE TABLE IF NOT EXISTS giveaway (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id          TEXT NOT NULL,
+            channel_id        TEXT NOT NULL,
+            message_id        TEXT,
+            prize             TEXT NOT NULL,
+            duration_minutes  INTEGER NOT NULL,
+            winner_count      INTEGER NOT NULL DEFAULT 1,
+            created_by        TEXT NOT NULL,
+            ends_at           TEXT,
+            status            TEXT DEFAULT 'active'
+        );
+
+        CREATE TABLE IF NOT EXISTS giveaway_entries (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            giveaway_id   INTEGER NOT NULL,
+            user_id       TEXT NOT NULL,
+            UNIQUE(giveaway_id, user_id)
+        );
+
+        -- === Voice / online time tracker (stats) ===
+        CREATE TABLE IF NOT EXISTS voice_tracker (
+            user_id         TEXT PRIMARY KEY,
+            total_seconds   INTEGER DEFAULT 0,
+            login_days      INTEGER DEFAULT 0,
+            total_joins     INTEGER DEFAULT 0,
+            last_join_date  TEXT,
+            last_join_time  TEXT
+        );
     """)
 
     conn.commit()
