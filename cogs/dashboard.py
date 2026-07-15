@@ -61,10 +61,11 @@ class CreateMatchModal(discord.ui.Modal, title="创建比赛 / Create Match"):
 
         embed = discord.Embed(
             title=f"Match: {self.match_name.value}",
-            description=f"**{mp}** 人 | 每队 {team_size}\n报名: `/gmpt-join {tid}`",
+            description=f"**{mp}** 人 | 每队 {team_size}\n点击下方按钮报名",
             color=discord.Color.blue(),
         ).set_footer(text=f"Match ID: {tid}")
-        await interaction.response.send_message(embed=embed)
+        view = MatchView(match_id=tid, guild=self.guild)
+        await interaction.response.send_message(embed=embed, view=view)
 
 
 class CreateTournamentModal(discord.ui.Modal, title="创建赛事 / Create Tournament"):
@@ -310,6 +311,90 @@ class TeamAssignView(discord.ui.View):
                 inline=False,
             )
         return embed
+
+
+# =============================================================================
+# MatchView — 比赛创建后附带的报名 / 查看按钮
+# =============================================================================
+class MatchView(discord.ui.View):
+    def __init__(self, match_id, guild, timeout=None):
+        super().__init__(timeout=timeout)
+        self.match_id = match_id
+        self.guild = guild
+
+    @discord.ui.button(label="报名 Sign Up", style=discord.ButtonStyle.success, emoji="✋", row=0)
+    async def signup_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            conn = get_db(); cur = conn.cursor()
+            cur.execute("SELECT * FROM tournaments WHERE id=?", (self.match_id,))
+            t = cur.fetchone()
+            if not t or t["status"] != "open":
+                conn.close()
+                return await interaction.followup.send("报名已关闭或比赛不存在。", ephemeral=True)
+
+            max_p = t["max_teams"] * t["team_size"]
+            cur.execute("SELECT COUNT(*) as cnt FROM registrations WHERE tournament_id=?", (self.match_id,))
+            cnt = cur.fetchone()["cnt"]
+            if cnt >= max_p:
+                conn.close()
+                return await interaction.followup.send("报名已满。", ephemeral=True)
+
+            uid = str(interaction.user.id)
+            cur.execute(
+                "SELECT id FROM registrations WHERE tournament_id=? AND discord_id=?",
+                (self.match_id, uid),
+            )
+            if cur.fetchone():
+                conn.close()
+                return await interaction.followup.send("你已经报过名了。", ephemeral=True)
+
+            cur.execute(
+                "INSERT INTO registrations (tournament_id, discord_id) VALUES (?,?)",
+                (self.match_id, uid),
+            )
+            cur.execute(
+                "INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)",
+                (uid, interaction.user.name),
+            )
+            conn.commit(); conn.close()
+            await interaction.followup.send(
+                f"✅ {interaction.user.mention} 报名成功！({cnt+1}/{max_p})", ephemeral=True
+            )
+        except Exception as e:
+            import traceback
+            print(f"[MatchView] signup error: {e}")
+            traceback.print_exc()
+            await interaction.followup.send("报名失败，请稍后重试。", ephemeral=True)
+
+    @discord.ui.button(label="查看已报名", style=discord.ButtonStyle.secondary, emoji="📋", row=0)
+    async def view_signups_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            conn = get_db(); cur = conn.cursor()
+            cur.execute(
+                "SELECT discord_id FROM registrations WHERE tournament_id=? ORDER BY id ASC",
+                (self.match_id,),
+            )
+            rows = cur.fetchall()
+            conn.close()
+            if not rows:
+                return await interaction.followup.send("暂无玩家报名。", ephemeral=True)
+
+            names = []
+            for r in rows:
+                member = self.guild.get_member(int(r["discord_id"]))
+                names.append(member.display_name if member else r["discord_id"])
+
+            text = "\n".join(f"{i+1}. {n}" for i, n in enumerate(names))
+            await interaction.followup.send(
+                f"**已报名玩家 ({len(names)}人):**\n{text}", ephemeral=True
+            )
+        except Exception as e:
+            import traceback
+            print(f"[MatchView] view error: {e}")
+            traceback.print_exc()
+            await interaction.followup.send("查询失败，请稍后重试。", ephemeral=True)
 
 
 # =============================================================================

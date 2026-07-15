@@ -292,10 +292,12 @@ class GMPT(commands.Cog):
 
         embed = discord.Embed(
             title=f"Match: {match_name}",
-            description=f"**{max_players}** 人 | 每队 {team_size}\n报名: `/gmpt-join {tid}`",
+            description=f"**{max_players}** 人 | 每队 {team_size}\n点击下方按钮报名",
             color=discord.Color.gold(),
         ).set_footer(text=f"Match ID: {tid}")
-        await interaction.response.send_message(embed=embed)
+        from cogs.dashboard import MatchView
+        view = MatchView(match_id=tid, guild=interaction.guild)
+        await interaction.response.send_message(embed=embed, view=view)
 
     # ============ 报名 ============
     @app_commands.command(
