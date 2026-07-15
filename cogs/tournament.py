@@ -407,6 +407,187 @@ class DraftView(discord.ui.View):
 
 
 # =============================================================================
+# CreateTournamentView — 创建赛事后直接附带报名/查看/取消按钮
+# =============================================================================
+class CreateTournamentView(discord.ui.View):
+    def __init__(self, tournament_id, tournament_name, tournament_format,
+                 rounds, max_players, created_by, guild, session, timeout=None):
+        super().__init__(timeout=timeout)
+        self.tournament_id = tournament_id
+        self.tournament_name = tournament_name
+        self.tournament_format = tournament_format
+        self.rounds = rounds
+        self.max_players = max_players
+        self.created_by = created_by
+        self.guild = guild
+        self.session = session
+
+    # ---------------------------------------------------------------
+    # 报名 / Sign Up
+    # ---------------------------------------------------------------
+    @discord.ui.button(label="报名 Sign Up", style=discord.ButtonStyle.primary, emoji="✍️", row=0)
+    async def signup_button(self, interaction: discord.Interaction, button):
+        conn = get_db(); cur = conn.cursor()
+        t = get_tournament_or_none(cur, self.tournament_id)
+        if not t or t["status"] != "signup":
+            conn.close()
+            return await interaction.response.send_message("该锦标赛报名已关闭。", ephemeral=True)
+
+        uid = str(interaction.user.id)
+
+        tier_restriction = t["tier_restriction"]
+        if tier_restriction:
+            allowed = set(x.strip().upper() for x in tier_restriction.split(","))
+            _, tier_name, _ = await fetch_player_tier(self.session, uid)
+            if tier_name and tier_name.upper() not in allowed:
+                conn.close()
+                return await interaction.response.send_message(
+                    f"你的段位 **{tier_name}** 不符合本赛事要求（限 {', '.join(sorted(allowed))}）。",
+                    ephemeral=True,
+                )
+
+        cur.execute(
+            "SELECT id FROM tournament_players WHERE tournament_id=? AND discord_id=?",
+            (self.tournament_id, uid),
+        )
+        if cur.fetchone():
+            conn.close()
+            return await interaction.response.send_message("你已经报名了这个锦标赛。", ephemeral=True)
+
+        max_p = t["max_players"] or 32
+        cur.execute("SELECT COUNT(*) as cnt FROM tournament_players WHERE tournament_id=?",
+                     (self.tournament_id,))
+        cnt = cur.fetchone()["cnt"]
+        if cnt >= max_p:
+            conn.close()
+            return await interaction.response.send_message(f"报名已满（{max_p}人）。", ephemeral=True)
+
+        tier_display, tier_key, _ = await fetch_player_tier(self.session, uid)
+        if tier_display is None:
+            tier_display = "未关联"
+            tier_key = "UNRANKED"
+
+        conn.close()
+
+        embed = discord.Embed(
+            title="确认报名 / Confirm Signup",
+            description=(
+                f"锦标赛: **{self.tournament_name}**\n"
+                f"段位: **{tier_display}**\n"
+                f"人数: **{cnt}/{max_p}**\n\n"
+                f"点击下方按钮确认报名。"
+            ),
+            color=discord.Color.gold(),
+        )
+        confirm_view = ConfirmView(timeout=60)
+        await interaction.response.send_message(embed=embed, view=confirm_view, ephemeral=True)
+        await confirm_view.wait()
+        if confirm_view.value is None or not confirm_view.value:
+            return
+
+        conn = get_db(); cur = conn.cursor()
+        seed_val = TIER_SEED.get(tier_key.upper() if tier_key else "UNRANKED", 10)
+        cur.execute(
+            "SELECT MAX(seed) as max_seed FROM tournament_players WHERE tournament_id=? AND tier=?",
+            (self.tournament_id, tier_key.upper()),
+        )
+        row = cur.fetchone()
+        if row and row["max_seed"] is not None:
+            seed_val = row["max_seed"] + 1
+
+        cur.execute(
+            "INSERT INTO tournament_players (tournament_id, discord_id, seed, tier) VALUES (?,?,?,?)",
+            (self.tournament_id, uid, seed_val, tier_key.upper() if tier_key else "UNRANKED"),
+        )
+        cur.execute(
+            "INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)",
+            (uid, interaction.user.name),
+        )
+        conn.commit(); conn.close()
+
+        await interaction.edit_original_response(
+            content=f"✅ {interaction.user.mention} 报名成功！\n"
+                    f"锦标赛: **{self.tournament_name}** | 段位: **{tier_display}** | ({cnt+1}/{max_p})",
+            embed=None,
+            view=None,
+        )
+
+    # ---------------------------------------------------------------
+    # 查看报名列表 / View Signups
+    # ---------------------------------------------------------------
+    @discord.ui.button(label="查看报名 View Signups", style=discord.ButtonStyle.secondary, row=0)
+    async def view_signups(self, interaction: discord.Interaction, button):
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT tp.discord_id, tp.seed, tp.tier, u.username "
+            "FROM tournament_players tp "
+            "LEFT JOIN users u ON u.discord_id = tp.discord_id "
+            "WHERE tp.tournament_id=? "
+            "ORDER BY tp.seed ASC",
+            (self.tournament_id,),
+        )
+        rows = cur.fetchall()
+        conn.close()
+
+        if not rows:
+            return await interaction.response.send_message("暂无玩家报名。", ephemeral=True)
+
+        lines = [f"**{self.tournament_name} 报名列表 ({len(rows)}人)**\n"]
+        for i, r in enumerate(rows, 1):
+            name = r["username"] if r["username"] else r["discord_id"]
+            tier_str = f" `{r['tier']}`" if r["tier"] else ""
+            lines.append(f"`#{i}` **{name}** — Seed: {r['seed']}{tier_str}")
+
+        await interaction.response.send_message("\n".join(lines), ephemeral=True)
+
+    # ---------------------------------------------------------------
+    # 取消赛事 (仅管理员/创建者) / Cancel Tournament
+    # ---------------------------------------------------------------
+    @discord.ui.button(label="取消赛事(管理员) Cancel", style=discord.ButtonStyle.danger, row=0)
+    async def cancel_tournament(self, interaction: discord.Interaction, button):
+        conn = get_db(); cur = conn.cursor()
+        t = get_tournament_or_none(cur, self.tournament_id)
+        if not t:
+            conn.close()
+            return await interaction.response.send_message("锦标赛不存在。", ephemeral=True)
+
+        is_admin = interaction.user.guild_permissions.administrator
+        is_creator = str(interaction.user.id) == (t["created_by"] or "")
+        if not is_admin and not is_creator:
+            conn.close()
+            return await interaction.response.send_message("仅管理员或赛事创建者可取消。", ephemeral=True)
+
+        if t["status"] == "cancelled":
+            conn.close()
+            return await interaction.response.send_message("该赛事已被取消。", ephemeral=True)
+        conn.close()
+
+        embed = discord.Embed(
+            title="确认取消 / Confirm Cancel",
+            description=f"确定要取消锦标赛 **{self.tournament_name}** (`#{self.tournament_id}`) 吗？",
+            color=discord.Color.red(),
+        )
+        confirm_view = ConfirmView(timeout=60)
+        await interaction.response.send_message(embed=embed, view=confirm_view, ephemeral=True)
+        await confirm_view.wait()
+        if confirm_view.value is None or not confirm_view.value:
+            return
+
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("UPDATE tournaments SET status='cancelled' WHERE id=?", (self.tournament_id,))
+        conn.commit(); conn.close()
+
+        await interaction.edit_original_response(
+            content=f"锦标赛 **{self.tournament_name}** (`#{self.tournament_id}`) 已取消 / cancelled.",
+            embed=None,
+            view=None,
+        )
+        for child in self.children:
+            child.disabled = True
+        await interaction.message.edit(view=self)
+
+
+# =============================================================================
 # ConfirmView — generic Yes/No confirm dialog
 # =============================================================================
 class ConfirmView(discord.ui.View):
@@ -877,11 +1058,21 @@ class Tournament(commands.Cog):
                 description=(
                     f"Format: **{tournament_format.upper()}** | Rounds: **{rounds}** | Max: **{max_players}**\n"
                     f"Status: **Signup**\n\n"
-                    f"报名: `/gmpt-tournament signup tournament_id:{tid}`"
+                    f"点击下方按钮报名、查看列表或取消赛事。"
                 ),
                 color=discord.Color.gold(),
             ).set_footer(text=f"Tournament ID: {tid}")
-            await interaction.followup.send(embed=embed)
+            view = CreateTournamentView(
+                tournament_id=tid,
+                tournament_name=tournament_name,
+                tournament_format=tournament_format,
+                rounds=rounds,
+                max_players=max_players,
+                created_by=str(interaction.user.id),
+                guild=interaction.guild,
+                session=self.session,
+            )
+            await interaction.followup.send(embed=embed, view=view)
 
         except Exception as e:
             import traceback
