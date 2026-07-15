@@ -676,18 +676,140 @@ class Economy(commands.Cog):
 
         await interaction.response.send_message("\n".join(lines))
 
+    # ========== 语音状态监听 (Voice time tracking) ==========
+    @commands.Cog.listener()
+    async def on_voice_state_update(self, member, before, after):
+        """Track cumulative time spent in voice channels for daily reward."""
+        if member.bot:
+            return
+
+        uid = str(member.id)
+        now = datetime.now().isoformat()
+
+        # User joined a voice channel (was not in one, now is)
+        if before.channel is None and after.channel is not None:
+            conn = get_db(); cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO voice_sessions (discord_id, join_time, total_seconds) VALUES (?,?,0)",
+                (uid, now),
+            )
+            conn.commit(); conn.close()
+
+        # User left a voice channel (was in one, now is not)
+        elif before.channel is not None and after.channel is None:
+            conn = get_db(); cur = conn.cursor()
+            # Find the most recent open session (join_time only, no duration recorded yet)
+            cur.execute(
+                "SELECT join_time FROM voice_sessions "
+                "WHERE discord_id=? AND total_seconds=0 "
+                "ORDER BY join_time DESC LIMIT 1",
+                (uid,),
+            )
+            row = cur.fetchone()
+            if row:
+                try:
+                    join_dt = datetime.fromisoformat(row["join_time"])
+                    duration = int((datetime.now() - join_dt).total_seconds())
+                    if duration > 0:
+                        cur.execute(
+                            "UPDATE voice_sessions SET total_seconds=? "
+                            "WHERE discord_id=? AND join_time=?",
+                            (duration, uid, row["join_time"]),
+                        )
+                        conn.commit()
+                except Exception:
+                    pass
+            conn.close()
+
+        # User switched voice channels
+        elif before.channel is not None and after.channel is not None and before.channel.id != after.channel.id:
+            conn = get_db(); cur = conn.cursor()
+            # Close old session
+            cur.execute(
+                "SELECT join_time FROM voice_sessions "
+                "WHERE discord_id=? AND total_seconds=0 "
+                "ORDER BY join_time DESC LIMIT 1",
+                (uid,),
+            )
+            row = cur.fetchone()
+            if row:
+                try:
+                    join_dt = datetime.fromisoformat(row["join_time"])
+                    duration = int((datetime.now() - join_dt).total_seconds())
+                    if duration > 0:
+                        cur.execute(
+                            "UPDATE voice_sessions SET total_seconds=? "
+                            "WHERE discord_id=? AND join_time=?",
+                            (duration, uid, row["join_time"]),
+                        )
+                except Exception:
+                    pass
+            # Start new session
+            cur.execute(
+                "INSERT INTO voice_sessions (discord_id, join_time, total_seconds) VALUES (?,?,0)",
+                (uid, now),
+            )
+            conn.commit(); conn.close()
+
     # ========== 每日签到 ==========
     @app_commands.command(name="gmpt-daily", description="Daily check-in for coins / 每日签到")
     async def daily_cmd(self, interaction: discord.Interaction):
-        # 必须进入语音频道才能领取
+        uid = str(interaction.user.id)
+
+        # Check voice channel presence + cumulative time >= 30 minutes
         if not interaction.user.voice or not interaction.user.voice.channel:
+            conn = get_db(); cur = conn.cursor()
+            cur.execute(
+                "SELECT COALESCE(SUM(total_seconds), 0) as total FROM voice_sessions WHERE discord_id=?",
+                (uid,),
+            )
+            row = cur.fetchone()
+            total_secs = row["total"] if row else 0
+            conn.close()
+            mins = total_secs // 60
             return await interaction.response.send_message(
-                "You must join a voice channel first to claim daily coins! / "
-                "请先加入语音频道才能领取每日签到金币！",
+                f"You must join a voice channel first! "
+                f"Today's accumulated voice time: **{mins}** min (need 30 min). / "
+                f"请先加入语音频道！今日已累计语音时长: **{mins}** 分钟（需要 30 分钟）。",
                 ephemeral=True,
             )
 
-        uid = str(interaction.user.id)
+        # Calculate cumulative voice time including the current session
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT COALESCE(SUM(total_seconds), 0) as total FROM voice_sessions WHERE discord_id=?",
+            (uid,),
+        )
+        row = cur.fetchone()
+        total_secs = row["total"] if row else 0
+
+        # Also include current session if open
+        cur.execute(
+            "SELECT join_time FROM voice_sessions "
+            "WHERE discord_id=? AND total_seconds=0 "
+            "ORDER BY join_time DESC LIMIT 1",
+            (uid,),
+        )
+        current_row = cur.fetchone()
+        if current_row:
+            try:
+                join_dt = datetime.fromisoformat(current_row["join_time"])
+                current_secs = int((datetime.now() - join_dt).total_seconds())
+                total_secs += current_secs
+            except Exception:
+                pass
+
+        conn.close()
+
+        total_minutes = total_secs // 60
+        if total_secs < 1800:  # 30 minutes = 1800 seconds
+            return await interaction.response.send_message(
+                f"Not enough voice time! You need **30 minutes** in voice channels to claim daily coins. "
+                f"Current: **{total_minutes}** min / "
+                f"语音时长不足！需要在语音频道累计 **30 分钟** 才能领取每日金币。当前已累计: **{total_minutes}** 分钟。",
+                ephemeral=True,
+            )
+
         today = date.today().isoformat()
         conn = get_db(); cur = conn.cursor()
 
@@ -723,7 +845,7 @@ class Economy(commands.Cog):
         )
         cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (reward, uid))
         cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                     (uid, reward, f"Daily Check-in Day {new_streak} / 每日签到 Day {new_streak}"))
+                     (uid, reward, f"Daily Check-in Day {new_streak} / 每日签到 Day {new_streak} (Voice: {total_minutes}min)"))
         conn.commit(); conn.close()
 
         milestone = ""
@@ -731,7 +853,8 @@ class Economy(commands.Cog):
             milestone = f"\n🎉 Milestone bonus! / 签到里程碑！额外获得 {STREAK_REWARDS[new_streak]} coins！"
 
         await interaction.response.send_message(
-            f"✅ Check-in! / 签到成功！ +{reward} coins  🔥 Streak / 连胜: **{new_streak}** days{milestone}"
+            f"✅ Check-in! / 签到成功！ +{reward} coins  🔥 Streak / 连胜: **{new_streak}** days "
+            f"| Voice / 语音: **{total_minutes}** min{milestone}"
         )
 
         ach = check_achievement(uid, "连续签到")

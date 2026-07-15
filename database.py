@@ -182,6 +182,14 @@ def init_db():
             pick_number     INTEGER NOT NULL,
             UNIQUE(draft_id, player_id)
         );
+
+        -- === Voice time tracking for daily reward ===
+        CREATE TABLE IF NOT EXISTS voice_sessions (
+            discord_id    TEXT NOT NULL,
+            join_time     TEXT NOT NULL,
+            total_seconds INTEGER DEFAULT 0,
+            PRIMARY KEY (discord_id, join_time)
+        );
     """)
 
     conn.commit()

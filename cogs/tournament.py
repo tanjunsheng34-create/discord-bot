@@ -452,31 +452,46 @@ class Tournament(commands.Cog):
         rounds: int = 3,
         max_players: int = 32,
     ):
-        if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message(
-                "仅管理员可创建锦标赛。", ephemeral=True
+        # Defer immediately to avoid Discord 3-second timeout on DB operations
+        await interaction.response.defer(ephemeral=False)
+
+        try:
+            if not interaction.user.guild_permissions.administrator:
+                return await interaction.followup.send(
+                    "仅管理员可创建锦标赛。", ephemeral=True
+                )
+            if not tournament_name:
+                return await interaction.followup.send("请提供赛事名称。", ephemeral=True)
+
+            conn = get_db(); cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO tournaments (name, format, max_players, rounds, status, created_by) "
+                "VALUES (?,?,?,?,'signup',?)",
+                (tournament_name, tournament_format, max_players, rounds, str(interaction.user.id)),
             )
-        if not tournament_name:
-            return await interaction.response.send_message("请提供赛事名称。", ephemeral=True)
+            conn.commit(); tid = cur.lastrowid; conn.close()
 
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO tournaments (name, format, max_players, rounds, status, created_by) "
-            "VALUES (?,?,?,?,'signup',?)",
-            (tournament_name, tournament_format, max_players, rounds, str(interaction.user.id)),
-        )
-        conn.commit(); tid = cur.lastrowid; conn.close()
+            embed = discord.Embed(
+                title=f"Tournament: {tournament_name}",
+                description=(
+                    f"Format: **{tournament_format.upper()}** | Rounds: **{rounds}** | Max: **{max_players}**\n"
+                    f"Status: **Signup**\n\n"
+                    f"报名: `/gmpt-tournament signup tournament_id:{tid}`"
+                ),
+                color=discord.Color.gold(),
+            ).set_footer(text=f"Tournament ID: {tid}")
+            await interaction.followup.send(embed=embed)
 
-        embed = discord.Embed(
-            title=f"Tournament: {tournament_name}",
-            description=(
-                f"Format: **{tournament_format.upper()}** | Rounds: **{rounds}** | Max: **{max_players}**\n"
-                f"Status: **Signup**\n\n"
-                f"报名: `/gmpt-tournament signup tournament_id:{tid}`"
-            ),
-            color=discord.Color.gold(),
-        ).set_footer(text=f"Tournament ID: {tid}")
-        await interaction.response.send_message(embed=embed)
+        except Exception as e:
+            import traceback
+            print(f"[tournament.create] ERROR: {e}")
+            traceback.print_exc()
+            try:
+                await interaction.followup.send(
+                    f"创建锦标赛失败 / Failed to create tournament: {e}", ephemeral=True
+                )
+            except Exception:
+                pass
 
     # =====================================================================
     # signup
