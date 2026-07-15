@@ -27,9 +27,8 @@ async def on_ready():
     init_db()
     print(f"Bot online: {bot.user}")
     try:
-        bot.tree.clear_commands(guild=None)
-        await bot.tree.sync()
-        print(f"Synced {len(await bot.tree.fetch_commands())} commands")
+        synced = await bot.tree.sync()
+        print(f"Synced {len(synced)} commands")
     except Exception as e:
         print(f"Sync error: {e}")
 
