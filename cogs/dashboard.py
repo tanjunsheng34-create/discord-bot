@@ -1467,6 +1467,68 @@ class DashboardView(discord.ui.View):
         view.add_item(select)
         await interaction.response.send_message(view=view, ephemeral=True)
 
+    @discord.ui.button(label="Voice LB 语音排行", style=discord.ButtonStyle.secondary, emoji="🎤", row=3)
+    async def voice_lb_btn(self, interaction: discord.Interaction, button):
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT user_id, total_seconds, login_days, total_joins "
+            "FROM voice_tracker ORDER BY total_seconds DESC"
+        )
+        data = cur.fetchall()
+        conn.close()
+
+        if not data:
+            return await interaction.response.send_message("No voice data yet.", ephemeral=True)
+
+        from cogs.voice_tracker import VoiceLeaderboardView, VoiceTracker
+
+        # Get cog instance to use build_leaderboard_embed
+        cog = self._get_voice_cog(interaction)
+        view = VoiceLeaderboardView(data=data, page=0, guild=interaction.guild, cog=cog)
+        embed = cog._build_leaderboard_embed(data, 0, interaction.guild)
+        await interaction.response.send_message(embed=embed, view=view)
+
+    def _get_voice_cog(self, interaction):
+        """Obtain the VoiceTracker cog from the bot."""
+        from cogs.voice_tracker import VoiceTracker
+        for cog in interaction.client.cogs.values():
+            if isinstance(cog, VoiceTracker):
+                return cog
+        # Fallback: create a lightweight wrapper
+        from cogs.voice_tracker import format_duration
+        class LightVoiceTracker:
+            def _build_leaderboard_embed(self, data, page, guild):
+                per_page = 10
+                start = page * per_page
+                end = min(start + per_page, len(data))
+                page_data = data[start:end]
+                total_pages = (len(data) + per_page - 1) // per_page
+                embed = discord.Embed(
+                    title="Voice Leaderboard",
+                    description=f"Total **{len(data)}** users | Page **{page + 1}/{total_pages}**",
+                    color=discord.Color.purple(),
+                )
+                lines = []
+                for i, row in enumerate(page_data, start + 1):
+                    uid = row["user_id"]
+                    member = guild.get_member(int(uid)) if guild else None
+                    name = member.display_name if member else f"<@{uid}>"
+                    total_seconds = row["total_seconds"] or 0
+                    login_days = row["login_days"] or 0
+                    total_joins = row["total_joins"] or 0
+                    medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f" #{i}"
+                    lines.append(
+                        f"{medal} **{name}**\n"
+                        f"　　Time: `{format_duration(total_seconds)}` | Days: `{login_days}` | Joins: `{total_joins}`"
+                    )
+                embed.add_field(
+                    name=f"Top {start + 1}-{end}",
+                    value="\n".join(lines) if lines else "(Empty)",
+                    inline=False,
+                )
+                return embed
+        return LightVoiceTracker()
+
 
 # =============================================================================
 # Dashboard Cog
@@ -1502,7 +1564,7 @@ class Dashboard(commands.Cog):
                     "Row 1: 创建比赛 Create | 报名参加 Join | 选队长 Captain | 随机分队 Shuffle | 分 A/B 队 Teams\n"
                     "Row 2: 开打 Start | 结算 Settle\n"
                     "Row 3: 创建赛事 Tournament | 报名 Sign Up | 选秀/选队长 Draft | 上报比分 Report | 排名 Standings\n"
-                    "Row 4: 对阵表 Bracket"
+                    "Row 4: 对阵表 Bracket | Voice LB 语音排行"
                 ),
                 color=discord.Color.blurple(),
             ).set_footer(text="GMPT Dashboard v1.2")
