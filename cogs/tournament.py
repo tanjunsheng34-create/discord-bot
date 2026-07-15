@@ -465,9 +465,11 @@ class Tournament(commands.Cog):
 
             conn = get_db(); cur = conn.cursor()
             cur.execute(
-                "INSERT INTO tournaments (name, format, max_players, rounds, status, created_by) "
-                "VALUES (?,?,?,?,'signup',?)",
-                (tournament_name, tournament_format, max_players, rounds, str(interaction.user.id)),
+                "INSERT INTO tournaments "
+                "(name, max_teams, team_size, status, created_by, format, max_players, rounds) "
+                "VALUES (?,'0','0','signup',?,?,?,?)",
+                (tournament_name, str(interaction.user.id),
+                 tournament_format, max_players or 32, rounds or 3),
             )
             conn.commit(); tid = cur.lastrowid; conn.close()
 
