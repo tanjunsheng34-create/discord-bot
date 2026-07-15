@@ -1,16 +1,59 @@
 import sqlite3
+import time
 from config import DATABASE
 
+# WAL mode enabled at module load — ensures all connections inherit it
+_WAL_INITIALIZED = False
 
-def get_db():
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
-    return conn
+
+def _ensure_wal():
+    """Enable WAL journal mode once per process. Safe to call multiple times."""
+    global _WAL_INITIALIZED
+    if _WAL_INITIALIZED:
+        return
+    try:
+        conn = sqlite3.connect(DATABASE, timeout=30)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.close()
+        _WAL_INITIALIZED = True
+    except Exception:
+        pass
+
+
+def get_db(max_retries=3):
+    """Return a SQLite connection with WAL mode, busy timeout, and retry on locked.
+
+    - timeout=30: wait up to 30s for the database lock
+    - PRAGMA journal_mode=WAL: allows concurrent readers + one writer
+    - PRAGMA busy_timeout=5000: 5s busy handler
+    - Retries on sqlite3.OperationalError 'database is locked' up to max_retries
+    """
+    _ensure_wal()
+
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            conn = sqlite3.connect(DATABASE, timeout=30)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA busy_timeout=5000")
+            return conn
+        except sqlite3.OperationalError as e:
+            last_error = e
+            if "locked" in str(e).lower() and attempt < max_retries - 1:
+                time.sleep(0.2 * (attempt + 1))  # exponential backoff: 0.2s, 0.4s, 0.6s
+                continue
+            raise
+
+    raise last_error
 
 
 def init_db():
     conn = get_db()
     cursor = conn.cursor()
+    # Ensure WAL + busy_timeout on the init connection as well
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=5000")
 
     cursor.executescript("""
         CREATE TABLE IF NOT EXISTS users (
