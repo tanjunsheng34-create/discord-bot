@@ -151,6 +151,13 @@ async def auto_restore():
         print("[Restore] BACKUP_CHANNEL_ID not set — skipping auto-restore.")
         return
 
+    # 默认禁用 auto_restore，避免多实例数据互相覆盖。
+    # 设置环境变量 AUTO_RESTORE=1 或 AUTO_RESTORE=true 可手动开启。
+    auto_restore_env = os.getenv("AUTO_RESTORE", "0").strip().lower()
+    if auto_restore_env not in ("1", "true"):
+        print(f"[Restore] AUTO_RESTORE={auto_restore_env!r} — auto-restore disabled (set to '1' to enable).")
+        return
+
     await bot.wait_until_ready()
 
     channel = await _get_backup_channel()
