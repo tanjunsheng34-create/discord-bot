@@ -1,6 +1,8 @@
 """
 Discord Bot — LOL 自定义比赛 5v5
 """
+import os
+import asyncio
 import discord
 from discord.ext import commands
 from database import init_db
@@ -37,8 +39,48 @@ async def on_ready():
         print(f"Sync error: {e}")
 
 
+# =============================================================================
+# Railway 保活 — 内置 HTTP 服务器，每 30 秒自检，防止容器休眠
+# =============================================================================
+async def health_server():
+    """启动一个简单的 HTTP 服务器响应 /health 请求，占用 Railway 端口。"""
+    from aiohttp import web
+
+    async def health(request):
+        return web.Response(text="OK")
+
+    app = web.Application()
+    app.router.add_get("/health", health)
+    port = int(os.getenv("PORT", "8080"))
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"Health server running on port {port}")
+
+
+async def health_check():
+    """每 30 秒自检一次，确保 HTTP 路由持续活跃。"""
+    import aiohttp
+
+    while True:
+        await asyncio.sleep(30)
+        try:
+            port = os.getenv("PORT", "8080")
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"http://localhost:{port}/health") as resp:
+                    pass
+        except Exception:
+            pass
+
+
 async def main():
     import traceback
+
+    # 启动保活服务
+    asyncio.create_task(health_server())
+    asyncio.create_task(health_check())
+
     for cog in COGS:
         try:
             await bot.load_extension(cog)
@@ -50,6 +92,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    import asyncio
-
     asyncio.run(main())
