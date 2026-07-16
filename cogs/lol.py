@@ -1292,6 +1292,48 @@ class CustomTeamView(discord.ui.View):
         return embed
 
 
+async def _refresh_player_list_from_cmd(match_id: int, channel, guild):
+    """从 lol.py slash 命令调用的列表刷新（无 MatchView 实例）。"""
+    from cogs.dashboard import get_player_list_msg, set_player_list_msg
+    old_msg_id = get_player_list_msg(match_id)
+    if old_msg_id:
+        try:
+            old_msg = await channel.fetch_message(old_msg_id)
+            await old_msg.delete()
+        except (discord.NotFound, discord.Forbidden):
+            pass
+
+    conn = get_db(); cur = conn.cursor()
+    cur.execute(
+        "SELECT discord_id FROM registrations WHERE tournament_id=? ORDER BY id ASC",
+        (match_id,),
+    )
+    rows = cur.fetchall()
+    cur.execute("SELECT max_teams, team_size FROM tournaments WHERE id=?", (match_id,))
+    t = cur.fetchone()
+    conn.close()
+    max_p = (t["max_teams"] * t["team_size"]) if t else 0
+
+    names = []
+    for r in rows:
+        member = guild.get_member(int(r["discord_id"]))
+        names.append(member.display_name if member else f"<@{r['discord_id']}>")
+
+    count = len(names)
+    if count > 0:
+        desc = "\n".join(f"{i+1}. {n}" for i, n in enumerate(names))
+    else:
+        desc = "暂无玩家 / No signups yet"
+
+    embed = discord.Embed(
+        title=f"已报名玩家 / Signed Up ({count}/{max_p})",
+        description=desc,
+        color=discord.Color.green(),
+    )
+    new_msg = await channel.send(embed=embed)
+    set_player_list_msg(match_id, new_msg.id)
+
+
 async def setup(bot):
     await bot.add_cog(GMPT(bot))
 

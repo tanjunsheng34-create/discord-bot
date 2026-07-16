@@ -642,6 +642,41 @@ async def _execute_settle(match_id, win_team_id, mvp_id, guild, match_name):
     if mvp_id:
         check_achievement(mvp_id, "MVP")
 
+    @discord.ui.button(label="退出 Leave", style=discord.ButtonStyle.danger, emoji="🚪", row=1)
+    async def leave_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            conn = get_db(); cur = conn.cursor()
+            cur.execute("SELECT * FROM tournaments WHERE id=?", (self.match_id,))
+            t = cur.fetchone()
+            if not t or t["status"] != "open":
+                conn.close()
+                return await interaction.followup.send("报名已关闭或比赛不存在 / Signup closed or match not found.", ephemeral=True)
+
+            uid = str(interaction.user.id)
+            cur.execute(
+                "SELECT id FROM registrations WHERE tournament_id=? AND discord_id=?",
+                (self.match_id, uid),
+            )
+            if not cur.fetchone():
+                conn.close()
+                return await interaction.followup.send("你未报名 / You are not signed up.", ephemeral=True)
+
+            cur.execute(
+                "DELETE FROM registrations WHERE tournament_id=? AND discord_id=?",
+                (self.match_id, uid),
+            )
+            conn.commit(); conn.close()
+            await interaction.followup.send(
+                f"🚪 {interaction.user.mention} 已退赛 / Left the match.", ephemeral=True
+            )
+            await refresh_player_list(self, interaction.channel, interaction.guild)
+        except Exception as e:
+            import traceback
+            print(f"[MatchView] leave error: {e}")
+            traceback.print_exc()
+            await interaction.followup.send("退赛失败 / Leave failed, please try again.", ephemeral=True)
+
 
 # =============================================================================
 # DashboardView — 统一控制面板 / Unified Control Panel
