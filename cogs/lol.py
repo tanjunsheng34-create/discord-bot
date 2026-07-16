@@ -314,35 +314,40 @@ class GMPT(commands.Cog):
         description="List all matches / 列出全部比赛",
     )
     async def list_matches(self, interaction: discord.Interaction):
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(
-            "SELECT id, name, status, max_teams, team_size, created_by FROM tournaments "
-            "WHERE category='match' OR category IS NULL OR category='' "
-            "ORDER BY id DESC LIMIT 25"
-        )
-        rows = cur.fetchall()
-        conn.close()
-
-        if not rows:
-            return await interaction.response.send_message("暂无比赛 / No matches.", ephemeral=True)
-
-        embed = discord.Embed(
-            title="全部比赛 / All Matches",
-            color=discord.Color.blurple(),
-        )
-        for r in rows:
-            status_emo = {"open": "🟢", "closed": "🔴", "finished": "✅"}.get(r["status"], "❓")
-            embed.add_field(
-                name=f"{status_emo} #{r['id']} — {r['name']}",
-                value=(
-                    f"Status: `{r['status']}` | "
-                    f"Players: {r['max_teams'] * r['team_size']} "
-                    f"({r['max_teams']} teams × {r['team_size']})\n"
-                    f"Created by: <@{r['created_by']}>"
-                ),
-                inline=False,
+        await interaction.response.defer()
+        try:
+            conn = get_db(); cur = conn.cursor()
+            cur.execute(
+                "SELECT id, name, status, max_teams, team_size, created_by FROM tournaments "
+                "ORDER BY id DESC LIMIT 25"
             )
-        await interaction.response.send_message(embed=embed)
+            rows = cur.fetchall()
+            conn.close()
+
+            if not rows:
+                return await interaction.followup.send("暂无比赛 / No matches.", ephemeral=True)
+
+            embed = discord.Embed(
+                title="全部比赛 / All Matches",
+                color=discord.Color.blurple(),
+            )
+            for r in rows:
+                status_emo = {"open": "🟢", "closed": "🔴", "finished": "✅"}.get(r["status"], "❓")
+                embed.add_field(
+                    name=f"{status_emo} #{r['id']} — {r['name']}",
+                    value=(
+                        f"Status: `{r['status']}` | "
+                        f"Players: {r['max_teams'] * r['team_size']} "
+                        f"({r['max_teams']} teams × {r['team_size']})\n"
+                        f"Created by: <@{r['created_by']}>"
+                    ),
+                    inline=False,
+                )
+            await interaction.followup.send(embed=embed)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            await interaction.followup.send(f"查询失败 / Query failed: {e}", ephemeral=True)
 
     # ============ 报名 ============
     @app_commands.command(
