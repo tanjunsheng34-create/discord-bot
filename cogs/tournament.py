@@ -142,7 +142,7 @@ def _display_name(guild, discord_id):
 # =============================================================================
 class DraftView(discord.ui.View):
     def __init__(self, draft_id, captains_info, available_players, guild, timeout=600):
-        super().__init__(timeout=timeout)
+        super().__init__(timeout=None)
         self.draft_id = draft_id
         self.captains = captains_info  # list of {captain_id, team_name, pick_order, tier_score}
         self.available_players = available_players  # list of (discord_id, tier_score, display_name, tier_str)
@@ -237,6 +237,7 @@ class DraftView(discord.ui.View):
     @discord.ui.button(label="确认选入 / Confirm Pick", style=discord.ButtonStyle.success,
                        emoji="✅", row=1, custom_id="draft_confirm")
     async def confirm_pick(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         cap = self.current_captain
         if not cap:
             return await interaction.response.send_message("Draft error.", ephemeral=True)
@@ -288,6 +289,7 @@ class DraftView(discord.ui.View):
     @discord.ui.button(label="跳过 / Skip Turn", style=discord.ButtonStyle.secondary,
                        emoji="⏭️", row=1, custom_id="draft_skip")
     async def skip_turn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         cap = self.current_captain
         if not cap:
             return await interaction.response.send_message("Draft error.", ephemeral=True)
@@ -332,6 +334,7 @@ class DraftView(discord.ui.View):
     @discord.ui.button(label="结束选秀 / End Draft", style=discord.ButtonStyle.danger,
                        emoji="🏁", row=2, custom_id="draft_end")
     async def end_draft(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         cap = self.current_captain
         if not cap:
             return await interaction.response.send_message("Draft error.", ephemeral=True)
@@ -409,10 +412,21 @@ class DraftView(discord.ui.View):
 # =============================================================================
 # CreateTournamentView — 创建赛事后直接附带报名/查看/取消按钮
 # =============================================================================
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, 'disabled'):
+                child.disabled = True
+        if hasattr(self, 'message') and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
 class CreateTournamentView(discord.ui.View):
     def __init__(self, tournament_id, tournament_name, tournament_format,
                  rounds, max_players, created_by, guild, session, timeout=None):
-        super().__init__(timeout=timeout)
+        super().__init__(timeout=None)
         self.tournament_id = tournament_id
         self.tournament_name = tournament_name
         self.tournament_format = tournament_format
@@ -427,6 +441,7 @@ class CreateTournamentView(discord.ui.View):
     # ---------------------------------------------------------------
     @discord.ui.button(label="报名 Sign Up", style=discord.ButtonStyle.primary, emoji="✍️", row=0)
     async def signup_button(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         conn = get_db(); cur = conn.cursor()
         t = get_tournament_or_none(cur, self.tournament_id)
         if not t or t["status"] != "signup":
@@ -517,6 +532,7 @@ class CreateTournamentView(discord.ui.View):
     # ---------------------------------------------------------------
     @discord.ui.button(label="查看报名 View Signups", style=discord.ButtonStyle.secondary, row=0)
     async def view_signups(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         conn = get_db(); cur = conn.cursor()
         cur.execute(
             "SELECT tp.discord_id, tp.seed, tp.tier, u.username "
@@ -545,21 +561,22 @@ class CreateTournamentView(discord.ui.View):
     # ---------------------------------------------------------------
     @discord.ui.button(label="取消赛事(管理员) Cancel", style=discord.ButtonStyle.danger, row=0)
     async def cancel_tournament(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         conn = get_db(); cur = conn.cursor()
         t = get_tournament_or_none(cur, self.tournament_id)
         if not t:
             conn.close()
-            return await interaction.response.send_message("锦标赛不存在。", ephemeral=True)
+            return await interaction.followup.send("锦标赛不存在。", ephemeral=True)
 
         is_admin = interaction.user.guild_permissions.administrator
         is_creator = str(interaction.user.id) == (t["created_by"] or "")
         if not is_admin and not is_creator:
             conn.close()
-            return await interaction.response.send_message("仅管理员或赛事创建者可取消。", ephemeral=True)
+            return await interaction.followup.send("仅管理员或赛事创建者可取消。", ephemeral=True)
 
         if t["status"] == "cancelled":
             conn.close()
-            return await interaction.response.send_message("该赛事已被取消。", ephemeral=True)
+            return await interaction.followup.send("该赛事已被取消。", ephemeral=True)
         conn.close()
 
         embed = discord.Embed(
@@ -568,7 +585,7 @@ class CreateTournamentView(discord.ui.View):
             color=discord.Color.red(),
         )
         confirm_view = ConfirmView(timeout=60)
-        await interaction.response.send_message(embed=embed, view=confirm_view, ephemeral=True)
+        await interaction.followup.send(embed=embed, view=confirm_view, ephemeral=True)
         await confirm_view.wait()
         if confirm_view.value is None or not confirm_view.value:
             return
@@ -590,13 +607,25 @@ class CreateTournamentView(discord.ui.View):
 # =============================================================================
 # ConfirmView — generic Yes/No confirm dialog
 # =============================================================================
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, 'disabled'):
+                child.disabled = True
+        if hasattr(self, 'message') and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
 class ConfirmView(discord.ui.View):
     def __init__(self, timeout=60):
-        super().__init__(timeout=timeout)
+        super().__init__(timeout=None)
         self.value = None  # True / False after user clicks
 
     @discord.ui.button(label="确认 / Confirm", style=discord.ButtonStyle.success)
     async def confirm(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         self.value = True
         for child in self.children:
             child.disabled = True
@@ -604,6 +633,7 @@ class ConfirmView(discord.ui.View):
 
     @discord.ui.button(label="取消 / Cancel", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         self.value = False
         for child in self.children:
             child.disabled = True
@@ -613,9 +643,20 @@ class ConfirmView(discord.ui.View):
 # =============================================================================
 # ReportView — button-based match score reporting
 # =============================================================================
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, 'disabled'):
+                child.disabled = True
+        if hasattr(self, 'message') and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
 class ReportView(discord.ui.View):
     def __init__(self, tournament_id, user_id, guild, timeout=300):
-        super().__init__(timeout=timeout)
+        super().__init__(timeout=None)
         self.tournament_id = tournament_id
         self.user_id = user_id
         self.guild = guild
@@ -660,6 +701,7 @@ class ReportView(discord.ui.View):
         self.add_item(select)
 
     async def select_callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
         val = interaction.data["values"][0]
         if val == "__none__":
             return await interaction.response.defer()
@@ -672,11 +714,13 @@ class ReportView(discord.ui.View):
     @discord.ui.button(label="我赢了 / I Won", style=discord.ButtonStyle.success,
                        emoji="🏆", row=1, disabled=True)
     async def i_won(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         await self._do_report(interaction, self.user_id)
 
     @discord.ui.button(label="对手赢了 / Opponent Won", style=discord.ButtonStyle.danger,
                        emoji="❌", row=1, disabled=True)
     async def opp_won(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         if not self._pending_match:
             return await interaction.response.send_message("请先选择比赛。", ephemeral=True)
         conn = get_db(); cur = conn.cursor()
@@ -794,9 +838,20 @@ class ReportView(discord.ui.View):
 # =============================================================================
 # DraftSetupView — button-based captain selection for draft
 # =============================================================================
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, 'disabled'):
+                child.disabled = True
+        if hasattr(self, 'message') and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
 class DraftSetupView(discord.ui.View):
     def __init__(self, tournament_id, available_players, guild, timeout=300):
-        super().__init__(timeout=timeout)
+        super().__init__(timeout=None)
         self.tournament_id = tournament_id
         self.available_players = available_players  # list of (discord_id, display_name, tier_str, tier_score)
         self.guild = guild
@@ -834,6 +889,7 @@ class DraftSetupView(discord.ui.View):
         self.add_item(select)
 
     async def select_callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("仅管理员可操作。", ephemeral=True)
         val = interaction.data["values"][0]
@@ -849,6 +905,7 @@ class DraftSetupView(discord.ui.View):
     @discord.ui.button(label="设为队长 / Add Captain", style=discord.ButtonStyle.success,
                        row=1, disabled=True, custom_id="draft_add_cap")
     async def add_captain(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("仅管理员可操作。", ephemeral=True)
         if not self._pending_player:
@@ -883,6 +940,7 @@ class DraftSetupView(discord.ui.View):
     @discord.ui.button(label="移除队长 / Remove", style=discord.ButtonStyle.danger,
                        row=1, disabled=True, custom_id="draft_rm_cap")
     async def remove_captain(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("仅管理员可操作。", ephemeral=True)
         if not self._pending_player:
@@ -909,6 +967,7 @@ class DraftSetupView(discord.ui.View):
     @discord.ui.button(label="确认开始选秀 / Start Draft", style=discord.ButtonStyle.primary,
                        emoji="🚀", row=2, disabled=True, custom_id="draft_start")
     async def start_draft(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("仅管理员可操作。", ephemeral=True)
         if len(self.captains) < 2:
@@ -989,6 +1048,17 @@ class DraftSetupView(discord.ui.View):
 # =============================================================================
 # Tournament Cog
 # =============================================================================
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, 'disabled'):
+                child.disabled = True
+        if hasattr(self, 'message') and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
 class Tournament(commands.Cog):
     """锦标赛 Tournament System"""
 

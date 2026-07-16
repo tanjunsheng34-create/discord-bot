@@ -156,7 +156,7 @@ class CreateTournamentModal(discord.ui.Modal, title="创建赛事 / Create Tourn
 class TeamAssignView(discord.ui.View):
     """Simplified team assignment like CustomTeamView, used inside dashboard."""
     def __init__(self, match_id, match_name, player_ids, guild, team_size, timeout=300):
-        super().__init__(timeout=timeout)
+        super().__init__(timeout=None)
         self.match_id = match_id
         self.match_name = match_name
         self.guild = guild
@@ -179,7 +179,7 @@ class TeamAssignView(discord.ui.View):
         options = []
         for pid in unassigned:
             member = self.guild.get_member(int(pid))
-            label = member.display_name if member else pid
+            label = member.display_name if member else f"<@{pid}>"
             options.append(discord.SelectOption(label=label[:25], value=pid))
 
         if not options:
@@ -194,16 +194,18 @@ class TeamAssignView(discord.ui.View):
         self.add_item(select)
 
     async def select_callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
         val = interaction.data["values"][0]
         if val == "__none__":
             return await interaction.response.defer()
         self.selected_player = val
         member = self.guild.get_member(int(val))
-        name = member.display_name if member else val
+        name = member.display_name if member else f"<@{val}>"
         await interaction.response.send_message(f"已选择 / Selected: {name}，点击加入 A 队或 B 队", ephemeral=True)
 
     @discord.ui.button(label="加入 A 队 / A", style=discord.ButtonStyle.primary, emoji="🔵", row=1)
     async def add_to_a(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         if not self.selected_player:
             return await interaction.response.send_message("请先从下拉菜单选择一个玩家 / Select a player first.", ephemeral=True)
         if len(self.team_a) >= self.team_size:
@@ -217,6 +219,7 @@ class TeamAssignView(discord.ui.View):
 
     @discord.ui.button(label="加入 B 队 / B", style=discord.ButtonStyle.danger, emoji="🔴", row=1)
     async def add_to_b(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         if not self.selected_player:
             return await interaction.response.send_message("请先从下拉菜单选择一个玩家 / Select a player first.", ephemeral=True)
         if len(self.team_b) >= self.team_size:
@@ -230,6 +233,7 @@ class TeamAssignView(discord.ui.View):
 
     @discord.ui.button(label="清空 / Clear", style=discord.ButtonStyle.secondary, emoji="🔄", row=2)
     async def clear_teams(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         self.team_a.clear()
         self.team_b.clear()
         self.selected_player = None
@@ -238,6 +242,7 @@ class TeamAssignView(discord.ui.View):
 
     @discord.ui.button(label="确认分队 / Confirm", style=discord.ButtonStyle.success, emoji="✅", row=2)
     async def confirm_teams(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         total = len(self.team_a) + len(self.team_b)
         all_players = len(self.all_player_ids)
         if total < min(2, all_players):
@@ -286,17 +291,17 @@ class TeamAssignView(discord.ui.View):
         a_names = []
         for uid in self.team_a:
             m = self.guild.get_member(int(uid))
-            a_names.append(m.display_name if m else uid)
+            a_names.append(m.display_name if m else f"<@{uid}>")
         b_names = []
         for uid in self.team_b:
             m = self.guild.get_member(int(uid))
-            b_names.append(m.display_name if m else uid)
+            b_names.append(m.display_name if m else f"<@{uid}>")
 
         unassigned = self._get_unassigned()
         un_names = []
         for uid in unassigned:
             m = self.guild.get_member(int(uid))
-            un_names.append(m.display_name if m else uid)
+            un_names.append(m.display_name if m else f"<@{uid}>")
 
         if a_names:
             embed.add_field(name=f"🔵 A 队 / Team A ({len(self.team_a)}/{self.team_size})", value="\n".join(a_names), inline=True)
@@ -317,9 +322,20 @@ class TeamAssignView(discord.ui.View):
 # =============================================================================
 # MatchView — 比赛创建后附带的报名 / 查看 / 结算按钮
 # =============================================================================
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, 'disabled'):
+                child.disabled = True
+        if hasattr(self, 'message') and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
 class MatchView(discord.ui.View):
     def __init__(self, match_id, guild, timeout=None):
-        super().__init__(timeout=timeout)
+        super().__init__(timeout=None)
         self.match_id = match_id
         self.guild = guild
 
@@ -385,7 +401,7 @@ class MatchView(discord.ui.View):
             names = []
             for r in rows:
                 member = self.guild.get_member(int(r["discord_id"]))
-                names.append(member.display_name if member else r["discord_id"])
+                names.append(member.display_name if member else f"<@{r['discord_id']}>")
 
             text = "\n".join(f"{i+1}. {n}" for i, n in enumerate(names))
             await interaction.followup.send(
@@ -399,6 +415,7 @@ class MatchView(discord.ui.View):
 
     @discord.ui.button(label="结算 Settle", style=discord.ButtonStyle.danger, emoji="💰", row=1)
     async def settle_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         """Settle button on match message — select winner + optional MVP → confirm → distribute coins."""
         await interaction.response.defer(ephemeral=True)
         try:
@@ -458,7 +475,7 @@ class MatchView(discord.ui.View):
                 mvp_options = [discord.SelectOption(label="无 MVP / Skip", value="__none__")]
                 for p in players:
                     member = self.guild.get_member(int(p["discord_id"]))
-                    name = member.display_name if member else p["discord_id"]
+                    name = member.display_name if member else f"<@{p['discord_id']}>"
                     mvp_options.append(discord.SelectOption(label=name[:100], value=p["discord_id"]))
 
                 mvp_select = discord.ui.Select(
@@ -606,9 +623,20 @@ async def _execute_settle(match_id, win_team_id, mvp_id, guild, match_name):
 # =============================================================================
 # DashboardView — 统一控制面板 / Unified Control Panel
 # =============================================================================
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, 'disabled'):
+                child.disabled = True
+        if hasattr(self, 'message') and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
 class DashboardView(discord.ui.View):
     def __init__(self, guild, session, timeout=None):
-        super().__init__(timeout=timeout)
+        super().__init__(timeout=None)
         self.guild = guild
         self.session = session
 
@@ -618,11 +646,13 @@ class DashboardView(discord.ui.View):
 
     @discord.ui.button(label="创建比赛 Create", style=discord.ButtonStyle.primary, emoji="🆕", row=0)
     async def create_match_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         modal = CreateMatchModal(self.guild, self.session)
         await interaction.response.send_modal(modal)
 
     @discord.ui.button(label="报名参加 Join", style=discord.ButtonStyle.success, emoji="✋", row=0)
     async def join_match_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         conn = get_db(); cur = conn.cursor()
         cur.execute(
             "SELECT id, name, max_teams, team_size FROM tournaments "
@@ -684,6 +714,7 @@ class DashboardView(discord.ui.View):
 
     @discord.ui.button(label="选队长 Captain", style=discord.ButtonStyle.secondary, emoji="👑", row=0)
     async def pick_captain_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         conn = get_db(); cur = conn.cursor()
         cur.execute(
             "SELECT id, name FROM tournaments WHERE status='open' AND max_teams=2 ORDER BY id DESC LIMIT 25"
@@ -721,7 +752,7 @@ class DashboardView(discord.ui.View):
             poptions = []
             for pid in pids:
                 member = self.guild.get_member(int(pid))
-                name = member.display_name if member else pid
+                name = member.display_name if member else f"<@{pid}>"
                 poptions.append(discord.SelectOption(label=name[:100], value=pid))
 
             pselect = discord.ui.Select(
@@ -735,7 +766,7 @@ class DashboardView(discord.ui.View):
                 cap_names = []
                 for cid in captains:
                     m = self.guild.get_member(int(cid))
-                    cap_names.append(m.display_name if m else cid)
+                    cap_names.append(m.display_name if m else f"<@{cid}>")
                 await inner_int.response.send_message(
                     f"已选队长 / Captains: {', '.join(cap_names)}\n使用「分 A/B 队」按钮分配队伍 / Use Teams button to assign.",
                     ephemeral=True,
@@ -753,6 +784,7 @@ class DashboardView(discord.ui.View):
 
     @discord.ui.button(label="随机分队 Shuffle", style=discord.ButtonStyle.secondary, emoji="🎲", row=0)
     async def shuffle_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         """Randomly split registered players into A/B teams."""
         conn = get_db(); cur = conn.cursor()
         cur.execute(
@@ -836,6 +868,7 @@ class DashboardView(discord.ui.View):
 
     @discord.ui.button(label="分 A/B 队 Teams", style=discord.ButtonStyle.secondary, emoji="⚔️", row=0)
     async def assign_teams_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         conn = get_db(); cur = conn.cursor()
         cur.execute(
             "SELECT id, name, max_teams, team_size FROM tournaments "
@@ -890,6 +923,7 @@ class DashboardView(discord.ui.View):
 
     @discord.ui.button(label="开打 Start", style=discord.ButtonStyle.danger, emoji="🔥", row=1)
     async def start_match_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         conn = get_db(); cur = conn.cursor()
         cur.execute(
             "SELECT id, name FROM tournaments WHERE status='open' AND max_teams=2 ORDER BY id DESC LIMIT 25"
@@ -943,6 +977,7 @@ class DashboardView(discord.ui.View):
 
     @discord.ui.button(label="结算 Settle", style=discord.ButtonStyle.success, emoji="💰", row=1)
     async def settle_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         """Settle a custom match — select match → winner → MVP → confirm → coins."""
         conn = get_db(); cur = conn.cursor()
         cur.execute(
@@ -1020,7 +1055,7 @@ class DashboardView(discord.ui.View):
                 mvp_options = [discord.SelectOption(label="无 MVP / Skip", value="__none__")]
                 for p in players:
                     member = self.guild.get_member(int(p["discord_id"]))
-                    name = member.display_name if member else p["discord_id"]
+                    name = member.display_name if member else f"<@{p['discord_id']}>"
                     mvp_options.append(discord.SelectOption(label=name[:100], value=p["discord_id"]))
 
                 mvp_select = discord.ui.Select(
@@ -1103,6 +1138,7 @@ class DashboardView(discord.ui.View):
 
     @discord.ui.button(label="创建赛事 Tournament", style=discord.ButtonStyle.primary, emoji="🏆", row=2)
     async def create_tournament_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("仅管理员可创建锦标赛 / Admin only.", ephemeral=True)
         modal = CreateTournamentModal(self.guild, self.session)
@@ -1110,6 +1146,7 @@ class DashboardView(discord.ui.View):
 
     @discord.ui.button(label="报名 Sign Up", style=discord.ButtonStyle.success, emoji="📝", row=2)
     async def signup_tournament_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         conn = get_db(); cur = conn.cursor()
         cur.execute(
             "SELECT id, name, max_players FROM tournaments WHERE status='signup' ORDER BY id DESC LIMIT 25"
@@ -1226,6 +1263,7 @@ class DashboardView(discord.ui.View):
 
     @discord.ui.button(label="选秀/选队长 Draft", style=discord.ButtonStyle.secondary, emoji="🎯", row=2)
     async def draft_setup_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("仅管理员可设置队长选秀 / Admin only.", ephemeral=True)
 
@@ -1286,6 +1324,7 @@ class DashboardView(discord.ui.View):
 
     @discord.ui.button(label="上报比分 Report", style=discord.ButtonStyle.danger, emoji="📊", row=2)
     async def report_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         conn = get_db(); cur = conn.cursor()
         cur.execute(
             "SELECT id, name FROM tournaments WHERE status='active' ORDER BY id DESC LIMIT 25"
@@ -1325,6 +1364,7 @@ class DashboardView(discord.ui.View):
 
     @discord.ui.button(label="排名 Standings", style=discord.ButtonStyle.secondary, emoji="📈", row=2)
     async def standings_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         conn = get_db(); cur = conn.cursor()
         cur.execute(
             "SELECT id, name FROM tournaments WHERE status IN ('active','completed') ORDER BY id DESC LIMIT 25"
@@ -1387,6 +1427,7 @@ class DashboardView(discord.ui.View):
 
     @discord.ui.button(label="对阵表 Bracket", style=discord.ButtonStyle.secondary, emoji="📋", row=3)
     async def bracket_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         conn = get_db(); cur = conn.cursor()
         cur.execute(
             "SELECT id, name FROM tournaments WHERE status IN ('active','completed') ORDER BY id DESC LIMIT 25"
@@ -1469,6 +1510,7 @@ class DashboardView(discord.ui.View):
 
     @discord.ui.button(label="Voice LB 语音排行", style=discord.ButtonStyle.secondary, emoji="🎤", row=3)
     async def voice_lb_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         conn = get_db(); cur = conn.cursor()
         cur.execute(
             "SELECT user_id, total_seconds, login_days, total_joins "
@@ -1533,6 +1575,17 @@ class DashboardView(discord.ui.View):
 # =============================================================================
 # Dashboard Cog
 # =============================================================================
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, 'disabled'):
+                child.disabled = True
+        if hasattr(self, 'message') and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
 class Dashboard(commands.Cog):
     """统一控制面板 / Unified Control Panel — 一个界面完成所有操作"""
 

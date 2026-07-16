@@ -350,10 +350,10 @@ class GMPT(commands.Cog):
         red_names = []
         for uid in ta:
             member = interaction.guild.get_member(int(uid))
-            blue_names.append(member.display_name if member else uid)
+            blue_names.append(member.display_name if member else f"<@{uid}>")
         for uid in tb:
             member = interaction.guild.get_member(int(uid))
-            red_names.append(member.display_name if member else uid)
+            red_names.append(member.display_name if member else f"<@{uid}>")
 
         cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (match_id, "蓝队 Blue"))
         aid = cur.lastrowid
@@ -469,10 +469,10 @@ class GMPT(commands.Cog):
         los_names = []
         for uid in winner_ids:
             m = interaction.guild.get_member(int(uid))
-            win_names.append(m.display_name if m else uid)
+            win_names.append(m.display_name if m else f"<@{uid}>")
         for uid in loser_ids:
             m = interaction.guild.get_member(int(uid))
-            los_names.append(m.display_name if m else uid)
+            los_names.append(m.display_name if m else f"<@{uid}>")
 
         conn.close()
 
@@ -1051,7 +1051,7 @@ class GMPT(commands.Cog):
 
 class CustomTeamView(discord.ui.View):
     def __init__(self, captain_id, player_ids, guild, match_id, match_name, team_size, timeout=300):
-        super().__init__(timeout=timeout)
+        super().__init__(timeout=None)
         self.captain_id = captain_id
         self.guild = guild
         self.match_id = match_id
@@ -1079,7 +1079,7 @@ class CustomTeamView(discord.ui.View):
         options = []
         for pid in unassigned:
             member = self.guild.get_member(int(pid))
-            label = member.display_name if member else pid
+            label = member.display_name if member else f"<@{pid}>"
             options.append(discord.SelectOption(label=label[:25], value=pid, description=f"ID: {pid}"))
 
         if not options:
@@ -1095,6 +1095,7 @@ class CustomTeamView(discord.ui.View):
         self.add_item(select)
 
     async def select_callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.captain_id:
             return await interaction.response.send_message("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
         val = interaction.data["values"][0]
@@ -1102,11 +1103,12 @@ class CustomTeamView(discord.ui.View):
             return await interaction.response.defer()
         self.selected_player = val
         member = self.guild.get_member(int(val))
-        name = member.display_name if member else val
+        name = member.display_name if member else f"<@{val}>"
         await interaction.response.send_message(f"已选择: {name}，点击加入A队或B队", ephemeral=True)
 
     @discord.ui.button(label="加入A队", style=discord.ButtonStyle.primary, emoji="🔵", row=1, custom_id="custom_team_a")
     async def add_to_a(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.captain_id:
             return await interaction.response.send_message("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
         if not self.selected_player:
@@ -1124,6 +1126,7 @@ class CustomTeamView(discord.ui.View):
 
     @discord.ui.button(label="加入B队", style=discord.ButtonStyle.danger, emoji="🔴", row=1, custom_id="custom_team_b")
     async def add_to_b(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.captain_id:
             return await interaction.response.send_message("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
         if not self.selected_player:
@@ -1141,6 +1144,7 @@ class CustomTeamView(discord.ui.View):
 
     @discord.ui.button(label="清空", style=discord.ButtonStyle.secondary, emoji="🔄", row=2, custom_id="custom_team_clear")
     async def clear_teams(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.captain_id:
             return await interaction.response.send_message("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
         self.team_a.clear()
@@ -1152,6 +1156,7 @@ class CustomTeamView(discord.ui.View):
 
     @discord.ui.button(label="确认", style=discord.ButtonStyle.success, emoji="✅", row=2, custom_id="custom_team_confirm")
     async def confirm_teams(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.captain_id:
             return await interaction.response.send_message("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
 
@@ -1227,16 +1232,16 @@ class CustomTeamView(discord.ui.View):
         a_names = []
         for uid in self.team_a:
             m = self.guild.get_member(int(uid))
-            a_names.append(m.display_name if m else uid)
+            a_names.append(m.display_name if m else f"<@{uid}>")
         b_names = []
         for uid in self.team_b:
             m = self.guild.get_member(int(uid))
-            b_names.append(m.display_name if m else uid)
+            b_names.append(m.display_name if m else f"<@{uid}>")
         unassigned = self._get_unassigned()
         u_names = []
         for uid in unassigned:
             m = self.guild.get_member(int(uid))
-            u_names.append(m.display_name if m else uid)
+            u_names.append(m.display_name if m else f"<@{uid}>")
 
         desc_parts = []
         desc_parts.append("使用下拉菜单选择玩家，点击按钮分配到队伍。")
@@ -1269,3 +1274,14 @@ class CustomTeamView(discord.ui.View):
 
 async def setup(bot):
     await bot.add_cog(GMPT(bot))
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, 'disabled'):
+                child.disabled = True
+        if hasattr(self, 'message') and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+

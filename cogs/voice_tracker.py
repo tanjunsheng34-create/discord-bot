@@ -228,7 +228,7 @@ class VoiceTracker(commands.Cog):
 # =============================================================================
 class VoiceTimeView(discord.ui.View):
     def __init__(self, user, guild, is_admin, cog, timeout=120):
-        super().__init__(timeout=timeout)
+        super().__init__(timeout=None)
         self.user = user
         self.guild = guild
         self.is_admin = is_admin
@@ -245,6 +245,7 @@ class VoiceTimeView(discord.ui.View):
 
     @discord.ui.button(label="View Self", style=discord.ButtonStyle.primary, emoji="👤", row=0)
     async def view_self_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         uid = str(self.user.id)
         conn = get_db(); cur = conn.cursor()
         cur.execute("SELECT * FROM voice_tracker WHERE user_id=?", (uid,))
@@ -260,6 +261,7 @@ class VoiceTimeView(discord.ui.View):
 
     @discord.ui.button(label="View Leaderboard", style=discord.ButtonStyle.success, emoji="🏆", row=0)
     async def view_leaderboard_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         conn = get_db(); cur = conn.cursor()
         cur.execute(
             "SELECT user_id, total_seconds, login_days, total_joins "
@@ -277,6 +279,7 @@ class VoiceTimeView(discord.ui.View):
 
     @discord.ui.button(label="View Someone", style=discord.ButtonStyle.secondary, emoji="🔍", row=0)
     async def view_other_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         if not self.is_admin:
             return await interaction.response.send_message("Admin only.", ephemeral=True)
 
@@ -319,6 +322,7 @@ class VoiceTimeView(discord.ui.View):
 
     @discord.ui.button(label="Reset All Voice", style=discord.ButtonStyle.danger, emoji="🗑️", row=1)
     async def reset_all_voice_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         """Admin-only: reset all voice tracker data to zero."""
         if not self.is_admin:
             return await interaction.response.send_message("Admin only.", ephemeral=True)
@@ -358,9 +362,20 @@ class VoiceTimeView(discord.ui.View):
 # =============================================================================
 # VoiceLeaderboardView — 分页排行榜 / Paginated Leaderboard
 # =============================================================================
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, 'disabled'):
+                child.disabled = True
+        if hasattr(self, 'message') and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
 class VoiceLeaderboardView(discord.ui.View):
     def __init__(self, data, page=0, guild=None, cog=None, timeout=180):
-        super().__init__(timeout=timeout)
+        super().__init__(timeout=None)
         self.data = data
         self.page = page
         self.per_page = 10
@@ -374,6 +389,7 @@ class VoiceLeaderboardView(discord.ui.View):
 
     @discord.ui.button(label="Prev", emoji="⬅️", style=discord.ButtonStyle.secondary)
     async def prev_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         if self.page > 0:
             self.page -= 1
             self._update_buttons()
@@ -382,6 +398,7 @@ class VoiceLeaderboardView(discord.ui.View):
 
     @discord.ui.button(label="Next", emoji="➡️", style=discord.ButtonStyle.secondary)
     async def next_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         if (self.page + 1) * self.per_page < len(self.data):
             self.page += 1
             self._update_buttons()
@@ -391,3 +408,14 @@ class VoiceLeaderboardView(discord.ui.View):
 
 async def setup(bot):
     await bot.add_cog(VoiceTracker(bot))
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, 'disabled'):
+                child.disabled = True
+        if hasattr(self, 'message') and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+

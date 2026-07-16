@@ -301,7 +301,7 @@ def generate_ach_image(achievement_rows, unlocked_count, total_count, page=None,
 
 class ShopView(discord.ui.View):
     def __init__(self, items, user_id, timeout=120):
-        super().__init__(timeout=timeout)
+        super().__init__(timeout=None)
         self.user_id = user_id
         # 最多 12 个购买按钮，分布在三行（每行 4 个）
         for idx, it in enumerate(items[:12]):
@@ -318,6 +318,7 @@ class ShopView(discord.ui.View):
 
     @discord.ui.button(label="Balance", emoji="💰", style=discord.ButtonStyle.secondary, row=3)
     async def balance_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.user_id:
             return await interaction.response.send_message("This is not your shop. / 这不是你的商店页面。", ephemeral=True)
         bal = get_balance(str(interaction.user.id))
@@ -325,6 +326,7 @@ class ShopView(discord.ui.View):
 
     @discord.ui.button(label="Inventory", emoji="🎒", style=discord.ButtonStyle.secondary, row=3)
     async def inv_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.user_id:
             return await interaction.response.send_message("This is not your shop. / 这不是你的商店页面。", ephemeral=True)
         uid = str(interaction.user.id)
@@ -356,7 +358,7 @@ class ShopView(discord.ui.View):
 class AchFilter(discord.ui.View):
     """成就查看器：支持全部/已解锁/未解锁筛选 + 分页翻页"""
     def __init__(self, all_rows, unlocked_ct, total_ct, user_id, per_page=ACH_PER_PAGE, timeout=120):
-        super().__init__(timeout=timeout)
+        super().__init__(timeout=None)
         self.all_rows = all_rows
         self.unlocked_ct = unlocked_ct
         self.total_ct = total_ct
@@ -410,6 +412,7 @@ class AchFilter(discord.ui.View):
 
     @discord.ui.button(label="⬅️ Previous", style=discord.ButtonStyle.secondary, custom_id="ach_prev", row=0)
     async def prev_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.user_id:
             return await interaction.response.send_message("This is not your page. / 这不是你的页面。", ephemeral=True)
         self.current_page -= 1
@@ -417,6 +420,7 @@ class AchFilter(discord.ui.View):
 
     @discord.ui.button(label="Next ➡️", style=discord.ButtonStyle.secondary, custom_id="ach_next", row=0)
     async def next_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.user_id:
             return await interaction.response.send_message("This is not your page. / 这不是你的页面。", ephemeral=True)
         self.current_page += 1
@@ -424,6 +428,7 @@ class AchFilter(discord.ui.View):
 
     @discord.ui.button(label="All", style=discord.ButtonStyle.primary, emoji="📋", row=1)
     async def all_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.user_id:
             return await interaction.response.send_message("This is not your page. / 这不是你的页面。", ephemeral=True)
         self.current_filter = "all"
@@ -432,6 +437,7 @@ class AchFilter(discord.ui.View):
 
     @discord.ui.button(label="Unlocked", style=discord.ButtonStyle.success, emoji="✅", row=1)
     async def unlocked_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.user_id:
             return await interaction.response.send_message("This is not your page. / 这不是你的页面。", ephemeral=True)
         self.current_filter = "unlocked"
@@ -440,6 +446,7 @@ class AchFilter(discord.ui.View):
 
     @discord.ui.button(label="Locked", style=discord.ButtonStyle.secondary, emoji="⬜", row=1)
     async def locked_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.user_id:
             return await interaction.response.send_message("This is not your page. / 这不是你的页面。", ephemeral=True)
         self.current_filter = "locked"
@@ -467,10 +474,11 @@ async def buy_item(interaction: discord.Interaction, uid: str, item_id: int):
 
     class ConfirmBuy(discord.ui.View):
         def __init__(self):
-            super().__init__(timeout=15)
+            super().__init__(timeout=None)
 
         @discord.ui.button(label="Confirm / 确认购买", style=discord.ButtonStyle.success, emoji="✅")
         async def confirm(self, btn_i: discord.Interaction, button):
+            await interaction.response.defer(ephemeral=True)
             if str(btn_i.user.id) != uid:
                 return await btn_i.response.send_message(
                     "This is not your order. / 这不是你的购买单。", ephemeral=True
@@ -507,6 +515,7 @@ async def buy_item(interaction: discord.Interaction, uid: str, item_id: int):
 
         @discord.ui.button(label="Cancel / 取消", style=discord.ButtonStyle.secondary, emoji="❌")
         async def cancel(self, btn_i: discord.Interaction, button):
+            await interaction.response.defer(ephemeral=True)
             if str(btn_i.user.id) != uid:
                 return await btn_i.response.send_message(
                     "This is not your order. / 这不是你的购买单。", ephemeral=True
@@ -1381,11 +1390,12 @@ class Economy(commands.Cog):
 class AdminCoinsView(discord.ui.View):
     """Admin coin management panel — reset user, reset all, view all."""
     def __init__(self, guild, timeout=None):
-        super().__init__(timeout=timeout)
+        super().__init__(timeout=None)
         self.guild = guild
 
     @discord.ui.button(label="重置单人 Reset User", style=discord.ButtonStyle.primary, emoji="👤", row=0)
     async def reset_user_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         # Build user select dropdown from guild members
         members = [m for m in self.guild.members if not m.bot][:25]
         if not members:
@@ -1407,7 +1417,7 @@ class AdminCoinsView(discord.ui.View):
         async def user_callback(sel_int: discord.Interaction):
             uid = sel_int.data["values"][0]
             member = self.guild.get_member(int(uid))
-            name = member.display_name if member else uid
+            name = member.display_name if member else f"<@{uid}>"
 
             # Show amount modal
             modal = ResetUserModal(guild=self.guild, user_id=uid, user_name=name)
@@ -1420,11 +1430,13 @@ class AdminCoinsView(discord.ui.View):
 
     @discord.ui.button(label="重置全部 Reset All", style=discord.ButtonStyle.danger, emoji="🔥", row=1)
     async def reset_all_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         modal = ResetAllModal()
         await interaction.response.send_modal(modal)
 
     @discord.ui.button(label="查看全部 View All", style=discord.ButtonStyle.secondary, emoji="📋", row=1)
     async def view_all_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         conn = get_db(); cur = conn.cursor()
         cur.execute("SELECT discord_id, username, score FROM users ORDER BY score DESC")
         all_users = cur.fetchall()
@@ -1436,6 +1448,17 @@ class AdminCoinsView(discord.ui.View):
         view = CoinPaginationView(users_data=all_users, page=0, guild=self.guild)
         embed = view.build_embed()
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, 'disabled'):
+                child.disabled = True
+        if hasattr(self, 'message') and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
 
 
 class ResetUserModal(discord.ui.Modal, title="重置单人金币 / Reset User Coins"):
@@ -1564,7 +1587,7 @@ class ResetAllModal(discord.ui.Modal, title="重置全部金币 / Reset All Coin
 class CoinPaginationView(discord.ui.View):
     """Paginated coin balance list — 10 per page."""
     def __init__(self, users_data, page=0, guild=None, timeout=120):
-        super().__init__(timeout=timeout)
+        super().__init__(timeout=None)
         self.users_data = users_data
         self.page = page
         self.per_page = 10
@@ -1609,6 +1632,7 @@ class CoinPaginationView(discord.ui.View):
 
     @discord.ui.button(label="上一页 Prev", emoji="⬅️", style=discord.ButtonStyle.secondary)
     async def prev_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         if self.page > 0:
             self.page -= 1
             self._update_buttons()
@@ -1616,6 +1640,7 @@ class CoinPaginationView(discord.ui.View):
 
     @discord.ui.button(label="下一页 Next", emoji="➡️", style=discord.ButtonStyle.secondary)
     async def next_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         if (self.page + 1) * self.per_page < len(self.users_data):
             self.page += 1
             self._update_buttons()
@@ -1624,3 +1649,14 @@ class CoinPaginationView(discord.ui.View):
 
 async def setup(bot):
     await bot.add_cog(Economy(bot))
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, 'disabled'):
+                child.disabled = True
+        if hasattr(self, 'message') and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+

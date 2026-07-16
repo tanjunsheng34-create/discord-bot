@@ -96,12 +96,13 @@ class GiveawayModal(discord.ui.Modal, title="创建抽奖 / Create Giveaway"):
 # =============================================================================
 class GiveawayView(discord.ui.View):
     def __init__(self, giveaway_id, winner_count, timeout=None):
-        super().__init__(timeout=timeout)
+        super().__init__(timeout=None)
         self.giveaway_id = giveaway_id
         self.winner_count = winner_count
 
     @discord.ui.button(label="参加 Enter", style=discord.ButtonStyle.success, emoji="🎉", custom_id="gw_enter")
     async def enter_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         uid = str(interaction.user.id)
 
         conn = get_db(); cur = conn.cursor()
@@ -139,6 +140,7 @@ class GiveawayView(discord.ui.View):
 
     @discord.ui.button(label="查看参与 View Entries", style=discord.ButtonStyle.secondary, emoji="📋", custom_id="gw_view")
     async def view_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
         conn = get_db(); cur = conn.cursor()
         cur.execute("SELECT user_id FROM giveaway_entries WHERE giveaway_id=?", (self.giveaway_id,))
         rows = cur.fetchall()
@@ -160,6 +162,17 @@ class GiveawayView(discord.ui.View):
 # =============================================================================
 # Giveaway Cog
 # =============================================================================
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, 'disabled'):
+                child.disabled = True
+        if hasattr(self, 'message') and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
 class Giveaway(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
