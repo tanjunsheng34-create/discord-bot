@@ -362,17 +362,6 @@ class VoiceTimeView(discord.ui.View):
 # =============================================================================
 # VoiceLeaderboardView — 分页排行榜 / Paginated Leaderboard
 # =============================================================================
-
-    async def on_timeout(self):
-        for child in self.children:
-            if hasattr(child, 'disabled'):
-                child.disabled = True
-        if hasattr(self, 'message') and self.message:
-            try:
-                await self.message.edit(view=self)
-            except Exception:
-                pass
-
 class VoiceLeaderboardView(discord.ui.View):
     def __init__(self, data, page=0, guild=None, cog=None, timeout=180):
         super().__init__(timeout=None)
