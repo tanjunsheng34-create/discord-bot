@@ -109,7 +109,7 @@ class VoiceTracker(commands.Cog):
             conn.close()
 
     def _build_self_embed(self, target, row):
-        """Build embed for a single user's voice stats."""
+        """Build embed for a single user's voice stats (cumulative)."""
         total_seconds = row["total_seconds"] or 0
         login_days = row["login_days"] or 0
         total_joins = row["total_joins"] or 0
@@ -118,10 +118,11 @@ class VoiceTracker(commands.Cog):
 
         embed = discord.Embed(
             title=f"Voice Time Stats — {target.display_name}",
+            description="**Cumulative Stats / 累计统计**",
             color=discord.Color.purple(),
         )
         embed.add_field(name="Total Time", value=f"**{format_duration(total_seconds)}**", inline=True)
-        embed.add_field(name="Login Days", value=f"**{login_days}** days", inline=True)
+        embed.add_field(name="Total Login Days", value=f"**{login_days}** days", inline=True)
         embed.add_field(name="Total Joins", value=f"**{total_joins}** times", inline=True)
         embed.add_field(name="Last Login Date", value=last_join_date, inline=True)
         embed.add_field(name="Last Join Time", value=last_join_time[:19] if len(last_join_time) > 19 else last_join_time, inline=True)
@@ -129,13 +130,18 @@ class VoiceTracker(commands.Cog):
         return embed
 
     def _build_leaderboard_embed(self, data, page, guild):
-        """Build leaderboard embed from voice_tracker data."""
+        """Build leaderboard embed from voice_tracker data, with global summary footer."""
         per_page = 10
         start = page * per_page
         end = min(start + per_page, len(data))
         page_data = data[start:end]
 
         total_pages = (len(data) + per_page - 1) // per_page
+
+        # Global cumulative totals across all tracked users
+        sum_seconds = sum((r["total_seconds"] or 0) for r in data)
+        sum_days = sum((r["login_days"] or 0) for r in data)
+        sum_joins = sum((r["total_joins"] or 0) for r in data)
 
         embed = discord.Embed(
             title="Voice Leaderboard / Voice Leaderboard",
@@ -162,6 +168,15 @@ class VoiceTracker(commands.Cog):
         embed.add_field(
             name=f"Top {start + 1}-{end}",
             value="\n".join(lines) if lines else "(Empty)",
+            inline=False,
+        )
+        embed.add_field(
+            name="Global Summary / 全局汇总",
+            value=(
+                f"**Total Time:** {format_duration(sum_seconds)}\n"
+                f"**Total Login Days:** {sum_days} days\n"
+                f"**Total Joins:** {sum_joins} times"
+            ),
             inline=False,
         )
         return embed
