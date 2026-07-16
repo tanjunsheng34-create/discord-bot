@@ -207,11 +207,11 @@ class TeamAssignView(discord.ui.View):
     async def add_to_a(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if not self.selected_player:
-            return await interaction.response.send_message("请先从下拉菜单选择一个玩家 / Select a player first.", ephemeral=True)
+            return await interaction.followup.send("请先从下拉菜单选择一个玩家 / Select a player first.", ephemeral=True)
         if len(self.team_a) >= self.team_size:
-            return await interaction.response.send_message(f"A 队已满 (上限 {self.team_size}) / Team A full.", ephemeral=True)
+            return await interaction.followup.send(f"A 队已满 (上限 {self.team_size}) / Team A full.", ephemeral=True)
         if self.selected_player in self.team_a or self.selected_player in self.team_b:
-            return await interaction.response.send_message("该玩家已分配 / Already assigned.", ephemeral=True)
+            return await interaction.followup.send("该玩家已分配 / Already assigned.", ephemeral=True)
         self.team_a.append(self.selected_player)
         self.selected_player = None
         self._rebuild_select()
@@ -221,11 +221,11 @@ class TeamAssignView(discord.ui.View):
     async def add_to_b(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if not self.selected_player:
-            return await interaction.response.send_message("请先从下拉菜单选择一个玩家 / Select a player first.", ephemeral=True)
+            return await interaction.followup.send("请先从下拉菜单选择一个玩家 / Select a player first.", ephemeral=True)
         if len(self.team_b) >= self.team_size:
-            return await interaction.response.send_message(f"B 队已满 (上限 {self.team_size}) / Team B full.", ephemeral=True)
+            return await interaction.followup.send(f"B 队已满 (上限 {self.team_size}) / Team B full.", ephemeral=True)
         if self.selected_player in self.team_a or self.selected_player in self.team_b:
-            return await interaction.response.send_message("该玩家已分配 / Already assigned.", ephemeral=True)
+            return await interaction.followup.send("该玩家已分配 / Already assigned.", ephemeral=True)
         self.team_b.append(self.selected_player)
         self.selected_player = None
         self._rebuild_select()
@@ -246,7 +246,7 @@ class TeamAssignView(discord.ui.View):
         total = len(self.team_a) + len(self.team_b)
         all_players = len(self.all_player_ids)
         if total < min(2, all_players):
-            return await interaction.response.send_message("请至少分配 2 名玩家到队伍中 / Assign at least 2 players.", ephemeral=True)
+            return await interaction.followup.send("请至少分配 2 名玩家到队伍中 / Assign at least 2 players.", ephemeral=True)
 
         conn = get_db(); cur = conn.cursor()
         cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (self.match_id, "A 队 Team A"))
@@ -662,7 +662,7 @@ class DashboardView(discord.ui.View):
         conn.close()
 
         if not matches:
-            return await interaction.response.send_message("当前没有可报名的比赛 / No open matches.", ephemeral=True)
+            return await interaction.followup.send("当前没有可报名的比赛 / No open matches.", ephemeral=True)
 
         options = []
         for m in matches:
@@ -685,14 +685,14 @@ class DashboardView(discord.ui.View):
             t = cur2.fetchone()
             if not t or t["status"] != "open":
                 conn2.close()
-                return await sel_interaction.response.send_message("报名已关闭 / Signup closed.", ephemeral=True)
+                return await sel_interaction.followup.send("报名已关闭 / Signup closed.", ephemeral=True)
 
             max_p = t["max_teams"] * t["team_size"]
             cur2.execute("SELECT COUNT(*) as cnt FROM registrations WHERE tournament_id=?", (mid,))
             cnt = cur2.fetchone()["cnt"]
             if cnt >= max_p:
                 conn2.close()
-                return await sel_interaction.response.send_message("报名已满 / Signup full.", ephemeral=True)
+                return await sel_interaction.followup.send("报名已满 / Signup full.", ephemeral=True)
 
             uid = str(sel_interaction.user.id)
             try:
@@ -701,16 +701,16 @@ class DashboardView(discord.ui.View):
                 conn2.commit()
             except Exception:
                 conn2.close()
-                return await sel_interaction.response.send_message("已报名 / Already signed up.", ephemeral=True)
+                return await sel_interaction.followup.send("已报名 / Already signed up.", ephemeral=True)
             conn2.close()
-            await sel_interaction.response.send_message(
+            await sel_interaction.followup.send(
                 f"✅ {sel_interaction.user.mention} 报名成功！ Signed up! ({cnt+1}/{max_p})", ephemeral=True
             )
 
         select.callback = join_callback
         view = discord.ui.View(timeout=60)
         view.add_item(select)
-        await interaction.response.send_message(view=view, ephemeral=True)
+        await interaction.followup.send(view=view, ephemeral=True)
 
     @discord.ui.button(label="选队长 Captain", style=discord.ButtonStyle.secondary, emoji="👑", row=0)
     async def pick_captain_btn(self, interaction: discord.Interaction, button):
@@ -723,7 +723,7 @@ class DashboardView(discord.ui.View):
         conn.close()
 
         if not matches:
-            return await interaction.response.send_message("当前没有可报名的比赛 / No open matches.", ephemeral=True)
+            return await interaction.followup.send("当前没有可报名的比赛 / No open matches.", ephemeral=True)
 
         options = []
         for m in matches:
@@ -780,7 +780,7 @@ class DashboardView(discord.ui.View):
         select.callback = captain_select_callback
         view = discord.ui.View(timeout=60)
         view.add_item(select)
-        await interaction.response.send_message(view=view, ephemeral=True)
+        await interaction.followup.send(view=view, ephemeral=True)
 
     @discord.ui.button(label="随机分队 Shuffle", style=discord.ButtonStyle.secondary, emoji="🎲", row=0)
     async def shuffle_btn(self, interaction: discord.Interaction, button):
@@ -795,7 +795,7 @@ class DashboardView(discord.ui.View):
         conn.close()
 
         if not matches:
-            return await interaction.response.send_message("当前没有可随机分队的比赛 / No open matches.", ephemeral=True)
+            return await interaction.followup.send("当前没有可随机分队的比赛 / No open matches.", ephemeral=True)
 
         options = []
         for m in matches:
@@ -864,7 +864,7 @@ class DashboardView(discord.ui.View):
         select.callback = shuffle_callback
         view = discord.ui.View(timeout=60)
         view.add_item(select)
-        await interaction.response.send_message(view=view, ephemeral=True)
+        await interaction.followup.send(view=view, ephemeral=True)
 
     @discord.ui.button(label="分 A/B 队 Teams", style=discord.ButtonStyle.secondary, emoji="⚔️", row=0)
     async def assign_teams_btn(self, interaction: discord.Interaction, button):
@@ -878,7 +878,7 @@ class DashboardView(discord.ui.View):
         conn.close()
 
         if not matches:
-            return await interaction.response.send_message("当前没有可分配的比赛 / No open matches.", ephemeral=True)
+            return await interaction.followup.send("当前没有可分配的比赛 / No open matches.", ephemeral=True)
 
         options = []
         for m in matches:
@@ -915,7 +915,7 @@ class DashboardView(discord.ui.View):
         select.callback = assign_callback
         view = discord.ui.View(timeout=60)
         view.add_item(select)
-        await interaction.response.send_message(view=view, ephemeral=True)
+        await interaction.followup.send(view=view, ephemeral=True)
 
     # ================================================================
     # Row 1 — 自定义分队 / Custom Team (continued)
@@ -932,7 +932,7 @@ class DashboardView(discord.ui.View):
         conn.close()
 
         if not matches:
-            return await interaction.response.send_message("当前没有可开始的比赛 / No open matches.", ephemeral=True)
+            return await interaction.followup.send("当前没有可开始的比赛 / No open matches.", ephemeral=True)
 
         options = []
         for m in matches:
@@ -973,7 +973,7 @@ class DashboardView(discord.ui.View):
         select.callback = start_callback
         view = discord.ui.View(timeout=60)
         view.add_item(select)
-        await interaction.response.send_message(view=view, ephemeral=True)
+        await interaction.followup.send(view=view, ephemeral=True)
 
     @discord.ui.button(label="结算 Settle", style=discord.ButtonStyle.success, emoji="💰", row=1)
     async def settle_btn(self, interaction: discord.Interaction, button):
@@ -987,7 +987,7 @@ class DashboardView(discord.ui.View):
         conn.close()
 
         if not matches:
-            return await interaction.response.send_message("当前没有待结算的比赛 / No closed matches to settle.", ephemeral=True)
+            return await interaction.followup.send("当前没有待结算的比赛 / No closed matches to settle.", ephemeral=True)
 
         options = []
         for m in matches:
@@ -1130,7 +1130,7 @@ class DashboardView(discord.ui.View):
         select.callback = settle_match_callback
         view = discord.ui.View(timeout=60)
         view.add_item(select)
-        await interaction.response.send_message(view=view, ephemeral=True)
+        await interaction.followup.send(view=view, ephemeral=True)
 
     # ================================================================
     # Row 2 — 锦标赛 / Tournament
@@ -1140,7 +1140,7 @@ class DashboardView(discord.ui.View):
     async def create_tournament_btn(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("仅管理员可创建锦标赛 / Admin only.", ephemeral=True)
+            return await interaction.followup.send("仅管理员可创建锦标赛 / Admin only.", ephemeral=True)
         modal = CreateTournamentModal(self.guild, self.session)
         await interaction.response.send_modal(modal)
 
@@ -1155,7 +1155,7 @@ class DashboardView(discord.ui.View):
         conn.close()
 
         if not tournaments:
-            return await interaction.response.send_message("当前没有可报名的锦标赛 / No open tournaments.", ephemeral=True)
+            return await interaction.followup.send("当前没有可报名的锦标赛 / No open tournaments.", ephemeral=True)
 
         options = []
         for t in tournaments:
@@ -1259,13 +1259,13 @@ class DashboardView(discord.ui.View):
         select.callback = signup_callback
         view = discord.ui.View(timeout=60)
         view.add_item(select)
-        await interaction.response.send_message(view=view, ephemeral=True)
+        await interaction.followup.send(view=view, ephemeral=True)
 
     @discord.ui.button(label="选秀/选队长 Draft", style=discord.ButtonStyle.secondary, emoji="🎯", row=2)
     async def draft_setup_btn(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("仅管理员可设置队长选秀 / Admin only.", ephemeral=True)
+            return await interaction.followup.send("仅管理员可设置队长选秀 / Admin only.", ephemeral=True)
 
         conn = get_db(); cur = conn.cursor()
         cur.execute(
@@ -1275,7 +1275,7 @@ class DashboardView(discord.ui.View):
         conn.close()
 
         if not tournaments:
-            return await interaction.response.send_message("没有可用的锦标赛 / No tournaments available.", ephemeral=True)
+            return await interaction.followup.send("没有可用的锦标赛 / No tournaments available.", ephemeral=True)
 
         options = []
         for t in tournaments:
@@ -1320,7 +1320,7 @@ class DashboardView(discord.ui.View):
         select.callback = draft_callback
         view = discord.ui.View(timeout=60)
         view.add_item(select)
-        await interaction.response.send_message(view=view, ephemeral=True)
+        await interaction.followup.send(view=view, ephemeral=True)
 
     @discord.ui.button(label="上报比分 Report", style=discord.ButtonStyle.danger, emoji="📊", row=2)
     async def report_btn(self, interaction: discord.Interaction, button):
@@ -1333,7 +1333,7 @@ class DashboardView(discord.ui.View):
         conn.close()
 
         if not tournaments:
-            return await interaction.response.send_message("没有进行中的锦标赛 / No active tournaments.", ephemeral=True)
+            return await interaction.followup.send("没有进行中的锦标赛 / No active tournaments.", ephemeral=True)
 
         options = []
         for t in tournaments:
@@ -1360,7 +1360,7 @@ class DashboardView(discord.ui.View):
         select.callback = report_callback
         view = discord.ui.View(timeout=60)
         view.add_item(select)
-        await interaction.response.send_message(view=view, ephemeral=True)
+        await interaction.followup.send(view=view, ephemeral=True)
 
     @discord.ui.button(label="排名 Standings", style=discord.ButtonStyle.secondary, emoji="📈", row=2)
     async def standings_btn(self, interaction: discord.Interaction, button):
@@ -1373,7 +1373,7 @@ class DashboardView(discord.ui.View):
         conn.close()
 
         if not tournaments:
-            return await interaction.response.send_message("没有可查看的锦标赛 / No tournaments.", ephemeral=True)
+            return await interaction.followup.send("没有可查看的锦标赛 / No tournaments.", ephemeral=True)
 
         options = []
         for t in tournaments:
@@ -1423,7 +1423,7 @@ class DashboardView(discord.ui.View):
         select.callback = standings_callback
         view = discord.ui.View(timeout=60)
         view.add_item(select)
-        await interaction.response.send_message(view=view, ephemeral=True)
+        await interaction.followup.send(view=view, ephemeral=True)
 
     @discord.ui.button(label="对阵表 Bracket", style=discord.ButtonStyle.secondary, emoji="📋", row=3)
     async def bracket_btn(self, interaction: discord.Interaction, button):
@@ -1436,7 +1436,7 @@ class DashboardView(discord.ui.View):
         conn.close()
 
         if not tournaments:
-            return await interaction.response.send_message("没有可查看的锦标赛 / No tournaments.", ephemeral=True)
+            return await interaction.followup.send("没有可查看的锦标赛 / No tournaments.", ephemeral=True)
 
         options = []
         for t in tournaments:
@@ -1506,7 +1506,7 @@ class DashboardView(discord.ui.View):
         select.callback = bracket_callback
         view = discord.ui.View(timeout=60)
         view.add_item(select)
-        await interaction.response.send_message(view=view, ephemeral=True)
+        await interaction.followup.send(view=view, ephemeral=True)
 
     @discord.ui.button(label="Voice LB 语音排行", style=discord.ButtonStyle.secondary, emoji="🎤", row=3)
     async def voice_lb_btn(self, interaction: discord.Interaction, button):
@@ -1520,7 +1520,7 @@ class DashboardView(discord.ui.View):
         conn.close()
 
         if not data:
-            return await interaction.response.send_message("No voice data yet.", ephemeral=True)
+            return await interaction.followup.send("No voice data yet.", ephemeral=True)
 
         from cogs.voice_tracker import VoiceLeaderboardView, VoiceTracker
 
@@ -1528,7 +1528,7 @@ class DashboardView(discord.ui.View):
         cog = self._get_voice_cog(interaction)
         view = VoiceLeaderboardView(data=data, page=0, guild=interaction.guild, cog=cog)
         embed = cog._build_leaderboard_embed(data, 0, interaction.guild)
-        await interaction.response.send_message(embed=embed, view=view)
+        await interaction.followup.send(embed=embed, view=view)
 
     def _get_voice_cog(self, interaction):
         """Obtain the VoiceTracker cog from the bot."""

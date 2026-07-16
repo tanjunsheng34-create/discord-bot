@@ -1097,26 +1097,26 @@ class CustomTeamView(discord.ui.View):
     async def select_callback(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.captain_id:
-            return await interaction.response.send_message("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
+            return await interaction.followup.send("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
         val = interaction.data["values"][0]
         if val == "__none__":
-            return await interaction.response.defer()
+            return await interaction.followup.send("已取消选择。", ephemeral=True)
         self.selected_player = val
         member = self.guild.get_member(int(val))
         name = member.display_name if member else f"<@{val}>"
-        await interaction.response.send_message(f"已选择: {name}，点击加入A队或B队", ephemeral=True)
+        await interaction.followup.send(f"已选择: {name}，点击加入A队或B队", ephemeral=True)
 
     @discord.ui.button(label="加入A队", style=discord.ButtonStyle.primary, emoji="🔵", row=1, custom_id="custom_team_a")
     async def add_to_a(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.captain_id:
-            return await interaction.response.send_message("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
+            return await interaction.followup.send("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
         if not self.selected_player:
-            return await interaction.response.send_message("请先从下拉菜单选择一个玩家。", ephemeral=True)
+            return await interaction.followup.send("请先从下拉菜单选择一个玩家。", ephemeral=True)
         if len(self.team_a) >= self.team_size:
-            return await interaction.response.send_message(f"A队已满 ({self.team_size}人)。", ephemeral=True)
+            return await interaction.followup.send(f"A队已满 ({self.team_size}人)。", ephemeral=True)
         if self.selected_player in self.team_a or self.selected_player in self.team_b:
-            return await interaction.response.send_message("该玩家已分配。", ephemeral=True)
+            return await interaction.followup.send("该玩家已分配。", ephemeral=True)
 
         self.team_a.append(self.selected_player)
         self.selected_player = None
@@ -1128,13 +1128,13 @@ class CustomTeamView(discord.ui.View):
     async def add_to_b(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.captain_id:
-            return await interaction.response.send_message("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
+            return await interaction.followup.send("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
         if not self.selected_player:
-            return await interaction.response.send_message("请先从下拉菜单选择一个玩家。", ephemeral=True)
+            return await interaction.followup.send("请先从下拉菜单选择一个玩家。", ephemeral=True)
         if len(self.team_b) >= self.team_size:
-            return await interaction.response.send_message(f"B队已满 ({self.team_size}人)。", ephemeral=True)
+            return await interaction.followup.send(f"B队已满 ({self.team_size}人)。", ephemeral=True)
         if self.selected_player in self.team_a or self.selected_player in self.team_b:
-            return await interaction.response.send_message("该玩家已分配。", ephemeral=True)
+            return await interaction.followup.send("该玩家已分配。", ephemeral=True)
 
         self.team_b.append(self.selected_player)
         self.selected_player = None
@@ -1146,7 +1146,7 @@ class CustomTeamView(discord.ui.View):
     async def clear_teams(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.captain_id:
-            return await interaction.response.send_message("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
+            return await interaction.followup.send("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
         self.team_a.clear()
         self.team_b.clear()
         self.selected_player = None
@@ -1158,12 +1158,12 @@ class CustomTeamView(discord.ui.View):
     async def confirm_teams(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.captain_id:
-            return await interaction.response.send_message("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
+            return await interaction.followup.send("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
 
         total = len(self.team_a) + len(self.team_b)
         all_players = len(self.all_player_ids)
         if total < min(2, all_players):
-            return await interaction.response.send_message("请至少分配2名玩家到队伍中。", ephemeral=True)
+            return await interaction.followup.send("请至少分配2名玩家到队伍中。", ephemeral=True)
 
         # Write teams to database
         conn = get_db(); cur = conn.cursor()

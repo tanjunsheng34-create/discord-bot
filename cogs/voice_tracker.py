@@ -253,7 +253,7 @@ class VoiceTimeView(discord.ui.View):
         conn.close()
 
         if not row:
-            return await interaction.response.send_message(
+            return await interaction.followup.send(
                 f"{self.user.display_name} no voice data yet.", ephemeral=True
             )
         embed = self.cog._build_self_embed(self.user, row)
@@ -271,7 +271,7 @@ class VoiceTimeView(discord.ui.View):
         conn.close()
 
         if not data:
-            return await interaction.response.send_message("No voice data yet.", ephemeral=True)
+            return await interaction.followup.send("No voice data yet.", ephemeral=True)
 
         view = VoiceLeaderboardView(data=data, page=0, guild=self.guild, cog=self.cog)
         embed = self.cog._build_leaderboard_embed(data, 0, self.guild)
@@ -281,11 +281,11 @@ class VoiceTimeView(discord.ui.View):
     async def view_other_btn(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if not self.is_admin:
-            return await interaction.response.send_message("Admin only.", ephemeral=True)
+            return await interaction.followup.send("Admin only.", ephemeral=True)
 
         members = [m for m in self.guild.members if not m.bot][:25]
         if not members:
-            return await interaction.response.send_message("No members found.", ephemeral=True)
+            return await interaction.followup.send("No members found.", ephemeral=True)
 
         options = [
             discord.SelectOption(label=m.display_name[:100], value=str(m.id))
@@ -318,14 +318,14 @@ class VoiceTimeView(discord.ui.View):
         select.callback = user_callback
         view = discord.ui.View(timeout=60)
         view.add_item(select)
-        await interaction.response.send_message(view=view, ephemeral=True)
+        await interaction.followup.send(view=view, ephemeral=True)
 
     @discord.ui.button(label="Reset All Voice", style=discord.ButtonStyle.danger, emoji="🗑️", row=1)
     async def reset_all_voice_btn(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         """Admin-only: reset all voice tracker data to zero."""
         if not self.is_admin:
-            return await interaction.response.send_message("Admin only.", ephemeral=True)
+            return await interaction.followup.send("Admin only.", ephemeral=True)
 
         confirm = ConfirmView(timeout=60)
         embed = discord.Embed(
@@ -337,7 +337,7 @@ class VoiceTimeView(discord.ui.View):
             ),
             color=discord.Color.red(),
         )
-        await interaction.response.send_message(embed=embed, view=confirm, ephemeral=True)
+        await interaction.followup.send(embed=embed, view=confirm, ephemeral=True)
         await confirm.wait()
 
         if confirm.value is None or not confirm.value:

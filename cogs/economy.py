@@ -320,15 +320,15 @@ class ShopView(discord.ui.View):
     async def balance_btn(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.user_id:
-            return await interaction.response.send_message("This is not your shop. / 这不是你的商店页面。", ephemeral=True)
+            return await interaction.followup.send("This is not your shop. / 这不是你的商店页面。", ephemeral=True)
         bal = get_balance(str(interaction.user.id))
-        await interaction.response.send_message(f"🪙 Balance / 余额: **{bal}** GMPT Coins", ephemeral=True)
+        await interaction.followup.send(f"🪙 Balance / 余额: **{bal}** GMPT Coins", ephemeral=True)
 
     @discord.ui.button(label="Inventory", emoji="🎒", style=discord.ButtonStyle.secondary, row=3)
     async def inv_btn(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.user_id:
-            return await interaction.response.send_message("This is not your shop. / 这不是你的商店页面。", ephemeral=True)
+            return await interaction.followup.send("This is not your shop. / 这不是你的商店页面。", ephemeral=True)
         uid = str(interaction.user.id)
         conn = get_db(); cur = conn.cursor()
         cur.execute("""
@@ -339,9 +339,9 @@ class ShopView(discord.ui.View):
         """, (uid,))
         rows = cur.fetchall(); conn.close()
         if not rows:
-            return await interaction.response.send_message("Backpack is empty. / 背包是空的。", ephemeral=True)
+            return await interaction.followup.send("Backpack is empty. / 背包是空的。", ephemeral=True)
         lines = [f"📦 **{r['name']}** x{r['quantity']}" for r in rows]
-        await interaction.response.send_message("\n".join(lines), ephemeral=True)
+        await interaction.followup.send("\n".join(lines), ephemeral=True)
 
     def make_buy_callback(self, item_id):
         async def callback(interaction: discord.Interaction):
@@ -414,7 +414,7 @@ class AchFilter(discord.ui.View):
     async def prev_btn(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.user_id:
-            return await interaction.response.send_message("This is not your page. / 这不是你的页面。", ephemeral=True)
+            return await interaction.followup.send("This is not your page. / 这不是你的页面。", ephemeral=True)
         self.current_page -= 1
         await self._render_and_update(interaction)
 
@@ -422,7 +422,7 @@ class AchFilter(discord.ui.View):
     async def next_btn(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.user_id:
-            return await interaction.response.send_message("This is not your page. / 这不是你的页面。", ephemeral=True)
+            return await interaction.followup.send("This is not your page. / 这不是你的页面。", ephemeral=True)
         self.current_page += 1
         await self._render_and_update(interaction)
 
@@ -430,7 +430,7 @@ class AchFilter(discord.ui.View):
     async def all_btn(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.user_id:
-            return await interaction.response.send_message("This is not your page. / 这不是你的页面。", ephemeral=True)
+            return await interaction.followup.send("This is not your page. / 这不是你的页面。", ephemeral=True)
         self.current_filter = "all"
         self.current_page = 0
         await self._render_and_update(interaction)
@@ -439,7 +439,7 @@ class AchFilter(discord.ui.View):
     async def unlocked_btn(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.user_id:
-            return await interaction.response.send_message("This is not your page. / 这不是你的页面。", ephemeral=True)
+            return await interaction.followup.send("This is not your page. / 这不是你的页面。", ephemeral=True)
         self.current_filter = "unlocked"
         self.current_page = 0
         await self._render_and_update(interaction)
@@ -448,7 +448,7 @@ class AchFilter(discord.ui.View):
     async def locked_btn(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.user_id:
-            return await interaction.response.send_message("This is not your page. / 这不是你的页面。", ephemeral=True)
+            return await interaction.followup.send("This is not your page. / 这不是你的页面。", ephemeral=True)
         self.current_filter = "locked"
         self.current_page = 0
         await self._render_and_update(interaction)
@@ -460,13 +460,13 @@ async def buy_item(interaction: discord.Interaction, uid: str, item_id: int):
     cur.execute("SELECT * FROM shop_items WHERE id=?", (item_id,))
     item = cur.fetchone()
     if not item:
-        conn.close(); return await interaction.response.send_message(
+        conn.close(); return await interaction.followup.send(
             "Item not found. / 物品不存在。", ephemeral=True
         )
 
     bal = get_balance(uid)
     if bal < item["price"]:
-        conn.close(); return await interaction.response.send_message(
+        conn.close(); return await interaction.followup.send(
             f"Insufficient balance! Need {item['price']} coins, you have {bal}. / 余额不足！需要 {item['price']} coins，你有 {bal} coins。",
             ephemeral=True,
         )
@@ -523,7 +523,7 @@ async def buy_item(interaction: discord.Interaction, uid: str, item_id: int):
             for child in self.children: child.disabled = True
             await btn_i.response.edit_message(content="Cancelled. / 已取消。", view=self)
 
-    await interaction.response.send_message(
+    await interaction.followup.send(
         f"Confirm purchase / 确认购买 **{item['name']}**？\n"
         f"Price / 价格: 🪙 {item['price']} | Balance / 余额: 🪙 {bal}",
         view=ConfirmBuy(),
@@ -1399,7 +1399,7 @@ class AdminCoinsView(discord.ui.View):
         # Build user select dropdown from guild members
         members = [m for m in self.guild.members if not m.bot][:25]
         if not members:
-            return await interaction.response.send_message("服务器没有可用成员 / No members found.", ephemeral=True)
+            return await interaction.followup.send("服务器没有可用成员 / No members found.", ephemeral=True)
 
         options = []
         for m in members:
@@ -1426,7 +1426,7 @@ class AdminCoinsView(discord.ui.View):
         select.callback = user_callback
         view = discord.ui.View(timeout=120)
         view.add_item(select)
-        await interaction.response.send_message(view=view, ephemeral=True)
+        await interaction.followup.send(view=view, ephemeral=True)
 
     @discord.ui.button(label="重置全部 Reset All", style=discord.ButtonStyle.danger, emoji="🔥", row=1)
     async def reset_all_btn(self, interaction: discord.Interaction, button):
@@ -1443,11 +1443,11 @@ class AdminCoinsView(discord.ui.View):
         conn.close()
 
         if not all_users:
-            return await interaction.response.send_message("数据库中没有用户 / No users in database.", ephemeral=True)
+            return await interaction.followup.send("数据库中没有用户 / No users in database.", ephemeral=True)
 
         view = CoinPaginationView(users_data=all_users, page=0, guild=self.guild)
         embed = view.build_embed()
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     async def on_timeout(self):
         for child in self.children:

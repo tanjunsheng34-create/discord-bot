@@ -240,15 +240,15 @@ class DraftView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
         cap = self.current_captain
         if not cap:
-            return await interaction.response.send_message("Draft error.", ephemeral=True)
+            return await interaction.followup.send("Draft error.", ephemeral=True)
         if str(interaction.user.id) != cap["captain_id"]:
-            return await interaction.response.send_message(
+            return await interaction.followup.send(
                 f"现在轮到 **{_display_name(self.guild, cap['captain_id'])}** 选人 / Not your turn!",
                 ephemeral=True,
             )
 
         if not self._pending_pick:
-            return await interaction.response.send_message(
+            return await interaction.followup.send(
                 "请先从下拉菜单选择一个玩家 / Pick a player first.",
                 ephemeral=True,
             )
@@ -256,7 +256,7 @@ class DraftView(discord.ui.View):
         # Check if already drafted
         if self._pending_pick in [p[1] for p in self.drafted_players]:
             self._pending_pick = None
-            return await interaction.response.send_message("该玩家已被选走。", ephemeral=True)
+            return await interaction.followup.send("该玩家已被选走。", ephemeral=True)
 
         # Save to DB
         conn = get_db(); cur = conn.cursor()
@@ -292,9 +292,9 @@ class DraftView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
         cap = self.current_captain
         if not cap:
-            return await interaction.response.send_message("Draft error.", ephemeral=True)
+            return await interaction.followup.send("Draft error.", ephemeral=True)
         if str(interaction.user.id) != cap["captain_id"]:
-            return await interaction.response.send_message(
+            return await interaction.followup.send(
                 f"现在轮到 **{_display_name(self.guild, cap['captain_id'])}** 选人 / Not your turn!",
                 ephemeral=True,
             )
@@ -302,7 +302,7 @@ class DraftView(discord.ui.View):
         # Find any unassigned player and auto-pick the first one
         unassigned = self._get_unassigned()
         if not unassigned:
-            return await interaction.response.send_message("没有可选的玩家了 / No players left.", ephemeral=True)
+            return await interaction.followup.send("没有可选的玩家了 / No players left.", ephemeral=True)
 
         auto_pick = unassigned[0]  # auto-pick first available
 
@@ -337,12 +337,12 @@ class DraftView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
         cap = self.current_captain
         if not cap:
-            return await interaction.response.send_message("Draft error.", ephemeral=True)
+            return await interaction.followup.send("Draft error.", ephemeral=True)
         if str(interaction.user.id) != cap["captain_id"]:
             # Allow any captain to end
             is_any_captain = any(c["captain_id"] == str(interaction.user.id) for c in self.captains)
             if not is_any_captain:
-                return await interaction.response.send_message(
+                return await interaction.followup.send(
                     "Only captains can end the draft. / 仅队长可结束选秀。",
                     ephemeral=True,
                 )
@@ -446,7 +446,7 @@ class CreateTournamentView(discord.ui.View):
         t = get_tournament_or_none(cur, self.tournament_id)
         if not t or t["status"] != "signup":
             conn.close()
-            return await interaction.response.send_message("该锦标赛报名已关闭。", ephemeral=True)
+            return await interaction.followup.send("该锦标赛报名已关闭。", ephemeral=True)
 
         uid = str(interaction.user.id)
 
@@ -456,7 +456,7 @@ class CreateTournamentView(discord.ui.View):
             _, tier_name, _ = await fetch_player_tier(self.session, uid)
             if tier_name and tier_name.upper() not in allowed:
                 conn.close()
-                return await interaction.response.send_message(
+                return await interaction.followup.send(
                     f"你的段位 **{tier_name}** 不符合本赛事要求（限 {', '.join(sorted(allowed))}）。",
                     ephemeral=True,
                 )
@@ -467,7 +467,7 @@ class CreateTournamentView(discord.ui.View):
         )
         if cur.fetchone():
             conn.close()
-            return await interaction.response.send_message("你已经报名了这个锦标赛。", ephemeral=True)
+            return await interaction.followup.send("你已经报名了这个锦标赛。", ephemeral=True)
 
         max_p = t["max_players"] or 32
         cur.execute("SELECT COUNT(*) as cnt FROM tournament_players WHERE tournament_id=?",
@@ -475,7 +475,7 @@ class CreateTournamentView(discord.ui.View):
         cnt = cur.fetchone()["cnt"]
         if cnt >= max_p:
             conn.close()
-            return await interaction.response.send_message(f"报名已满（{max_p}人）。", ephemeral=True)
+            return await interaction.followup.send(f"报名已满（{max_p}人）。", ephemeral=True)
 
         tier_display, tier_key, _ = await fetch_player_tier(self.session, uid)
         if tier_display is None:
@@ -495,7 +495,7 @@ class CreateTournamentView(discord.ui.View):
             color=discord.Color.gold(),
         )
         confirm_view = ConfirmView(timeout=60)
-        await interaction.response.send_message(embed=embed, view=confirm_view, ephemeral=True)
+        await interaction.followup.send(embed=embed, view=confirm_view, ephemeral=True)
         await confirm_view.wait()
         if confirm_view.value is None or not confirm_view.value:
             return
@@ -546,7 +546,7 @@ class CreateTournamentView(discord.ui.View):
         conn.close()
 
         if not rows:
-            return await interaction.response.send_message("暂无玩家报名。", ephemeral=True)
+            return await interaction.followup.send("暂无玩家报名。", ephemeral=True)
 
         lines = [f"**{self.tournament_name} 报名列表 ({len(rows)}人)**\n"]
         for i, r in enumerate(rows, 1):
@@ -554,7 +554,7 @@ class CreateTournamentView(discord.ui.View):
             tier_str = f" `{r['tier']}`" if r["tier"] else ""
             lines.append(f"`#{i}` **{name}** — Seed: {r['seed']}{tier_str}")
 
-        await interaction.response.send_message("\n".join(lines), ephemeral=True)
+        await interaction.followup.send("\n".join(lines), ephemeral=True)
 
     # ---------------------------------------------------------------
     # 取消赛事 (仅管理员/创建者) / Cancel Tournament
@@ -722,14 +722,14 @@ class ReportView(discord.ui.View):
     async def opp_won(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if not self._pending_match:
-            return await interaction.response.send_message("请先选择比赛。", ephemeral=True)
+            return await interaction.followup.send("请先选择比赛。", ephemeral=True)
         conn = get_db(); cur = conn.cursor()
         cur.execute("SELECT player_a_id, player_b_id FROM tournament_matches WHERE id=?",
                      (self._pending_match,))
         m = cur.fetchone()
         conn.close()
         if not m:
-            return await interaction.response.send_message("比赛不存在。", ephemeral=True)
+            return await interaction.followup.send("比赛不存在。", ephemeral=True)
         opp_id = m["player_b_id"] if m["player_a_id"] == self.user_id else m["player_a_id"]
         await self._do_report(interaction, opp_id)
 
@@ -891,10 +891,10 @@ class DraftSetupView(discord.ui.View):
     async def select_callback(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("仅管理员可操作。", ephemeral=True)
+            return await interaction.followup.send("仅管理员可操作。", ephemeral=True)
         val = interaction.data["values"][0]
         if val == "__none__":
-            return await interaction.response.defer()
+            return await interaction.followup.send("已取消选择。", ephemeral=True)
         self._pending_player = val
         # Enable buttons
         for child in self.children:
@@ -907,17 +907,17 @@ class DraftSetupView(discord.ui.View):
     async def add_captain(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("仅管理员可操作。", ephemeral=True)
+            return await interaction.followup.send("仅管理员可操作。", ephemeral=True)
         if not self._pending_player:
-            return await interaction.response.send_message("请先从下拉菜单选一个玩家。", ephemeral=True)
+            return await interaction.followup.send("请先从下拉菜单选一个玩家。", ephemeral=True)
 
         pid = self._pending_player
         if pid in self.captains:
-            return await interaction.response.send_message("该玩家已是队长。", ephemeral=True)
+            return await interaction.followup.send("该玩家已是队长。", ephemeral=True)
 
         player = next((p for p in self.available_players if p[0] == pid), None)
         if not player:
-            return await interaction.response.send_message("玩家不在列表中。", ephemeral=True)
+            return await interaction.followup.send("玩家不在列表中。", ephemeral=True)
         _, name, tier, score = player
 
         self.captains[pid] = {
@@ -942,13 +942,13 @@ class DraftSetupView(discord.ui.View):
     async def remove_captain(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("仅管理员可操作。", ephemeral=True)
+            return await interaction.followup.send("仅管理员可操作。", ephemeral=True)
         if not self._pending_player:
-            return await interaction.response.send_message("请先从下拉菜单选一个玩家。", ephemeral=True)
+            return await interaction.followup.send("请先从下拉菜单选一个玩家。", ephemeral=True)
 
         pid = self._pending_player
         if pid not in self.captains:
-            return await interaction.response.send_message("该玩家不是队长。", ephemeral=True)
+            return await interaction.followup.send("该玩家不是队长。", ephemeral=True)
 
         del self.captains[pid]
         # Re-number pick_order
@@ -969,9 +969,9 @@ class DraftSetupView(discord.ui.View):
     async def start_draft(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("仅管理员可操作。", ephemeral=True)
+            return await interaction.followup.send("仅管理员可操作。", ephemeral=True)
         if len(self.captains) < 2:
-            return await interaction.response.send_message("至少需要 2 名队长。", ephemeral=True)
+            return await interaction.followup.send("至少需要 2 名队长。", ephemeral=True)
 
         await interaction.response.defer()
 

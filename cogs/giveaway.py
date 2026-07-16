@@ -110,7 +110,7 @@ class GiveawayView(discord.ui.View):
         gw = cur.fetchone()
         if not gw or gw["status"] != "active":
             conn.close()
-            return await interaction.response.send_message("该抽奖已结束 / This giveaway has ended.", ephemeral=True)
+            return await interaction.followup.send("该抽奖已结束 / This giveaway has ended.", ephemeral=True)
 
         try:
             cur.execute(
@@ -132,7 +132,7 @@ class GiveawayView(discord.ui.View):
         cnt = cur.fetchone()["cnt"]
         conn.close()
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"✅ {interaction.user.mention} {action} 抽奖！当前参与人数: **{cnt}** / "
             f"You {action} the giveaway! Current entries: **{cnt}**",
             ephemeral=True,
@@ -147,13 +147,13 @@ class GiveawayView(discord.ui.View):
         conn.close()
 
         if not rows:
-            return await interaction.response.send_message("暂无参与者 / No entries yet.", ephemeral=True)
+            return await interaction.followup.send("暂无参与者 / No entries yet.", ephemeral=True)
 
         entries = []
         for i, r in enumerate(rows, 1):
             entries.append(f"{i}. <@{r['user_id']}>")
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"**参与者 ({len(entries)} 人) / Entries:**\n" + "\n".join(entries),
             ephemeral=True,
         )
