@@ -67,6 +67,14 @@ class CreateMatchModal(discord.ui.Modal, title="创建比赛 / Create Match"):
         ).set_footer(text=f"Match ID: {tid}")
         view = MatchView(match_id=tid, guild=self.guild)
         await interaction.response.send_message(embed=embed, view=view)
+        # 发送初始报名列表
+        list_embed = discord.Embed(
+            title="已报名玩家 / Signed Up (0/" + str(mp) + ")",
+            description="暂无玩家 / No signups yet",
+            color=discord.Color.green(),
+        )
+        list_msg = await interaction.followup.send(embed=list_embed)
+        set_player_list_msg(tid, list_msg.id)
 
 
 class CreateTournamentModal(discord.ui.Modal, title="创建赛事 / Create Tournament"):
@@ -333,11 +341,25 @@ class TeamAssignView(discord.ui.View):
             except Exception:
                 pass
 
+# ══════════ 报名列表消息缓存（match_id → message_id）══════════
+_player_list_msgs: dict[int, int] = {}
+
+def get_player_list_msg(match_id: int) -> int | None:
+    return _player_list_msgs.get(match_id)
+
+def set_player_list_msg(match_id: int, msg_id: int):
+    _player_list_msgs[match_id] = msg_id
+
+def remove_player_list_msg(match_id: int):
+    _player_list_msgs.pop(match_id, None)
+
+
 class MatchView(discord.ui.View):
     def __init__(self, match_id, guild, timeout=None):
         super().__init__(timeout=None)
         self.match_id = match_id
         self.guild = guild
+        self.player_list_msg_id = _player_list_msgs.get(match_id)
 
     @discord.ui.button(label="报名 Sign Up", style=discord.ButtonStyle.success, emoji="✋", row=0)
     async def signup_btn(self, interaction: discord.Interaction, button):
@@ -378,6 +400,7 @@ class MatchView(discord.ui.View):
             await interaction.followup.send(
                 f"✅ {interaction.user.mention} 报名成功！ Signed up! ({cnt+1}/{max_p})", ephemeral=True
             )
+            await refresh_player_list(self, interaction.channel, interaction.guild)
         except Exception as e:
             import traceback
             print(f"[MatchView] signup error: {e}")
@@ -1631,3 +1654,45 @@ class Dashboard(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(Dashboard(bot))
+
+
+async def refresh_player_list(view, channel, guild):
+    """删除旧报名列表消息，发送新的。用于 MatchView 按钮回调。"""
+    match_id = view.match_id
+    old_msg_id = _player_list_msgs.get(match_id)
+    if old_msg_id:
+        try:
+            old_msg = await channel.fetch_message(old_msg_id)
+            await old_msg.delete()
+        except (discord.NotFound, discord.Forbidden):
+            pass
+
+    conn = get_db(); cur = conn.cursor()
+    cur.execute(
+        "SELECT discord_id FROM registrations WHERE tournament_id=? ORDER BY id ASC",
+        (match_id,),
+    )
+    rows = cur.fetchall()
+    cur.execute("SELECT max_teams, team_size FROM tournaments WHERE id=?", (match_id,))
+    t = cur.fetchone()
+    conn.close()
+    max_p = (t["max_teams"] * t["team_size"]) if t else 0
+
+    names = []
+    for r in rows:
+        member = guild.get_member(int(r["discord_id"]))
+        names.append(member.display_name if member else f"<@{r['discord_id']}>")
+
+    count = len(names)
+    if count > 0:
+        desc = "\n".join(f"{i+1}. {n}" for i, n in enumerate(names))
+    else:
+        desc = "暂无玩家 / No signups yet"
+
+    embed = discord.Embed(
+        title=f"已报名玩家 / Signed Up ({count}/{max_p})",
+        description=desc,
+        color=discord.Color.green(),
+    )
+    new_msg = await channel.send(embed=embed)
+    _player_list_msgs[match_id] = new_msg.id

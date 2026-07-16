@@ -295,9 +295,17 @@ class GMPT(commands.Cog):
             description=f"**{max_players}** 人 | 每队 {team_size}\n点击下方按钮报名",
             color=discord.Color.gold(),
         ).set_footer(text=f"Match ID: {tid}")
-        from cogs.dashboard import MatchView
+        from cogs.dashboard import MatchView, set_player_list_msg
         view = MatchView(match_id=tid, guild=interaction.guild)
         await interaction.response.send_message(embed=embed, view=view)
+        # 发送初始报名列表
+        list_embed = discord.Embed(
+            title=f"已报名玩家 / Signed Up (0/{max_players})",
+            description="暂无玩家 / No signups yet",
+            color=discord.Color.green(),
+        )
+        list_msg = await interaction.followup.send(embed=list_embed)
+        set_player_list_msg(tid, list_msg.id)
 
     # ============ 报名 ============
     @app_commands.command(
@@ -535,6 +543,8 @@ class GMPT(commands.Cog):
         cur.execute("DELETE FROM registrations WHERE tournament_id=? AND discord_id=?", (match_id, str(player.id)))
         conn.commit(); conn.close()
         await interaction.response.send_message(f"{player.mention} 已被踢出比赛。")
+        # 刷新报名列表
+        await _refresh_player_list_from_cmd(match_id, interaction.channel, interaction.guild)
 
     # ============ 取消比赛 ============
     @app_commands.command(
@@ -555,6 +565,16 @@ class GMPT(commands.Cog):
         cur.execute("DELETE FROM tournaments WHERE id=?", (match_id,))
         conn.commit(); conn.close()
         await interaction.response.send_message(f"比赛 {match_id} 已取消，所有报名数据已清除。")
+        # 删除报名列表消息
+        from cogs.dashboard import get_player_list_msg, remove_player_list_msg
+        old_msg_id = get_player_list_msg(match_id)
+        if old_msg_id:
+            try:
+                old_msg = await interaction.channel.fetch_message(old_msg_id)
+                await old_msg.delete()
+            except (discord.NotFound, discord.Forbidden):
+                pass
+            remove_player_list_msg(match_id)
 
     # ============ 历史记录 ============
     @app_commands.command(
