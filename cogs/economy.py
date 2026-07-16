@@ -1430,7 +1430,6 @@ class AdminCoinsView(discord.ui.View):
 
     @discord.ui.button(label="重置全部 Reset All", style=discord.ButtonStyle.danger, emoji="🔥", row=1)
     async def reset_all_btn(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
         modal = ResetAllModal()
         await interaction.response.send_modal(modal)
 

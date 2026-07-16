@@ -201,7 +201,7 @@ class TeamAssignView(discord.ui.View):
         self.selected_player = val
         member = self.guild.get_member(int(val))
         name = member.display_name if member else f"<@{val}>"
-        await interaction.response.send_message(f"已选择 / Selected: {name}，点击加入 A 队或 B 队", ephemeral=True)
+        await interaction.followup.send(f"已选择 / Selected: {name}，点击加入 A 队或 B 队", ephemeral=True)
 
     @discord.ui.button(label="加入 A 队 / A", style=discord.ButtonStyle.primary, emoji="🔵", row=1)
     async def add_to_a(self, interaction: discord.Interaction, button):
@@ -646,7 +646,6 @@ class DashboardView(discord.ui.View):
 
     @discord.ui.button(label="创建比赛 Create", style=discord.ButtonStyle.primary, emoji="🆕", row=0)
     async def create_match_btn(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
         modal = CreateMatchModal(self.guild, self.session)
         await interaction.response.send_modal(modal)
 
@@ -1138,8 +1137,8 @@ class DashboardView(discord.ui.View):
 
     @discord.ui.button(label="创建赛事 Tournament", style=discord.ButtonStyle.primary, emoji="🏆", row=2)
     async def create_tournament_btn(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
         if not interaction.user.guild_permissions.administrator:
+            await interaction.response.defer(ephemeral=True)
             return await interaction.followup.send("仅管理员可创建锦标赛 / Admin only.", ephemeral=True)
         modal = CreateTournamentModal(self.guild, self.session)
         await interaction.response.send_modal(modal)
