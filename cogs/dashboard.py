@@ -1679,8 +1679,13 @@ class Dashboard(commands.Cog):
         name="gmpt-dashboard",
         description="Open the unified control panel / 打开统一控制面板",
     )
-    async def dashboard_cmd(self, interaction: discord.Interaction):
-        await interaction.response.defer(thinking=False)
+    @app_commands.describe(
+        channel="Target channel / 目标频道 (default: current)",
+    )
+    async def dashboard_cmd(
+        self, interaction: discord.Interaction,
+        channel: discord.TextChannel = None,
+    ):
         try:
             embed = discord.Embed(
                 title="🎮 GMPT 控制面板 / Control Panel",
@@ -1697,12 +1702,26 @@ class Dashboard(commands.Cog):
                 color=discord.Color.blurple(),
             ).set_footer(text="GMPT Dashboard v1.2")
             view = DashboardView(guild=interaction.guild, session=self.session)
-            await interaction.edit_original_response(embed=embed, view=view)
+
+            target = channel or interaction.channel
+            if target != interaction.channel:
+                await target.send(embed=embed, view=view)
+                await interaction.response.send_message(
+                    f"Dashboard sent to {target.mention}", ephemeral=True
+                )
+            else:
+                await interaction.response.defer(thinking=False)
+                await interaction.edit_original_response(embed=embed, view=view)
         except Exception as e:
             import traceback
             print(f"[Dashboard] Error in dashboard_cmd: {e}")
             traceback.print_exc()
-            await interaction.edit_original_response(content="控制面板加载失败 / Dashboard failed to load. Please try again.")
+            try:
+                await interaction.response.send_message(
+                    "控制面板加载失败 / Dashboard failed to load. Please try again.", ephemeral=True
+                )
+            except Exception:
+                pass
 
 
 async def setup(bot):
