@@ -15,9 +15,16 @@ class Announce(commands.Cog):
     @app_commands.describe(
         title="Announcement title / 公告标题",
         content="Announcement body / 公告正文",
+        channel="Target channel (default: current) / 目标频道（默认当前频道）",
     )
-    async def announce_cmd(self, interaction: discord.Interaction, title: str, content: str):
-        """Send a styled embed announcement to the current channel."""
+    async def announce_cmd(
+        self,
+        interaction: discord.Interaction,
+        title: str,
+        content: str,
+        channel: discord.TextChannel = None,
+    ):
+        """Send a styled embed announcement to the specified channel."""
 
         # Permission check — only members with Manage Messages can announce
         if not interaction.user.guild_permissions.manage_messages:
@@ -26,19 +33,18 @@ class Announce(commands.Cog):
                 ephemeral=True,
             )
 
+        target = channel or interaction.channel
+
         embed = discord.Embed(
             title=title,
             description=content,
             color=discord.Color.gold(),
-            timestamp=interaction.created_at,
-        )
-        embed.set_footer(
-            text=f"Announced by {interaction.user.display_name}",
-            icon_url=interaction.user.display_avatar.url if interaction.user.display_avatar else None,
         )
 
-        await interaction.channel.send(embed=embed)
-        await interaction.response.send_message("Announcement sent.", ephemeral=True)
+        await target.send(embed=embed)
+        await interaction.response.send_message(
+            f"Announcement sent to {target.mention}.", ephemeral=True
+        )
 
 
 async def setup(bot):
