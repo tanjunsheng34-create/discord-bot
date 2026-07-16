@@ -4,8 +4,8 @@ Discord Bot — LOL 自定义比赛 5v5
 import os
 import sys
 import json
+import io
 import asyncio
-import atexit
 import discord
 from discord.ext import commands
 from database import get_db
@@ -16,9 +16,9 @@ if TOKEN is None:
     exit(1)
 
 # =============================================================================
-# Auto-backup configuration
+# Auto-backup configuration (Discord channel-based, no volume needed)
 # =============================================================================
-BACKUP_PATH = os.getenv("BACKUP_PATH", "/data/backup.json")
+BACKUP_CHANNEL_ID = os.getenv("BACKUP_CHANNEL_ID")          # REQUIRED for auto-backup
 BACKUP_INTERVAL = int(os.getenv("BACKUP_INTERVAL", "300"))  # seconds
 BACKUP_TABLES = [
     "users",
@@ -46,63 +46,136 @@ COGS = [
 
 
 # =============================================================================
-# Auto-backup: synchronous core (safe for atexit / signal handlers)
+# Auto-backup → Discord channel
 # =============================================================================
-def do_backup_sync():
-    """Export all database tables to BACKUP_PATH. Fully synchronous — safe for atexit."""
-    try:
-        from database import get_db as _get_db
-        conn = _get_db()
-        cur = conn.cursor()
-        data = {}
-        for table in BACKUP_TABLES:
-            try:
-                cur.execute(f"SELECT * FROM {table}")
-                rows = [dict(row) for row in cur.fetchall()]
-                data[table] = rows
-            except Exception:
-                data[table] = []
-        conn.close()
+def export_backup_data():
+    """Export all BACKUP_TABLES rows as a dict. Runs in thread — sync safe."""
+    conn = get_db()
+    cur = conn.cursor()
+    data = {}
+    for table in BACKUP_TABLES:
+        try:
+            cur.execute(f"SELECT * FROM {table}")
+            rows = [dict(row) for row in cur.fetchall()]
+            data[table] = rows
+        except Exception:
+            data[table] = []
+    conn.close()
+    return data
 
-        backup_dir = os.path.dirname(BACKUP_PATH)
-        if backup_dir:
-            os.makedirs(backup_dir, exist_ok=True)
-        with open(BACKUP_PATH, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+
+async def _get_backup_channel():
+    """Resolve BACKUP_CHANNEL_ID → discord.TextChannel, or None if not configured."""
+    if not BACKUP_CHANNEL_ID:
+        return None
+    try:
+        cid = int(BACKUP_CHANNEL_ID)
+    except ValueError:
+        print(f"[Backup] Invalid BACKUP_CHANNEL_ID: {BACKUP_CHANNEL_ID}", file=sys.stderr)
+        return None
+    # fetch_channel works even before full guild cache is ready
+    channel = bot.get_channel(cid)
+    if channel is None:
+        try:
+            channel = await bot.fetch_channel(cid)
+        except Exception:
+            pass
+    if channel is None:
+        print(f"[Backup] Channel {cid} not accessible.", file=sys.stderr)
+    return channel
+
+
+async def _find_last_backup(channel):
+    """Find the most recent backup message sent by this bot in the channel. Returns Message or None."""
+    try:
+        async for msg in channel.history(limit=30):
+            if msg.author == bot.user and msg.attachments:
+                for att in msg.attachments:
+                    if att.filename.endswith(".json"):
+                        return msg
+    except Exception:
+        pass
+    return None
+
+
+async def do_backup():
+    """Export DB → upload JSON to backup channel, deleting the previous backup message first."""
+    channel = await _get_backup_channel()
+    if channel is None:
+        return
+
+    try:
+        # Delete last backup message to keep channel tidy
+        last = await _find_last_backup(channel)
+        if last:
+            try:
+                await last.delete()
+            except Exception:
+                pass
+
+        # Export & send
+        data = await asyncio.to_thread(export_backup_data)
+        json_str = json.dumps(data, ensure_ascii=False, indent=2)
+        file = discord.File(io.BytesIO(json_str.encode("utf-8")), filename="gmpt_auto_backup.json")
 
         total = sum(len(v) for v in data.values())
-        print(f"[Backup] Saved {total} records across {len(BACKUP_TABLES)} tables → {BACKUP_PATH}")
+        msg = await channel.send(
+            content=f"Auto-backup — {total} records / {len(BACKUP_TABLES)} tables",
+            file=file,
+        )
+        print(f"[Backup] Sent {total} records → channel {BACKUP_CHANNEL_ID} (msg {msg.id})")
     except Exception as e:
         print(f"[Backup] Failed: {e}", file=sys.stderr)
 
 
-async def do_backup():
-    """Async wrapper around do_backup_sync — runs in a thread to avoid blocking."""
-    await asyncio.to_thread(do_backup_sync)
-
-
 async def auto_backup_loop():
-    """Background task: save backup periodically."""
-    await asyncio.sleep(10)  # let bot fully start
+    """Background task: periodically push backup to Discord channel."""
+    if not BACKUP_CHANNEL_ID:
+        print("[Backup] BACKUP_CHANNEL_ID not set — auto-backup disabled.")
+        return
+
+    await asyncio.sleep(15)  # let bot fully start
+
     while True:
         await asyncio.sleep(BACKUP_INTERVAL)
         await do_backup()
 
 
 # =============================================================================
-# Auto-restore: load backup on startup
+# Auto-restore ← Discord channel
 # =============================================================================
 async def auto_restore():
-    """Restore database tables from BACKUP_PATH if the file exists."""
-    if not os.path.exists(BACKUP_PATH):
-        print(f"[Restore] No backup found at {BACKUP_PATH}, skipping.")
+    """On startup: download latest backup JSON from Discord channel and restore to SQLite."""
+    if not BACKUP_CHANNEL_ID:
+        print("[Restore] BACKUP_CHANNEL_ID not set — skipping auto-restore.")
+        return
+
+    await bot.wait_until_ready()
+
+    channel = await _get_backup_channel()
+    if channel is None:
         return
 
     try:
-        with open(BACKUP_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        last = await _find_last_backup(channel)
+        if last is None:
+            print("[Restore] No backup message found in channel, starting fresh.")
+            return
+
+        # Find JSON attachment
+        attachment = None
+        for att in last.attachments:
+            if att.filename.endswith(".json"):
+                attachment = att
+                break
+        if attachment is None:
+            print("[Restore] No JSON attachment on backup message.")
+            return
+
+        content = await attachment.read()
+        data = json.loads(content.decode("utf-8"))
     except Exception as e:
-        print(f"[Restore] Failed to read backup: {e}", file=sys.stderr)
+        print(f"[Restore] Failed to fetch backup: {e}", file=sys.stderr)
         return
 
     conn = get_db()
@@ -195,7 +268,7 @@ async def auto_restore():
 @bot.event
 async def on_ready():
     init_db()
-    # Auto-restore backup data before anything else
+    # Restore data from Discord backup channel (if configured)
     await auto_restore()
     print(f"Bot online: {bot.user}")
     try:
@@ -243,10 +316,7 @@ async def health_check():
 async def main():
     import traceback
 
-    # Register atexit: one last backup on normal shutdown
-    atexit.register(do_backup_sync)
-
-    # Start background backup loop
+    # Start background backup loop (pushes to Discord channel)
     asyncio.create_task(auto_backup_loop())
 
     # 启动保活服务
