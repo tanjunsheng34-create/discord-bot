@@ -438,7 +438,6 @@ class MatchView(discord.ui.View):
 
     @discord.ui.button(label="结算 Settle", style=discord.ButtonStyle.danger, emoji="💰", row=1)
     async def settle_btn(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
         """Settle button on match message — select winner + optional MVP → confirm → distribute coins."""
         await interaction.response.defer(ephemeral=True)
         try:

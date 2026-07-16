@@ -620,7 +620,7 @@ class CreateTournamentView(discord.ui.View):
 
 class ConfirmView(discord.ui.View):
     def __init__(self, timeout=60):
-        super().__init__(timeout=None)
+        super().__init__(timeout=timeout)
         self.value = None  # True / False after user clicks
 
     @discord.ui.button(label="确认 / Confirm", style=discord.ButtonStyle.success)
@@ -630,6 +630,7 @@ class ConfirmView(discord.ui.View):
         for child in self.children:
             child.disabled = True
         await interaction.response.edit_message(view=self)
+        self.stop()
 
     @discord.ui.button(label="取消 / Cancel", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, button):
@@ -638,6 +639,7 @@ class ConfirmView(discord.ui.View):
         for child in self.children:
             child.disabled = True
         await interaction.response.edit_message(view=self)
+        self.stop()
 
 
 # =============================================================================
