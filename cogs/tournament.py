@@ -413,15 +413,6 @@ class DraftView(discord.ui.View):
 # CreateTournamentView — 创建赛事后直接附带报名/查看/取消按钮
 # =============================================================================
 
-    async def on_timeout(self):
-        for child in self.children:
-            if hasattr(child, 'disabled'):
-                child.disabled = True
-        if hasattr(self, 'message') and self.message:
-            try:
-                await self.message.edit(view=self)
-            except Exception:
-                pass
 
 class CreateTournamentView(discord.ui.View):
     def __init__(self, tournament_id, tournament_name, tournament_format,
@@ -606,17 +597,6 @@ class CreateTournamentView(discord.ui.View):
 
 # =============================================================================
 # ConfirmView — generic Yes/No confirm dialog
-# =============================================================================
-
-    async def on_timeout(self):
-        for child in self.children:
-            if hasattr(child, 'disabled'):
-                child.disabled = True
-        if hasattr(self, 'message') and self.message:
-            try:
-                await self.message.edit(view=self)
-            except Exception:
-                pass
 
 class ConfirmView(discord.ui.View):
     def __init__(self, timeout=60):
@@ -646,15 +626,6 @@ class ConfirmView(discord.ui.View):
 # ReportView — button-based match score reporting
 # =============================================================================
 
-    async def on_timeout(self):
-        for child in self.children:
-            if hasattr(child, 'disabled'):
-                child.disabled = True
-        if hasattr(self, 'message') and self.message:
-            try:
-                await self.message.edit(view=self)
-            except Exception:
-                pass
 
 class ReportView(discord.ui.View):
     def __init__(self, tournament_id, user_id, guild, timeout=300):
@@ -841,15 +812,6 @@ class ReportView(discord.ui.View):
 # DraftSetupView — button-based captain selection for draft
 # =============================================================================
 
-    async def on_timeout(self):
-        for child in self.children:
-            if hasattr(child, 'disabled'):
-                child.disabled = True
-        if hasattr(self, 'message') and self.message:
-            try:
-                await self.message.edit(view=self)
-            except Exception:
-                pass
 
 class DraftSetupView(discord.ui.View):
     def __init__(self, tournament_id, available_players, guild, timeout=300):
@@ -1051,15 +1013,6 @@ class DraftSetupView(discord.ui.View):
 # Tournament Cog
 # =============================================================================
 
-    async def on_timeout(self):
-        for child in self.children:
-            if hasattr(child, 'disabled'):
-                child.disabled = True
-        if hasattr(self, 'message') and self.message:
-            try:
-                await self.message.edit(view=self)
-            except Exception:
-                pass
 
 class Tournament(commands.Cog):
     """锦标赛 Tournament System"""

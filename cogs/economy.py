@@ -1649,13 +1649,3 @@ class CoinPaginationView(discord.ui.View):
 async def setup(bot):
     await bot.add_cog(Economy(bot))
 
-    async def on_timeout(self):
-        for child in self.children:
-            if hasattr(child, 'disabled'):
-                child.disabled = True
-        if hasattr(self, 'message') and self.message:
-            try:
-                await self.message.edit(view=self)
-            except Exception:
-                pass
-

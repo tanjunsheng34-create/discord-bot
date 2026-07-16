@@ -1337,13 +1337,3 @@ async def _refresh_player_list_from_cmd(match_id: int, channel, guild):
 async def setup(bot):
     await bot.add_cog(GMPT(bot))
 
-    async def on_timeout(self):
-        for child in self.children:
-            if hasattr(child, 'disabled'):
-                child.disabled = True
-        if hasattr(self, 'message') and self.message:
-            try:
-                await self.message.edit(view=self)
-            except Exception:
-                pass
-

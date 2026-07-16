@@ -1622,16 +1622,6 @@ class DashboardView(discord.ui.View):
 # Dashboard Cog
 # =============================================================================
 
-    async def on_timeout(self):
-        for child in self.children:
-            if hasattr(child, 'disabled'):
-                child.disabled = True
-        if hasattr(self, 'message') and self.message:
-            try:
-                await self.message.edit(view=self)
-            except Exception:
-                pass
-
 class Dashboard(commands.Cog):
     """统一控制面板 / Unified Control Panel — 一个界面完成所有操作"""
 

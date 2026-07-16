@@ -8,7 +8,7 @@ import io
 import asyncio
 import discord
 from discord.ext import commands
-from database import get_db
+from database import get_db, init_db
 from config import TOKEN
 
 if TOKEN is None:
