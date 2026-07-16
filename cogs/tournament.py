@@ -588,21 +588,29 @@ class ConfirmView(discord.ui.View):
 
     @discord.ui.button(label="确认 / Confirm", style=discord.ButtonStyle.success)
     async def confirm(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
-        self.value = True
-        for child in self.children:
-            child.disabled = True
-        await interaction.response.edit_message(view=self)
-        self.stop()
+        try:
+            await interaction.response.defer(ephemeral=True)
+            self.value = True
+            for child in self.children:
+                child.disabled = True
+            await interaction.edit_original_response(view=self)
+        except Exception as e:
+            print(f"[ConfirmView] confirm error: {e}")
+        finally:
+            self.stop()
 
     @discord.ui.button(label="取消 / Cancel", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
-        self.value = False
-        for child in self.children:
-            child.disabled = True
-        await interaction.response.edit_message(view=self)
-        self.stop()
+        try:
+            await interaction.response.defer(ephemeral=True)
+            self.value = False
+            for child in self.children:
+                child.disabled = True
+            await interaction.edit_original_response(view=self)
+        except Exception as e:
+            print(f"[ConfirmView] cancel error: {e}")
+        finally:
+            self.stop()
 
 
 # =============================================================================
