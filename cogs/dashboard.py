@@ -1259,22 +1259,6 @@ class DashboardView(discord.ui.View):
 
             conn2.close()
 
-            embed = discord.Embed(
-                title="确认报名 / Confirm Signup",
-                description=(
-                    f"锦标赛: **{t['name']}**\n"
-                    f"段位: **{tier_display}**\n"
-                    f"人数: **{cnt}/{max_p}**\n\n"
-                    f"点击下方按钮确认报名 / Click below to confirm."
-                ),
-                color=discord.Color.gold(),
-            )
-            confirm_view = ConfirmView(timeout=60)
-            await sel_int.response.send_message(embed=embed, view=confirm_view, ephemeral=True)
-            await confirm_view.wait()
-            if confirm_view.value is None or not confirm_view.value:
-                return
-
             conn3 = get_db(); cur3 = conn3.cursor()
             seed_val = TIER_SEED.get(tier_key.upper() if tier_key else "UNRANKED", 10)
             cur3.execute(
@@ -1295,11 +1279,10 @@ class DashboardView(discord.ui.View):
             )
             conn3.commit(); conn3.close()
 
-            await sel_int.edit_original_response(
-                content=f"✅ {sel_int.user.mention} 报名成功！ Signed up!\n"
-                        f"锦标赛: **{t['name']}** | Tier: **{tier_display}** | ({cnt+1}/{max_p})",
-                embed=None,
-                view=None,
+            await sel_int.followup.send(
+                f"✅ {sel_int.user.mention} 报名成功！ Signed up!\n"
+                f"锦标赛: **{t['name']}** | Tier: **{tier_display}** | ({cnt+1}/{max_p})",
+                ephemeral=True,
             )
 
         select.callback = signup_callback

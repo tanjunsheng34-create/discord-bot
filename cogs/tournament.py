@@ -475,22 +475,6 @@ class CreateTournamentView(discord.ui.View):
 
         conn.close()
 
-        embed = discord.Embed(
-            title="确认报名 / Confirm Signup",
-            description=(
-                f"锦标赛: **{self.tournament_name}**\n"
-                f"段位: **{tier_display}**\n"
-                f"人数: **{cnt}/{max_p}**\n\n"
-                f"点击下方按钮确认报名。"
-            ),
-            color=discord.Color.gold(),
-        )
-        confirm_view = ConfirmView(timeout=60)
-        await interaction.followup.send(embed=embed, view=confirm_view, ephemeral=True)
-        await confirm_view.wait()
-        if confirm_view.value is None or not confirm_view.value:
-            return
-
         conn = get_db(); cur = conn.cursor()
         seed_val = TIER_SEED.get(tier_key.upper() if tier_key else "UNRANKED", 10)
         cur.execute(
@@ -511,11 +495,10 @@ class CreateTournamentView(discord.ui.View):
         )
         conn.commit(); conn.close()
 
-        await interaction.edit_original_response(
-            content=f"✅ {interaction.user.mention} 报名成功！\n"
-                    f"锦标赛: **{self.tournament_name}** | 段位: **{tier_display}** | ({cnt+1}/{max_p})",
-            embed=None,
-            view=None,
+        await interaction.followup.send(
+            f"✅ {interaction.user.mention} 报名成功！\n"
+            f"锦标赛: **{self.tournament_name}** | 段位: **{tier_display}** | ({cnt+1}/{max_p})",
+            ephemeral=True,
         )
 
     # ---------------------------------------------------------------
@@ -1207,28 +1190,6 @@ class Tournament(commands.Cog):
 
         conn.close()
 
-        # Show confirm dialog
-        embed = discord.Embed(
-            title="确认报名 / Confirm Signup",
-            description=(
-                f"锦标赛: **{t['name']}**\n"
-                f"段位: **{tier_display}**\n"
-                f"人数: **{cnt}/{max_p}**\n\n"
-                f"点击下方按钮确认报名。"
-            ),
-            color=discord.Color.gold(),
-        )
-        view = ConfirmView(timeout=60)
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-
-        # Wait for user response
-        await view.wait()
-        if view.value is None:
-            return  # timeout — message stays with disabled buttons
-        if not view.value:
-            return  # user clicked Cancel — buttons already disabled
-
-        # User confirmed — do the actual signup
         conn = get_db(); cur = conn.cursor()
         seed_val = TIER_SEED.get(tier_key.upper() if tier_key else "UNRANKED", 10)
         cur.execute(
@@ -1249,11 +1210,10 @@ class Tournament(commands.Cog):
         )
         conn.commit(); conn.close()
 
-        await interaction.edit_original_response(
-            content=f"✅ {interaction.user.mention} 报名成功！\n"
-                    f"锦标赛: **{t['name']}** | 段位: **{tier_display}** | ({cnt+1}/{max_p})",
-            embed=None,
-            view=None,
+        await interaction.followup.send(
+            f"✅ {interaction.user.mention} 报名成功！\n"
+            f"锦标赛: **{t['name']}** | 段位: **{tier_display}** | ({cnt+1}/{max_p})",
+            ephemeral=True,
         )
 
     # =====================================================================
