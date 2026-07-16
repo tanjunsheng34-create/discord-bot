@@ -295,9 +295,10 @@ class GMPT(commands.Cog):
             description=f"**{max_players}** 人 | 每队 {team_size}\n点击下方按钮报名",
             color=discord.Color.gold(),
         ).set_footer(text=f"Match ID: {tid}")
-        from cogs.dashboard import MatchView, set_player_list_msg
-        view = MatchView(match_id=tid, guild=interaction.guild)
+        from cogs.dashboard import MatchView, set_player_list_msg, save_match_view_state
+        view = MatchView()
         await interaction.response.send_message(embed=embed, view=view)
+        save_match_view_state(tid, (await interaction.original_response()).id, interaction.channel_id)
         # 发送初始报名列表
         list_embed = discord.Embed(
             title=f"已报名玩家 / Signed Up (0/{max_players})",
@@ -306,6 +307,42 @@ class GMPT(commands.Cog):
         )
         list_msg = await interaction.followup.send(embed=list_embed)
         set_player_list_msg(tid, list_msg.id)
+
+    # ============ 列出比赛 ============
+    @app_commands.command(
+        name="gmpt-list",
+        description="List all matches / 列出全部比赛",
+    )
+    async def list_matches(self, interaction: discord.Interaction):
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT id, name, status, max_teams, team_size, created_by FROM tournaments "
+            "WHERE category='match' OR category IS NULL OR category='' "
+            "ORDER BY id DESC LIMIT 25"
+        )
+        rows = cur.fetchall()
+        conn.close()
+
+        if not rows:
+            return await interaction.response.send_message("暂无比赛 / No matches.", ephemeral=True)
+
+        embed = discord.Embed(
+            title="全部比赛 / All Matches",
+            color=discord.Color.blurple(),
+        )
+        for r in rows:
+            status_emo = {"open": "🟢", "closed": "🔴", "finished": "✅"}.get(r["status"], "❓")
+            embed.add_field(
+                name=f"{status_emo} #{r['id']} — {r['name']}",
+                value=(
+                    f"Status: `{r['status']}` | "
+                    f"Players: {r['max_teams'] * r['team_size']} "
+                    f"({r['max_teams']} teams × {r['team_size']})\n"
+                    f"Created by: <@{r['created_by']}>"
+                ),
+                inline=False,
+            )
+        await interaction.response.send_message(embed=embed)
 
     # ============ 报名 ============
     @app_commands.command(

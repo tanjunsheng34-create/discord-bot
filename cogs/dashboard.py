@@ -65,8 +65,10 @@ class CreateMatchModal(discord.ui.Modal, title="创建比赛 / Create Match"):
             description=f"**{mp}** 人 / Players | 每队 / Per Team: {team_size}\nClick below to sign up / 点击下方按钮报名",
             color=discord.Color.blue(),
         ).set_footer(text=f"Match ID: {tid}")
-        view = MatchView(match_id=tid, guild=self.guild)
+        view = MatchView()
         await interaction.response.send_message(embed=embed, view=view)
+        # 持久化：保存 message → match_id 映射，Bot 重启后按钮仍可用
+        save_match_view_state(tid, (await interaction.original_response()).id, interaction.channel_id)
         # 发送初始报名列表
         list_embed = discord.Embed(
             title="已报名玩家 / Signed Up (0/" + str(mp) + ")",
@@ -75,6 +77,13 @@ class CreateMatchModal(discord.ui.Modal, title="创建比赛 / Create Match"):
         )
         list_msg = await interaction.followup.send(embed=list_embed)
         set_player_list_msg(tid, list_msg.id)
+        # 同步更新 DB 中的 player_list_msg_id
+        conn2 = get_db(); cur2 = conn2.cursor()
+        cur2.execute(
+            "UPDATE match_view_state SET player_list_msg_id=? WHERE message_id=?",
+            (str(list_msg.id), str((await interaction.original_response()).id)),
+        )
+        conn2.commit(); conn2.close()
 
 
 class CreateTournamentModal(discord.ui.Modal, title="创建赛事 / Create Tournament"):
@@ -331,7 +340,7 @@ class TeamAssignView(discord.ui.View):
 # MatchView — 比赛创建后附带的报名 / 查看 / 结算按钮
 # =============================================================================
 
-# ══════════ 报名列表消息缓存（match_id → message_id）══════════
+# ══════════ 报名列表消息缓存（match_id → message_id，内存 + DB 双写）══════════
 _player_list_msgs: dict[int, int] = {}
 
 def get_player_list_msg(match_id: int) -> int | None:
@@ -344,68 +353,144 @@ def remove_player_list_msg(match_id: int):
     _player_list_msgs.pop(match_id, None)
 
 
-class MatchView(discord.ui.View):
-    def __init__(self, match_id, guild, timeout=None):
-        super().__init__(timeout=None)
-        self.match_id = match_id
-        self.guild = guild
-        self.player_list_msg_id = _player_list_msgs.get(match_id)
+# ══════════ MatchView 持久化状态（Bot 重启后恢复报名按钮）══════════
+def save_match_view_state(match_id: int, message_id: int, channel_id: int, player_list_msg_id: int | None = None):
+    """Persist message_id → match_id mapping so the persistent MatchView can recover after restart."""
+    conn = get_db(); cur = conn.cursor()
+    cur.execute(
+        "INSERT OR REPLACE INTO match_view_state (message_id, match_id, channel_id, player_list_msg_id) "
+        "VALUES (?, ?, ?, ?)",
+        (str(message_id), match_id, channel_id, str(player_list_msg_id) if player_list_msg_id else None),
+    )
+    conn.commit(); conn.close()
 
-    @discord.ui.button(label="报名 Sign Up", style=discord.ButtonStyle.success, emoji="✋", row=0)
+
+def get_match_id_from_message(message_id: int) -> int | None:
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT match_id, channel_id, player_list_msg_id FROM match_view_state WHERE message_id=?", (str(message_id),))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    # 同步到内存缓存，方便 refresh_player_list 使用
+    if row["player_list_msg_id"]:
+        try:
+            _player_list_msgs[row["match_id"]] = int(row["player_list_msg_id"])
+        except (ValueError, TypeError):
+            pass
+    return row["match_id"]
+
+
+def get_match_row(match_id: int):
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT * FROM tournaments WHERE id=?", (match_id,))
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+
+# ══════════ MatchViewWithID — 可持久化版（Bot 重启后按钮仍有效）══════════
+class MatchViewWithID(discord.ui.View):
+    """
+    持久化比赛视图：通过 message_id → DB 反查 match_id，Bot 重启后按钮仍可响应。
+    不存实例状态，所有数据通过 interaction.message.id 实时从 DB 查询。
+    """
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    async def _get_context(self, interaction: discord.Interaction):
+        """从 interaction.message.id 反查 match 和 tournament 数据，返回 (match_id, t, guild)。"""
+        mid = get_match_id_from_message(interaction.message.id)
+        if not mid:
+            return (None, None, interaction.guild)
+        t = get_match_row(mid)
+        return (mid, t, interaction.guild)
+
+    # ── 辅助：更新报名列表 ──
+    async def _refresh_list(self, interaction: discord.Interaction, match_id: int):
+        old_msg_id = _player_list_msgs.get(match_id)
+        if old_msg_id:
+            try:
+                old_msg = await interaction.channel.fetch_message(old_msg_id)
+                await old_msg.delete()
+            except (discord.NotFound, discord.Forbidden):
+                pass
+
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=? ORDER BY id ASC", (match_id,))
+        rows = cur.fetchall()
+        cur.execute("SELECT max_teams, team_size FROM tournaments WHERE id=?", (match_id,))
+        t = cur.fetchone()
+        conn.close()
+        max_p = (t["max_teams"] * t["team_size"]) if t else 0
+
+        names = []
+        for r in rows:
+            member = interaction.guild.get_member(int(r["discord_id"]))
+            names.append(member.display_name if member else f"<@{r['discord_id']}>")
+
+        count = len(names)
+        desc = "\n".join(f"{i+1}. {n}" for i, n in enumerate(names)) if count else "暂无玩家 / No signups yet"
+        embed = discord.Embed(
+            title=f"已报名玩家 / Signed Up ({count}/{max_p})",
+            description=desc,
+            color=discord.Color.green(),
+        )
+        new_msg = await interaction.channel.send(embed=embed)
+        _player_list_msgs[match_id] = new_msg.id
+        # Also persist player_list_msg_id in DB
+        conn2 = get_db(); cur2 = conn2.cursor()
+        cur2.execute(
+            "UPDATE match_view_state SET player_list_msg_id=? WHERE message_id=?",
+            (str(new_msg.id), str(interaction.message.id)),
+        )
+        conn2.commit(); conn2.close()
+
+    @discord.ui.button(label="报名 Sign Up", style=discord.ButtonStyle.success, emoji="✋", row=0, custom_id="matchv2_signup")
     async def signup_btn(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         try:
-            conn = get_db(); cur = conn.cursor()
-            cur.execute("SELECT * FROM tournaments WHERE id=?", (self.match_id,))
-            t = cur.fetchone()
+            mid, t, guild = await self._get_context(interaction)
             if not t or t["status"] != "open":
-                conn.close()
                 return await interaction.followup.send("报名已关闭或比赛不存在 / Signup closed or match not found.", ephemeral=True)
 
             max_p = t["max_teams"] * t["team_size"]
-            cur.execute("SELECT COUNT(*) as cnt FROM registrations WHERE tournament_id=?", (self.match_id,))
+            conn = get_db(); cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) as cnt FROM registrations WHERE tournament_id=?", (mid,))
             cnt = cur.fetchone()["cnt"]
             if cnt >= max_p:
                 conn.close()
                 return await interaction.followup.send("报名已满 / Signup full.", ephemeral=True)
 
             uid = str(interaction.user.id)
-            cur.execute(
-                "SELECT id FROM registrations WHERE tournament_id=? AND discord_id=?",
-                (self.match_id, uid),
-            )
+            cur.execute("SELECT id FROM registrations WHERE tournament_id=? AND discord_id=?", (mid, uid))
             if cur.fetchone():
                 conn.close()
                 return await interaction.followup.send("你已经报过名了 / Already signed up.", ephemeral=True)
 
-            cur.execute(
-                "INSERT INTO registrations (tournament_id, discord_id) VALUES (?,?)",
-                (self.match_id, uid),
-            )
-            cur.execute(
-                "INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)",
-                (uid, interaction.user.name),
-            )
+            cur.execute("INSERT INTO registrations (tournament_id, discord_id) VALUES (?,?)", (mid, uid))
+            cur.execute("INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)", (uid, interaction.user.name))
             conn.commit(); conn.close()
             await interaction.followup.send(
                 f"✅ {interaction.user.mention} 报名成功！ Signed up! ({cnt+1}/{max_p})", ephemeral=True
             )
-            await refresh_player_list(self, interaction.channel, interaction.guild)
+            await self._refresh_list(interaction, mid)
         except Exception as e:
             import traceback
             print(f"[MatchView] signup error: {e}")
             traceback.print_exc()
             await interaction.followup.send("报名失败 / Signup failed, please try again.", ephemeral=True)
 
-    @discord.ui.button(label="查看已报名 / List", style=discord.ButtonStyle.secondary, emoji="📋", row=0)
+    @discord.ui.button(label="查看已报名 / List", style=discord.ButtonStyle.secondary, emoji="📋", row=0, custom_id="matchv2_view")
     async def view_signups_btn(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         try:
+            mid, t, guild = await self._get_context(interaction)
+            if not mid:
+                return await interaction.followup.send("比赛不存在 / Match not found.", ephemeral=True)
+
             conn = get_db(); cur = conn.cursor()
-            cur.execute(
-                "SELECT discord_id FROM registrations WHERE tournament_id=? ORDER BY id ASC",
-                (self.match_id,),
-            )
+            cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=? ORDER BY id ASC", (mid,))
             rows = cur.fetchall()
             conn.close()
             if not rows:
@@ -413,7 +498,7 @@ class MatchView(discord.ui.View):
 
             names = []
             for r in rows:
-                member = self.guild.get_member(int(r["discord_id"]))
+                member = guild.get_member(int(r["discord_id"]))
                 names.append(member.display_name if member else f"<@{r['discord_id']}>")
 
             text = "\n".join(f"{i+1}. {n}" for i, n in enumerate(names))
@@ -426,39 +511,30 @@ class MatchView(discord.ui.View):
             traceback.print_exc()
             await interaction.followup.send("查询失败 / Query failed.", ephemeral=True)
 
-    @discord.ui.button(label="结算 Settle", style=discord.ButtonStyle.danger, emoji="💰", row=1)
+    @discord.ui.button(label="结算 Settle", style=discord.ButtonStyle.danger, emoji="💰", row=1, custom_id="matchv2_settle")
     async def settle_btn(self, interaction: discord.Interaction, button):
         """Settle button on match message — select winner + optional MVP → confirm → distribute coins."""
         await interaction.response.defer(ephemeral=True)
         try:
-            conn = get_db(); cur = conn.cursor()
-            cur.execute("SELECT * FROM tournaments WHERE id=?", (self.match_id,))
-            t = cur.fetchone()
+            mid, t, guild = await self._get_context(interaction)
             if not t:
-                conn.close()
                 return await interaction.followup.send("比赛不存在 / Match not found.", ephemeral=True)
             if t["status"] == "finished":
-                conn.close()
                 return await interaction.followup.send("已结算 / Already settled.", ephemeral=True)
             if t["status"] != "closed":
-                conn.close()
                 return await interaction.followup.send("比赛尚未开始 / Match not started yet.", ephemeral=True)
 
-            # Get teams
-            cur.execute("SELECT id, name FROM teams WHERE tournament_id=?", (self.match_id,))
+            conn = get_db(); cur = conn.cursor()
+            cur.execute("SELECT id, name FROM teams WHERE tournament_id=?", (mid,))
             teams = cur.fetchall()
             conn.close()
 
             if len(teams) < 2:
                 return await interaction.followup.send("未找到两支队伍 / Two teams not found.", ephemeral=True)
 
-            # Step 1: pick winner
             team_options = []
             for tm in teams:
-                team_options.append(discord.SelectOption(
-                    label=tm["name"][:100],
-                    value=str(tm["id"]),
-                ))
+                team_options.append(discord.SelectOption(label=tm["name"][:100], value=str(tm["id"])))
 
             win_select = discord.ui.Select(
                 placeholder="选择获胜队伍 / Select winning team...",
@@ -475,18 +551,14 @@ class MatchView(discord.ui.View):
             async def win_callback(sel_int: discord.Interaction):
                 flow.win_team_id = int(sel_int.data["values"][0])
 
-                # Step 2: optional MVP
                 conn2 = get_db(); cur2 = conn2.cursor()
-                cur2.execute(
-                    "SELECT discord_id FROM registrations WHERE tournament_id=?",
-                    (self.match_id,),
-                )
+                cur2.execute("SELECT discord_id FROM registrations WHERE tournament_id=?", (mid,))
                 players = cur2.fetchall()
                 conn2.close()
 
                 mvp_options = [discord.SelectOption(label="无 MVP / Skip", value="__none__")]
                 for p in players:
-                    member = self.guild.get_member(int(p["discord_id"]))
+                    member = guild.get_member(int(p["discord_id"]))
                     name = member.display_name if member else f"<@{p['discord_id']}>"
                     mvp_options.append(discord.SelectOption(label=name[:100], value=p["discord_id"]))
 
@@ -500,10 +572,9 @@ class MatchView(discord.ui.View):
                     if val != "__none__":
                         flow.mvp_id = val
 
-                    # Step 3: confirm
                     conn3 = get_db(); cur3 = conn3.cursor()
                     win_name = cur3.execute("SELECT name FROM teams WHERE id=?", (flow.win_team_id,)).fetchone()
-                    cur3.execute("SELECT name FROM teams WHERE tournament_id=? AND id!=?", (self.match_id, flow.win_team_id))
+                    cur3.execute("SELECT name FROM teams WHERE tournament_id=? AND id!=?", (mid, flow.win_team_id))
                     lose_row = cur3.fetchone()
                     conn3.close()
                     win_name = win_name["name"] if win_name else "胜方"
@@ -511,13 +582,13 @@ class MatchView(discord.ui.View):
 
                     mvp_text = ""
                     if flow.mvp_id:
-                        mvp_member = self.guild.get_member(int(flow.mvp_id))
+                        mvp_member = guild.get_member(int(flow.mvp_id))
                         mvp_text = f"\n🏅 MVP: {mvp_member.mention if mvp_member else flow.mvp_id}"
 
                     embed = discord.Embed(
                         title="确认结算 / Confirm Settle",
                         description=(
-                            f"Match: **{t['name']}** (ID:{self.match_id})\n"
+                            f"Match: **{t['name']}** (ID:{mid})\n"
                             f"🏆 胜方 Winner: **{win_name}**\n"
                             f"💔 败方 Loser: **{lose_name}**"
                             f"{mvp_text}\n\n"
@@ -535,12 +606,11 @@ class MatchView(discord.ui.View):
                             content="结算已取消 / Settle cancelled.", embed=None, view=None
                         )
 
-                    # Execute settlement
                     await _execute_settle(
-                        match_id=self.match_id,
+                        match_id=mid,
                         win_team_id=flow.win_team_id,
                         mvp_id=flow.mvp_id,
-                        guild=self.guild,
+                        guild=guild,
                         match_name=t["name"],
                     )
 
@@ -571,50 +641,36 @@ class MatchView(discord.ui.View):
             except Exception:
                 pass
 
-    @discord.ui.button(label="退出 Leave", style=discord.ButtonStyle.danger, emoji="🚪", row=1)
+    @discord.ui.button(label="退出 Leave", style=discord.ButtonStyle.danger, emoji="🚪", row=1, custom_id="matchv2_leave")
     async def leave_btn(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         try:
-            conn = get_db(); cur = conn.cursor()
-            cur.execute("SELECT * FROM tournaments WHERE id=?", (self.match_id,))
-            t = cur.fetchone()
+            mid, t, guild = await self._get_context(interaction)
             if not t or t["status"] != "open":
-                conn.close()
                 return await interaction.followup.send("报名已关闭或比赛不存在 / Signup closed or match not found.", ephemeral=True)
 
+            conn = get_db(); cur = conn.cursor()
             uid = str(interaction.user.id)
-            cur.execute(
-                "SELECT id FROM registrations WHERE tournament_id=? AND discord_id=?",
-                (self.match_id, uid),
-            )
+            cur.execute("SELECT id FROM registrations WHERE tournament_id=? AND discord_id=?", (mid, uid))
             if not cur.fetchone():
                 conn.close()
                 return await interaction.followup.send("你未报名 / You are not signed up.", ephemeral=True)
 
-            cur.execute(
-                "DELETE FROM registrations WHERE tournament_id=? AND discord_id=?",
-                (self.match_id, uid),
-            )
+            cur.execute("DELETE FROM registrations WHERE tournament_id=? AND discord_id=?", (mid, uid))
             conn.commit(); conn.close()
             await interaction.followup.send(
                 f"🚪 {interaction.user.mention} 已退赛 / Left the match.", ephemeral=True
             )
-            await refresh_player_list(self, interaction.channel, interaction.guild)
+            await self._refresh_list(interaction, mid)
         except Exception as e:
             import traceback
             print(f"[MatchView] leave error: {e}")
             traceback.print_exc()
             await interaction.followup.send("退赛失败 / Leave failed, please try again.", ephemeral=True)
 
-    async def on_timeout(self):
-        for child in self.children:
-            if hasattr(child, 'disabled'):
-                child.disabled = True
-        if hasattr(self, 'message') and self.message:
-            try:
-                await self.message.edit(view=self)
-            except Exception:
-                pass
+
+# ══════════ 向后兼容别名══════════
+MatchView = MatchViewWithID
 
 
 # =============================================================================
@@ -1651,45 +1707,5 @@ class Dashboard(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(Dashboard(bot))
-
-
-async def refresh_player_list(view, channel, guild):
-    """删除旧报名列表消息，发送新的。用于 MatchView 按钮回调。"""
-    match_id = view.match_id
-    old_msg_id = _player_list_msgs.get(match_id)
-    if old_msg_id:
-        try:
-            old_msg = await channel.fetch_message(old_msg_id)
-            await old_msg.delete()
-        except (discord.NotFound, discord.Forbidden):
-            pass
-
-    conn = get_db(); cur = conn.cursor()
-    cur.execute(
-        "SELECT discord_id FROM registrations WHERE tournament_id=? ORDER BY id ASC",
-        (match_id,),
-    )
-    rows = cur.fetchall()
-    cur.execute("SELECT max_teams, team_size FROM tournaments WHERE id=?", (match_id,))
-    t = cur.fetchone()
-    conn.close()
-    max_p = (t["max_teams"] * t["team_size"]) if t else 0
-
-    names = []
-    for r in rows:
-        member = guild.get_member(int(r["discord_id"]))
-        names.append(member.display_name if member else f"<@{r['discord_id']}>")
-
-    count = len(names)
-    if count > 0:
-        desc = "\n".join(f"{i+1}. {n}" for i, n in enumerate(names))
-    else:
-        desc = "暂无玩家 / No signups yet"
-
-    embed = discord.Embed(
-        title=f"已报名玩家 / Signed Up ({count}/{max_p})",
-        description=desc,
-        color=discord.Color.green(),
-    )
-    new_msg = await channel.send(embed=embed)
-    _player_list_msgs[match_id] = new_msg.id
+    # 注册持久化 MatchView，使 Bot 重启后按钮仍可响应
+    bot.add_view(MatchView())

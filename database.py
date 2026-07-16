@@ -264,6 +264,14 @@ def init_db():
             last_join_date  TEXT,
             last_join_time  TEXT
         );
+
+        -- === MatchView 持久化状态（Bot 重启后恢复报名按钮）===
+        CREATE TABLE IF NOT EXISTS match_view_state (
+            message_id        TEXT PRIMARY KEY,
+            match_id          INTEGER NOT NULL,
+            channel_id        INTEGER NOT NULL,
+            player_list_msg_id TEXT
+        );
     """)
 
     conn.commit()
