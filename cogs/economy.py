@@ -11,7 +11,7 @@ from discord import app_commands
 from discord.ext import commands
 from database import get_db
 from datetime import date, datetime
-from cogs.tournament import ConfirmView
+from cogs.shared_views import ConfirmView
 try:
     from PIL import Image, ImageDraw, ImageFont
     PIL_AVAILABLE = True
