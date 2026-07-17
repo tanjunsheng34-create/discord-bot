@@ -279,6 +279,13 @@ async def on_ready():
     # Restore data from Discord backup channel (if configured)
     await auto_restore()
     print(f"Bot online: {bot.user}")
+    # Clear Discord-side stale commands before syncing to prevent
+    # conflicts after force-push / code restructuring.
+    try:
+        await bot.tree.clear_commands(guild=None)
+        print("Cleared all global commands from Discord cache")
+    except Exception as e:
+        print(f"Clear commands warning: {e}")
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} commands")
