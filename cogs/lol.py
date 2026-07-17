@@ -156,6 +156,181 @@ def _generate_result_image(tournament_name, winner_name, winner_players, loser_p
     return buf
 
 
+# ---------- MatchListView (paginated /gmpt-list) ----------
+
+class MatchListView(discord.ui.View):
+    """Paginated view for /gmpt-list — shows open/closed matches,
+    with a History button for finished matches."""
+
+    PER_PAGE = 10
+
+    def __init__(self, page=0, mode="active"):
+        super().__init__(timeout=None)
+        self.page = page
+        self.mode = mode  # "active" or "history"
+
+    # ------------------------------------------------------------------
+    # Data loading (single DB round-trip)
+    # ------------------------------------------------------------------
+    def _load_data(self):
+        conn = get_db(); cur = conn.cursor()
+
+        # Counts for button visibility
+        cur.execute("SELECT COUNT(*) as cnt FROM tournaments WHERE status IN ('open','closed')")
+        active_cnt = cur.fetchone()["cnt"]
+        cur.execute("SELECT COUNT(*) as cnt FROM tournaments WHERE status='finished'")
+        finished_cnt = cur.fetchone()["cnt"]
+
+        # Page rows with registration counts
+        if self.mode == "active":
+            status_filter = "t.status IN ('open','closed')"
+        else:
+            status_filter = "t.status = 'finished'"
+
+        cur.execute(
+            f"SELECT t.id, t.name, t.status, t.max_teams, t.team_size, "
+            f"t.created_by, t.created_at, "
+            f"COALESCE(r.cnt, 0) as reg_count "
+            f"FROM tournaments t "
+            f"LEFT JOIN ("
+            f"  SELECT tournament_id, COUNT(*) as cnt FROM registrations GROUP BY tournament_id"
+            f") r ON r.tournament_id = t.id "
+            f"WHERE {status_filter} "
+            f"ORDER BY t.id DESC"
+        )
+        all_rows = [dict(r) for r in cur.fetchall()]
+        conn.close()
+
+        total = len(all_rows)
+        total_pages = max(1, (total + self.PER_PAGE - 1) // self.PER_PAGE)
+        start = self.page * self.PER_PAGE
+        end = min(start + self.PER_PAGE, total)
+        page_rows = all_rows[start:end]
+
+        return active_cnt, finished_cnt, page_rows, total, total_pages
+
+    # ------------------------------------------------------------------
+    # Render — build embed + buttons in one shot
+    # ------------------------------------------------------------------
+    def render(self):
+        active_cnt, finished_cnt, page_rows, total, total_pages = self._load_data()
+
+        # --- Embed ---
+        if self.mode == "active":
+            embed = discord.Embed(
+                title="活跃比赛 / Active Matches",
+                description=f"第 {self.page + 1}/{total_pages} 页",
+                color=discord.Color.blurple(),
+            )
+        else:
+            embed = discord.Embed(
+                title="历史记录 / Match History",
+                description=f"第 {self.page + 1}/{total_pages} 页",
+                color=discord.Color.dark_gray(),
+            )
+
+        if not page_rows:
+            embed.description += "\n暂无记录。"
+        else:
+            status_emo_map = {"open": "🟢", "closed": "🔴", "finished": "✅"}
+            status_label_map = {"open": "报名中", "closed": "已分队", "finished": "已结束"}
+            for r in page_rows:
+                emo = status_emo_map.get(r["status"], "❓")
+                label = status_label_map.get(r["status"], r["status"])
+                max_p = r["max_teams"] * r["team_size"]
+
+                parts = [
+                    f"Status: `{label}`",
+                    f"Players: {r['reg_count']}/{max_p} ({r['max_teams']} teams × {r['team_size']})",
+                    f"Created by: <@{r['created_by']}>",
+                ]
+                if self.mode == "history" and r.get("created_at"):
+                    parts.append(f"Created: {r['created_at']}")
+
+                embed.add_field(
+                    name=f"{emo} #{r['id']} — {r['name']}",
+                    value="\n".join(parts),
+                    inline=False,
+                )
+
+        # --- Buttons ---
+        self.clear_items()
+
+        # Row 0 — pagination
+        prev_btn = discord.ui.Button(
+            label="◀ 上一页", style=discord.ButtonStyle.secondary,
+            custom_id="gmpt_list_prev", row=0,
+            disabled=(self.page <= 0),
+        )
+        prev_btn.callback = self._prev_callback
+
+        page_btn = discord.ui.Button(
+            label=f"第 {self.page + 1}/{total_pages} 页",
+            style=discord.ButtonStyle.gray,
+            custom_id="gmpt_list_page_indicator", row=0,
+            disabled=True,
+        )
+
+        next_btn = discord.ui.Button(
+            label="下一页 ▶", style=discord.ButtonStyle.secondary,
+            custom_id="gmpt_list_next", row=0,
+            disabled=(self.page >= total_pages - 1),
+        )
+        next_btn.callback = self._next_callback
+
+        self.add_item(prev_btn)
+        self.add_item(page_btn)
+        self.add_item(next_btn)
+
+        # Row 1 — history toggle
+        if self.mode == "active":
+            hist_btn = discord.ui.Button(
+                label="📋 历史记录", style=discord.ButtonStyle.primary,
+                custom_id="gmpt_list_history", row=1,
+                disabled=(finished_cnt <= 0),
+            )
+            hist_btn.callback = self._history_callback
+            self.add_item(hist_btn)
+        else:
+            back_btn = discord.ui.Button(
+                label="◀ 返回活跃比赛", style=discord.ButtonStyle.primary,
+                custom_id="gmpt_list_back", row=1,
+            )
+            back_btn.callback = self._back_callback
+            self.add_item(back_btn)
+
+        return embed
+
+    # ------------------------------------------------------------------
+    # Callbacks
+    # ------------------------------------------------------------------
+    async def _prev_callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        self.page = max(0, self.page - 1)
+        embed = self.render()
+        await interaction.edit_original_response(embed=embed, view=self)
+
+    async def _next_callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        self.page += 1  # bound checked in render via total_pages
+        embed = self.render()
+        await interaction.edit_original_response(embed=embed, view=self)
+
+    async def _history_callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        self.mode = "history"
+        self.page = 0
+        embed = self.render()
+        await interaction.edit_original_response(embed=embed, view=self)
+
+    async def _back_callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        self.mode = "active"
+        self.page = 0
+        embed = self.render()
+        await interaction.edit_original_response(embed=embed, view=self)
+
+
 # ---------- Cog ----------
 
 class GMPT(commands.Cog):
@@ -311,39 +486,14 @@ class GMPT(commands.Cog):
     # ============ 列出比赛 ============
     @app_commands.command(
         name="gmpt-list",
-        description="List all matches / 列出全部比赛",
+        description="List active matches / 列出活跃比赛 (分页, finished 通过历史入口查看)",
     )
     async def list_matches(self, interaction: discord.Interaction):
         await interaction.response.defer()
         try:
-            conn = get_db(); cur = conn.cursor()
-            cur.execute(
-                "SELECT id, name, status, max_teams, team_size, created_by FROM tournaments "
-                "ORDER BY id DESC LIMIT 25"
-            )
-            rows = cur.fetchall()
-            conn.close()
-
-            if not rows:
-                return await interaction.followup.send("暂无比赛 / No matches.", ephemeral=True)
-
-            embed = discord.Embed(
-                title="全部比赛 / All Matches",
-                color=discord.Color.blurple(),
-            )
-            for r in rows:
-                status_emo = {"open": "🟢", "closed": "🔴", "finished": "✅"}.get(r["status"], "❓")
-                embed.add_field(
-                    name=f"{status_emo} #{r['id']} — {r['name']}",
-                    value=(
-                        f"Status: `{r['status']}` | "
-                        f"Players: {r['max_teams'] * r['team_size']} "
-                        f"({r['max_teams']} teams × {r['team_size']})\n"
-                        f"Created by: <@{r['created_by']}>"
-                    ),
-                    inline=False,
-                )
-            await interaction.followup.send(embed=embed)
+            view = MatchListView(page=0, mode="active")
+            embed = view.render()
+            await interaction.followup.send(embed=embed, view=view)
         except Exception as e:
             import traceback
             traceback.print_exc()
