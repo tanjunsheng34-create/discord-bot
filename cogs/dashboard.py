@@ -1898,6 +1898,9 @@ class Dashboard(commands.Cog):
         channel: discord.TextChannel = None,
     ):
         try:
+            # Defer immediately to avoid 3-second Discord interaction timeout
+            await interaction.response.defer(ephemeral=False, thinking=False)
+
             embed = discord.Embed(
                 title="🎮 GMPT 控制面板 / Control Panel",
                 description=(
@@ -1917,18 +1920,17 @@ class Dashboard(commands.Cog):
             target = channel or interaction.channel
             if target != interaction.channel:
                 await target.send(embed=embed, view=view)
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"Dashboard sent to {target.mention}", ephemeral=True
                 )
             else:
-                await interaction.response.defer(thinking=False)
-                await interaction.edit_original_response(embed=embed, view=view)
+                await interaction.followup.send(embed=embed, view=view)
         except Exception as e:
             import traceback
             print(f"[Dashboard] Error in dashboard_cmd: {e}")
             traceback.print_exc()
             try:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     "控制面板加载失败 / Dashboard failed to load. Please try again.", ephemeral=True
                 )
             except Exception:
