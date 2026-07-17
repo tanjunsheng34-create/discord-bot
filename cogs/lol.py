@@ -1290,6 +1290,18 @@ class CustomTeamView(discord.ui.View):
 
         await interaction.response.edit_message(embed=embed, view=self)
 
+        # Send ReShuffleView below result for settle/re-shuffle/finish
+        from cogs.dashboard import ReShuffleView
+        reshuffle_embed = discord.Embed(
+            title=f"自定义分队完成 — {self.match_name} (ID:{self.match_id})",
+            description="点击下方按钮进行结算或重新分队 / Click below to settle or re-shuffle:",
+            color=discord.Color.gold(),
+        )
+        await interaction.followup.send(
+            embed=reshuffle_embed,
+            view=ReShuffleView(match_id=self.match_id, guild=self.guild),
+        )
+
     def build_embed(self):
         a_names = []
         for uid in self.team_a:

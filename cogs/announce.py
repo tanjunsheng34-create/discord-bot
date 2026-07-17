@@ -34,6 +34,7 @@ class Announce(commands.Cog):
             )
 
         target = channel or interaction.channel
+        await interaction.response.defer(ephemeral=True)
 
         embed = discord.Embed(
             title=title,
@@ -42,7 +43,7 @@ class Announce(commands.Cog):
         )
 
         await target.send(embed=embed)
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"Announcement sent to {target.mention}.", ephemeral=True
         )
 

@@ -214,7 +214,7 @@ class TeamAssignView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
         val = interaction.data["values"][0]
         if val == "__none__":
-            return await interaction.response.defer()
+            return
         self.selected_player = val
         member = self.guild.get_member(int(val))
         name = member.display_name if member else f"<@{val}>"
@@ -222,40 +222,63 @@ class TeamAssignView(discord.ui.View):
 
     @discord.ui.button(label="加入 A 队 / A", style=discord.ButtonStyle.primary, emoji="🔵", row=1)
     async def add_to_a(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
-        if not self.selected_player:
-            return await interaction.followup.send("请先从下拉菜单选择一个玩家 / Select a player first.", ephemeral=True)
-        if len(self.team_a) >= self.team_size:
-            return await interaction.followup.send(f"A 队已满 (上限 {self.team_size}) / Team A full.", ephemeral=True)
-        if self.selected_player in self.team_a or self.selected_player in self.team_b:
-            return await interaction.followup.send("该玩家已分配 / Already assigned.", ephemeral=True)
-        self.team_a.append(self.selected_player)
-        self.selected_player = None
-        self._rebuild_select()
-        await interaction.response.edit_message(embed=self._build_embed(), view=self)
+        try:
+            await interaction.response.defer(ephemeral=True)
+            if not self.selected_player:
+                return await interaction.followup.send("请先从下拉菜单选择一个玩家 / Select a player first.", ephemeral=True)
+            if len(self.team_a) >= self.team_size:
+                return await interaction.followup.send(f"A 队已满 (上限 {self.team_size}) / Team A full.", ephemeral=True)
+            if self.selected_player in self.team_a or self.selected_player in self.team_b:
+                return await interaction.followup.send("该玩家已分配 / Already assigned.", ephemeral=True)
+            self.team_a.append(self.selected_player)
+            self.selected_player = None
+            self._rebuild_select()
+            await interaction.response.edit_message(embed=self._build_embed(), view=self)
+        except Exception as e:
+            import traceback
+            print(f"[TeamAssignView] add_to_a error: {e}")
+            traceback.print_exc()
+            try:
+                await interaction.followup.send("操作失败 / Failed, please try again.", ephemeral=True)
+            except Exception:
+                pass
 
     @discord.ui.button(label="加入 B 队 / B", style=discord.ButtonStyle.danger, emoji="🔴", row=1)
     async def add_to_b(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
-        if not self.selected_player:
-            return await interaction.followup.send("请先从下拉菜单选择一个玩家 / Select a player first.", ephemeral=True)
-        if len(self.team_b) >= self.team_size:
-            return await interaction.followup.send(f"B 队已满 (上限 {self.team_size}) / Team B full.", ephemeral=True)
-        if self.selected_player in self.team_a or self.selected_player in self.team_b:
-            return await interaction.followup.send("该玩家已分配 / Already assigned.", ephemeral=True)
-        self.team_b.append(self.selected_player)
-        self.selected_player = None
-        self._rebuild_select()
-        await interaction.response.edit_message(embed=self._build_embed(), view=self)
+        try:
+            await interaction.response.defer(ephemeral=True)
+            if not self.selected_player:
+                return await interaction.followup.send("请先从下拉菜单选择一个玩家 / Select a player first.", ephemeral=True)
+            if len(self.team_b) >= self.team_size:
+                return await interaction.followup.send(f"B 队已满 (上限 {self.team_size}) / Team B full.", ephemeral=True)
+            if self.selected_player in self.team_a or self.selected_player in self.team_b:
+                return await interaction.followup.send("该玩家已分配 / Already assigned.", ephemeral=True)
+            self.team_b.append(self.selected_player)
+            self.selected_player = None
+            self._rebuild_select()
+            await interaction.response.edit_message(embed=self._build_embed(), view=self)
+        except Exception as e:
+            import traceback
+            print(f"[TeamAssignView] add_to_b error: {e}")
+            traceback.print_exc()
+            try:
+                await interaction.followup.send("操作失败 / Failed, please try again.", ephemeral=True)
+            except Exception:
+                pass
 
     @discord.ui.button(label="清空 / Clear", style=discord.ButtonStyle.secondary, emoji="🔄", row=2)
     async def clear_teams(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
-        self.team_a.clear()
-        self.team_b.clear()
-        self.selected_player = None
-        self._rebuild_select()
-        await interaction.response.edit_message(embed=self._build_embed(), view=self)
+        try:
+            await interaction.response.defer(ephemeral=True)
+            self.team_a.clear()
+            self.team_b.clear()
+            self.selected_player = None
+            self._rebuild_select()
+            await interaction.response.edit_message(embed=self._build_embed(), view=self)
+        except Exception as e:
+            import traceback
+            print(f"[TeamAssignView] clear error: {e}")
+            traceback.print_exc()
 
     @discord.ui.button(label="确认分队 / Confirm", style=discord.ButtonStyle.success, emoji="✅", row=2)
     async def confirm_teams(self, interaction: discord.Interaction, button):
@@ -757,7 +780,8 @@ class ManualTeamView(discord.ui.View):
         self.all_player_ids = list(player_ids)
         self.team_a = []
         self.team_b = []
-        self.selected_player = None
+        self.selected_players = []  # batch: multi-select
+        self._processing = False  # anti-spam
         self._rebuild_select()
 
     def _get_unassigned(self):
@@ -798,40 +822,63 @@ class ManualTeamView(discord.ui.View):
 
     @discord.ui.button(label="加入 A 队 / A", style=discord.ButtonStyle.primary, emoji="🔵", row=1)
     async def add_to_a(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
-        if not self.selected_player:
-            return await interaction.followup.send("请先从下拉菜单选择一个玩家 / Select a player first.", ephemeral=True)
-        if len(self.team_a) >= self.team_size:
-            return await interaction.followup.send(f"A 队已满 (上限 {self.team_size}) / Team A full.", ephemeral=True)
-        if self.selected_player in self.team_a or self.selected_player in self.team_b:
-            return await interaction.followup.send("该玩家已分配 / Already assigned.", ephemeral=True)
-        self.team_a.append(self.selected_player)
-        self.selected_player = None
-        self._rebuild_select()
-        await interaction.response.edit_message(embed=self._build_embed(), view=self)
+        try:
+            await interaction.response.defer(ephemeral=True)
+            if not self.selected_player:
+                return await interaction.followup.send("请先从下拉菜单选择一个玩家 / Select a player first.", ephemeral=True)
+            if len(self.team_a) >= self.team_size:
+                return await interaction.followup.send(f"A 队已满 (上限 {self.team_size}) / Team A full.", ephemeral=True)
+            if self.selected_player in self.team_a or self.selected_player in self.team_b:
+                return await interaction.followup.send("该玩家已分配 / Already assigned.", ephemeral=True)
+            self.team_a.append(self.selected_player)
+            self.selected_player = None
+            self._rebuild_select()
+            await interaction.response.edit_message(embed=self._build_embed(), view=self)
+        except Exception as e:
+            import traceback
+            print(f"[TeamAssignView] add_to_a error: {e}")
+            traceback.print_exc()
+            try:
+                await interaction.followup.send("操作失败 / Failed, please try again.", ephemeral=True)
+            except Exception:
+                pass
 
     @discord.ui.button(label="加入 B 队 / B", style=discord.ButtonStyle.danger, emoji="🔴", row=1)
     async def add_to_b(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
-        if not self.selected_player:
-            return await interaction.followup.send("请先从下拉菜单选择一个玩家 / Select a player first.", ephemeral=True)
-        if len(self.team_b) >= self.team_size:
-            return await interaction.followup.send(f"B 队已满 (上限 {self.team_size}) / Team B full.", ephemeral=True)
-        if self.selected_player in self.team_a or self.selected_player in self.team_b:
-            return await interaction.followup.send("该玩家已分配 / Already assigned.", ephemeral=True)
-        self.team_b.append(self.selected_player)
-        self.selected_player = None
-        self._rebuild_select()
-        await interaction.response.edit_message(embed=self._build_embed(), view=self)
+        try:
+            await interaction.response.defer(ephemeral=True)
+            if not self.selected_player:
+                return await interaction.followup.send("请先从下拉菜单选择一个玩家 / Select a player first.", ephemeral=True)
+            if len(self.team_b) >= self.team_size:
+                return await interaction.followup.send(f"B 队已满 (上限 {self.team_size}) / Team B full.", ephemeral=True)
+            if self.selected_player in self.team_a or self.selected_player in self.team_b:
+                return await interaction.followup.send("该玩家已分配 / Already assigned.", ephemeral=True)
+            self.team_b.append(self.selected_player)
+            self.selected_player = None
+            self._rebuild_select()
+            await interaction.response.edit_message(embed=self._build_embed(), view=self)
+        except Exception as e:
+            import traceback
+            print(f"[TeamAssignView] add_to_b error: {e}")
+            traceback.print_exc()
+            try:
+                await interaction.followup.send("操作失败 / Failed, please try again.", ephemeral=True)
+            except Exception:
+                pass
 
     @discord.ui.button(label="清空 / Clear", style=discord.ButtonStyle.secondary, emoji="🔄", row=2)
     async def clear_teams(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
-        self.team_a.clear()
-        self.team_b.clear()
-        self.selected_player = None
-        self._rebuild_select()
-        await interaction.response.edit_message(embed=self._build_embed(), view=self)
+        try:
+            await interaction.response.defer(ephemeral=True)
+            self.team_a.clear()
+            self.team_b.clear()
+            self.selected_player = None
+            self._rebuild_select()
+            await interaction.response.edit_message(embed=self._build_embed(), view=self)
+        except Exception as e:
+            import traceback
+            print(f"[TeamAssignView] clear error: {e}")
+            traceback.print_exc()
 
     @discord.ui.button(label="确认分队 / Confirm", style=discord.ButtonStyle.success, emoji="✅", row=2)
     async def confirm_teams(self, interaction: discord.Interaction, button):
