@@ -3688,27 +3688,34 @@ class Dashboard(commands.Cog):
 
             target = channel or interaction.channel
 
-            # Dedup: delete old dashboard panels in the target channel before sending a new one
+            # Dedup: delete old dashboard panels (bot messages with embed title OR components)
             try:
                 async for msg in target.history(limit=50):
-                    if msg.author == self.bot.user and msg.embeds:
+                    if msg.author != self.bot.user:
+                        continue
+                    is_panel = False
+                    if msg.embeds:
                         for emb in msg.embeds:
                             if emb.title and "GMPT 控制面板" in emb.title:
-                                await msg.delete()
+                                is_panel = True
                                 break
+                    if not is_panel and msg.components:
+                        is_panel = True
+                    if is_panel:
+                        await msg.delete()
             except Exception:
                 pass
 
             embed = self._build_dashboard_embed()
             view = DashboardView(guild=interaction.guild, session=self.session)
 
-            msg = await target.send(embed=embed, view=view)
             if target != interaction.channel:
+                msg = await target.send(embed=embed, view=view)
                 await interaction.followup.send(
                     f"Dashboard sent to {target.mention}", ephemeral=True
                 )
             else:
-                await interaction.followup.send(embed=embed, view=view)
+                msg = await interaction.followup.send(embed=embed, view=view)
         except Exception as e:
             import traceback
             print(f"[Dashboard] Error in dashboard_cmd: {e}")
