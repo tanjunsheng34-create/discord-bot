@@ -766,6 +766,181 @@ class ReShuffleView(discord.ui.View):
             ephemeral=True,
         )
 
+    @discord.ui.button(label="结算", style=discord.ButtonStyle.danger, emoji="💰", row=1)
+    async def settle_btn(self, interaction: discord.Interaction, button):
+        """Settle the match -- select winner + MVP, distribute coins."""
+        await interaction.response.defer(ephemeral=True)
+
+        src = self._get_source()
+        if not src:
+            return await interaction.followup.send("源比赛不存在 / Source match not found.", ephemeral=True)
+        if src["status"] == "finished":
+            return await interaction.followup.send("该比赛已结算 / Already settled.", ephemeral=True)
+        if src["status"] != "closed":
+            return await interaction.followup.send("比赛尚未分队 / Match not yet assigned teams.", ephemeral=True)
+
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT id, name FROM teams WHERE tournament_id=?", (self.match_id,))
+        teams = cur.fetchall()
+        conn.close()
+
+        if len(teams) < 2:
+            return await interaction.followup.send("未找到两支队伍 / Two teams not found.", ephemeral=True)
+
+        team_options = [discord.SelectOption(label=tm["name"][:100], value=str(tm["id"])) for tm in teams]
+
+        class SettleState:
+            win_team_id = None
+            mvp_id = None
+
+        state = SettleState()
+
+        async def _do_settle(s_int, mid, win_tid, mvp_uid):
+            conn3 = get_db(); cur3 = conn3.cursor()
+            cur3.execute("SELECT discord_id FROM registrations WHERE tournament_id=? AND team_id=?", (mid, win_tid))
+            for r in cur3.fetchall():
+                wid = r["discord_id"]
+                cur3.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (wid,))
+                cur3.execute("UPDATE users SET score=score+150 WHERE discord_id=?", (wid,))
+                cur3.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)", (wid, 150, f"比赛胜利 #{mid}"))
+            cur3.execute("INSERT INTO results (tournament_id,team_id,rank,score_awarded) VALUES (?,?,1,150)", (mid, win_tid))
+
+            cur3.execute("SELECT discord_id FROM registrations WHERE tournament_id=? AND team_id!=?", (mid, win_tid))
+            for r in cur3.fetchall():
+                lid = r["discord_id"]
+                cur3.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (lid,))
+                cur3.execute("UPDATE users SET score=score+50 WHERE discord_id=?", (lid,))
+                cur3.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)", (lid, 50, f"比赛参与 #{mid}"))
+
+            if mvp_uid:
+                cur3.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (mvp_uid,))
+                cur3.execute("UPDATE users SET score=score+50 WHERE discord_id=?", (mvp_uid,))
+                cur3.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)", (mvp_uid, 50, f"MVP #{mid}"))
+
+            cur3.execute("UPDATE tournaments SET status='finished' WHERE id=?", (mid,))
+            conn3.commit(); conn3.close()
+
+            for child in self.children:
+                if isinstance(child, discord.ui.Button) and child.label == "结算":
+                    child.disabled = True
+            try:
+                await interaction.message.edit(view=self)
+            except Exception:
+                pass
+
+            mvp_text = f"\n🏅 MVP: <@{mvp_uid}> +50" if mvp_uid else ""
+            await s_int.response.send_message(
+                f"💰 结算完成 / Settled!{mvp_text}\n胜方 +150 | 参与 +50",
+                ephemeral=False,
+            )
+
+        async def mvp_cb(mvp_int: discord.Interaction):
+            mvp_val = mvp_int.data["values"][0]
+            state.mvp_id = None if mvp_val == "__none__" else mvp_val
+            await _do_settle(mvp_int, self.match_id, state.win_team_id, state.mvp_id)
+
+        async def win_cb(sel_int: discord.Interaction):
+            state.win_team_id = int(sel_int.data["values"][0])
+
+            conn2 = get_db(); cur2 = conn2.cursor()
+            cur2.execute(
+                "SELECT discord_id FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0)",
+                (self.match_id,),
+            )
+            players = cur2.fetchall(); conn2.close()
+
+            mvp_opts = [discord.SelectOption(label="无 MVP / Skip", value="__none__")]
+            for p in players:
+                member = self.guild.get_member(int(p["discord_id"]))
+                label = member.display_name if member else p["discord_id"]
+                mvp_opts.append(discord.SelectOption(label=label[:100], value=p["discord_id"]))
+
+            mvp_view = discord.ui.View(timeout=120)
+            mvp_sel = discord.ui.Select(placeholder="选择 MVP / Select MVP (可选)...", options=mvp_opts[:25])
+            mvp_sel.callback = mvp_cb
+            mvp_view.add_item(mvp_sel)
+            await sel_int.response.send_message("请选择 MVP (可选) / Select MVP:", view=mvp_view, ephemeral=True)
+
+        win_view = discord.ui.View(timeout=120)
+        win_select = discord.ui.Select(placeholder="选择获胜队伍 / Select winning team...", options=team_options)
+        win_select.callback = win_cb
+        win_view.add_item(win_select)
+        await interaction.followup.send("选择获胜队伍 / Select winning team:", view=win_view, ephemeral=True)
+
+    @discord.ui.button(label="报名", style=discord.ButtonStyle.primary, emoji="📝", row=1)
+    async def signup_btn(self, interaction: discord.Interaction, button):
+        """Create a rematch and sign the user up."""
+        await interaction.response.defer(ephemeral=False)
+
+        src = self._get_source()
+        if not src:
+            return await interaction.followup.send("源比赛不存在 / Source match not found.", ephemeral=True)
+
+        match_name = f"{src['name']} (Rematch)"
+        team_size = src["team_size"]
+        max_players = team_size * 2
+
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO tournaments (name, max_teams, team_size, created_by) VALUES (?, 2, ?, ?)",
+            (match_name, team_size, str(interaction.user.id)),
+        )
+        conn.commit(); new_mid = cur.lastrowid
+
+        uid = str(interaction.user.id)
+        cur.execute("INSERT INTO registrations (tournament_id, discord_id) VALUES (?,?)", (new_mid, uid))
+        cur.execute("INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)", (uid, interaction.user.name))
+        conn.commit(); conn.close()
+
+        embed = discord.Embed(
+            title=f"Match: {match_name}",
+            description=f"**{max_players}** 人 | 每队 {team_size}\n点击下方按钮报名 / Click below to sign up",
+            color=discord.Color.gold(),
+        ).set_footer(text=f"Match ID: {new_mid}")
+        view = MatchViewWithID()
+        followup_msg = await interaction.followup.send(embed=embed, view=view, ephemeral=False)
+
+        try:
+            # Register mapping so the persistent view works
+            save_match_view_state(
+                new_mid,
+                followup_msg.id,
+                interaction.channel_id,
+            )
+            # Send player list
+            list_embed = discord.Embed(
+                title=f"已报名玩家 / Signed Up (1/{max_players})",
+                description=f"1. {interaction.user.mention}",
+                color=discord.Color.green(),
+            )
+            list_msg = await interaction.followup.send(embed=list_embed)
+            set_player_list_msg(new_mid, list_msg.id)
+            save_match_view_state(
+                new_mid,
+                followup_msg.id,
+                interaction.channel_id,
+                player_list_msg_id=list_msg.id,
+            )
+        except Exception:
+            pass
+
+    @discord.ui.button(label="退出", style=discord.ButtonStyle.secondary, emoji="🚪", row=1)
+    async def leave_btn(self, interaction: discord.Interaction, button):
+        """Remove self from this match's registrations."""
+        await interaction.response.defer(ephemeral=True)
+
+        uid = str(interaction.user.id)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT id FROM registrations WHERE tournament_id=? AND discord_id=?", (self.match_id, uid))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            return await interaction.followup.send("你未报名该比赛 / You are not signed up.", ephemeral=True)
+
+        cur.execute("DELETE FROM registrations WHERE tournament_id=? AND discord_id=?", (self.match_id, uid))
+        conn.commit(); conn.close()
+        await interaction.followup.send(f"{interaction.user.mention} 已退出比赛 / Left the match.", ephemeral=False)
+
 
 class ManualTeamView(discord.ui.View):
     """管理员手动将每个玩家分配到 A/B 队（自己分队）。"""
