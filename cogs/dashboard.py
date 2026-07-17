@@ -3195,6 +3195,67 @@ class DashboardView(discord.ui.View):
         view.add_item(select)
         await interaction.followup.send(view=view, ephemeral=True)
 
+    @discord.ui.button(label="拉入语音", style=discord.ButtonStyle.primary, emoji="📢", row=1)
+    async def pull_voice_dash_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT DISTINCT t.id, t.name FROM tournaments t "
+            "INNER JOIN registrations r ON r.tournament_id = t.id "
+            "WHERE t.max_teams=2 AND r.team_id IS NOT NULL "
+            "ORDER BY t.id DESC LIMIT 25"
+        )
+        matches = cur.fetchall()
+        conn.close()
+
+        if not matches:
+            return await interaction.followup.send("当前没有已分队的比赛 / No matches with teams assigned.", ephemeral=True)
+
+        options = []
+        for m in matches:
+            options.append(discord.SelectOption(
+                label=m["name"][:100],
+                value=str(m["id"]),
+                description=f"ID: {m['id']}",
+            ))
+
+        select = discord.ui.Select(
+            placeholder="选择比赛 / Select a match...",
+            options=options[:25],
+        )
+
+        async def pull_callback(sel_int: discord.Interaction):
+            mid = int(sel_int.data["values"][0])
+            voice_view = VoicePullView.from_match(mid, self.guild)
+            conn2 = get_db(); cur2 = conn2.cursor()
+            cur2.execute("SELECT name FROM tournaments WHERE id=?", (mid,))
+            t = cur2.fetchone()
+            conn2.close()
+
+            a_mentions = []
+            for uid in voice_view.team_a_ids:
+                m = self.guild.get_member(int(uid))
+                a_mentions.append(m.mention if m else f"<@{uid}>")
+            b_mentions = []
+            for uid in voice_view.team_b_ids:
+                m = self.guild.get_member(int(uid))
+                b_mentions.append(m.mention if m else f"<@{uid}>")
+
+            embed = discord.Embed(
+                title=f"拉入语音 — {t['name'] if t else f'Match #{mid}'}",
+                description=(
+                    f"🔵 **A 队**：{' '.join(a_mentions) if a_mentions else '(无)'}\n"
+                    f"🔴 **B 队**：{' '.join(b_mentions) if b_mentions else '(无)'}"
+                ),
+                color=discord.Color.blurple(),
+            )
+            await sel_int.response.send_message(embed=embed, view=voice_view, ephemeral=False)
+
+        select.callback = pull_callback
+        view = discord.ui.View(timeout=60)
+        view.add_item(select)
+        await interaction.followup.send(view=view, ephemeral=True)
+
     # ================================================================
     # Row 2 — 锦标赛 / Tournament
     # ================================================================
