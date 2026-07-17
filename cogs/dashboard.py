@@ -3202,7 +3202,7 @@ class DashboardView(discord.ui.View):
         cur.execute(
             "SELECT DISTINCT t.id, t.name FROM tournaments t "
             "INNER JOIN registrations r ON r.tournament_id = t.id "
-            "WHERE t.max_teams=2 AND r.team_id IS NOT NULL "
+            "WHERE t.max_teams=2 AND r.team_id IS NOT NULL AND t.status != 'finished' "
             "ORDER BY t.id DESC LIMIT 25"
         )
         matches = cur.fetchall()
@@ -3719,7 +3719,7 @@ class Dashboard(commands.Cog):
                     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                     "Choose a function to begin / 选择一个功能开始操作\n\n"
                     "Row 1: 创建比赛 Create | 报名参加 Join | 选队长 Captain | 随机分队 Shuffle | 分 A/B 队 Teams\n"
-                    "Row 2: 开打 Start | 结算 Settle\n"
+                    "Row 2: 开打 Start | 结算 Settle | 📢 拉入语音\n"
                     "Row 3: 创建赛事 Tournament | 报名 Sign Up | 选秀/选队长 Draft | 上报比分 Report | 排名 Standings\n"
                     "Row 4: 对阵表 Bracket | Voice LB 语音排行"
                 ),
