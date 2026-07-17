@@ -390,6 +390,91 @@ def get_match_row(match_id: int):
 
 
 # ══════════ MatchViewWithID — 可持久化版（Bot 重启后按钮仍有效）══════════
+class AdminAddPlayerModal(discord.ui.Modal, title="管理员加人 / Admin Add Player"):
+    """弹窗让管理员输入要加入比赛的 Discord 用户。"""
+    user_input = discord.ui.TextInput(
+        label="玩家 / Player (@mention, name, or ID)",
+        placeholder="@username 或 用户名 或 用户ID",
+        max_length=100,
+        required=True,
+    )
+
+    def __init__(self, match_id: int, guild: discord.Guild):
+        super().__init__()
+        self.match_id = match_id
+        self.guild = guild
+
+    async def on_submit(self, interaction: discord.Interaction):
+        # Try to resolve the user
+        raw = self.user_input.value.strip()
+        member = None
+
+        # 1. Try as mention <@123>
+        if raw.startswith("<@") and raw.endswith(">"):
+            uid = raw.replace("<@", "").replace("!", "").replace(">", "")
+            member = self.guild.get_member(int(uid))
+        # 2. Try as raw numeric ID
+        elif raw.isdigit():
+            member = self.guild.get_member(int(raw))
+        # 3. Try as name#discriminator or display_name
+        if not member:
+            member = discord.utils.get(self.guild.members, name=raw)
+        if not member:
+            member = discord.utils.get(self.guild.members, display_name=raw)
+        if not member:
+            # Try case-insensitive startswith
+            lower = raw.lower()
+            for m in self.guild.members:
+                if m.name.lower() == lower or m.display_name.lower() == lower:
+                    member = m
+                    break
+
+        if not member:
+            return await interaction.response.send_message(
+                f"找不到用户: `{raw}`。请检查输入。\nUser not found. Try `@mention`, username, or ID.",
+                ephemeral=True,
+            )
+
+        uid = str(member.id)
+        conn = get_db(); cur = conn.cursor()
+
+        # Check match status
+        cur.execute("SELECT * FROM tournaments WHERE id=?", (self.match_id,))
+        t = cur.fetchone()
+        if not t or t["status"] != "open":
+            conn.close()
+            return await interaction.response.send_message("报名已关闭或比赛不存在。", ephemeral=True)
+
+        # Check if already signed up
+        cur.execute("SELECT id FROM registrations WHERE tournament_id=? AND discord_id=?", (self.match_id, uid))
+        if cur.fetchone():
+            conn.close()
+            return await interaction.response.send_message(
+                f"{member.mention} 已经报过名了 / Already signed up.", ephemeral=True
+            )
+
+        # Check capacity
+        max_p = t["max_teams"] * t["team_size"]
+        cur.execute("SELECT COUNT(*) as cnt FROM registrations WHERE tournament_id=?", (self.match_id,))
+        cnt = cur.fetchone()["cnt"]
+        if cnt >= max_p:
+            conn.close()
+            return await interaction.response.send_message("报名已满 / Signup full.", ephemeral=True)
+
+        cur.execute("INSERT INTO registrations (tournament_id, discord_id) VALUES (?,?)", (self.match_id, uid))
+        cur.execute("INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)", (uid, member.name))
+        conn.commit(); conn.close()
+
+        await interaction.response.send_message(
+            f"✅ 已将 {member.mention} 加入比赛 # {self.match_id} ({cnt+1}/{max_p})", ephemeral=True
+        )
+
+        # Refresh the signup list in the channel
+        from cogs.dashboard import MatchViewWithID as _MV
+        fake_view = _MV()
+        await fake_view._refresh_list(interaction, self.match_id)
+
+
 class MatchViewWithID(discord.ui.View):
     """
     持久化比赛视图：通过 message_id → DB 反查 match_id，Bot 重启后按钮仍可响应。
@@ -667,6 +752,21 @@ class MatchViewWithID(discord.ui.View):
             print(f"[MatchView] leave error: {e}")
             traceback.print_exc()
             await interaction.followup.send("退赛失败 / Leave failed, please try again.", ephemeral=True)
+
+    @discord.ui.button(label="管理员加人", style=discord.ButtonStyle.primary, emoji="➕", row=2, custom_id="matchv2_admin_add")
+    async def admin_add_btn(self, interaction: discord.Interaction, button):
+        """Admin-only: manually add a player to the match via a modal."""
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("管理员专用 / Admin only.", ephemeral=True)
+
+        mid, t, guild = await self._get_context(interaction)
+        if not t:
+            return await interaction.response.send_message("比赛不存在 / Match not found.", ephemeral=True)
+        if t["status"] != "open":
+            return await interaction.response.send_message("报名已关闭 / Signup closed.", ephemeral=True)
+
+        modal = AdminAddPlayerModal(match_id=mid, guild=guild)
+        await interaction.response.send_modal(modal)
 
 
 # ══════════ 向后兼容别名══════════
