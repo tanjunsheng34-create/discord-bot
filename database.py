@@ -281,6 +281,13 @@ def init_db():
             rank        TEXT DEFAULT 'Iron'
         );
 
+        -- === MMR 排行榜持久化 ===
+        CREATE TABLE IF NOT EXISTS mmr_board (
+            guild_id    TEXT PRIMARY KEY,
+            message_id  TEXT NOT NULL,
+            channel_id  TEXT NOT NULL
+        );
+
         -- === MatchView 持久化状态（Bot 重启后恢复报名按钮）===
         CREATE TABLE IF NOT EXISTS match_view_state (
             message_id        TEXT PRIMARY KEY,

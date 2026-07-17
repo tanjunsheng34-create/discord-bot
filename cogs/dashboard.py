@@ -2,6 +2,7 @@
 GMPT Bot — Dashboard / 统一控制面板
 """
 import asyncio
+import datetime
 import random
 import discord
 from discord import app_commands
@@ -867,6 +868,9 @@ class ReShuffleView(discord.ui.View):
             cur3.close()
             _update_mmr(w_ids, l_ids, mvp_uid, conn2=None)
 
+            # ── 刷新实时排行榜 ──
+            await _refresh_mmr_board(interaction.client, self.guild)
+
             conn3 = get_db(); cur3 = conn3.cursor()
             cur3.execute("SELECT name FROM tournaments WHERE id=?", (mid,))
             name_row = cur3.fetchone()
@@ -1663,6 +1667,7 @@ class MatchViewWithID(discord.ui.View):
                         mvp_id=flow.mvp_id,
                         guild=guild,
                         match_name=t["name"],
+                        bot=interaction.client,
                     )
 
                     await mvp_int.edit_original_response(
@@ -1979,7 +1984,7 @@ MatchView = MatchViewWithID
 # =============================================================================
 # Helper: execute settlement (coin distribution + achievements)
 # =============================================================================
-async def _execute_settle(match_id, win_team_id, mvp_id, guild, match_name):
+async def _execute_settle(match_id, win_team_id, mvp_id, guild, match_name, bot=None):
     """Distribute coins, record results, check achievements. Reused by both dashboard and MatchView."""
     from cogs.economy import check_achievement
 
@@ -2037,6 +2042,10 @@ async def _execute_settle(match_id, win_team_id, mvp_id, guild, match_name):
 
     # ── MMR 排位更新 ──
     _update_mmr(winner_ids, loser_ids, mvp_id, conn2=None)
+
+    # ── 刷新实时排行榜 ──
+    if bot is not None:
+        await _refresh_mmr_board(bot, guild)
 
     # ── AI 赛事分析 ──
     analysis_embed = _generate_match_analysis(match_id, match_name, winner_ids, loser_ids, mvp_id, guild)
@@ -2332,6 +2341,84 @@ def _generate_match_analysis(match_id: int, match_name: str,
     embed.set_footer(text=f"Match ID: {match_id} | GMPT AI Analysis")
     conn.close()
     return embed
+
+
+# ══════════ MMR 排行榜 实时面板 / MMR Board Live Panel ══════════
+
+async def _build_mmr_board_embed(guild: discord.Guild) -> discord.Embed:
+    """Build the MMR leaderboard embed. Returns an embed even if empty."""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM mmr ORDER BY mmr DESC LIMIT 25")
+    rows = cur.fetchall()
+    conn.close()
+
+    embed = discord.Embed(
+        title="\U0001f3c6 GMPT MMR Leaderboard",
+        color=discord.Color.gold(),
+        timestamp=datetime.datetime.now(datetime.timezone.utc),
+    )
+
+    if not rows:
+        embed.description = "No MMR data yet — play some matches first!"
+        embed.set_footer(text="Live Leaderboard")
+        return embed
+
+    lines = []
+    for i, row in enumerate(rows):
+        uid = row["discord_id"]
+        member = guild.get_member(int(uid))
+        name = member.display_name if member else f"<@{uid}>"
+        emoji = _get_rank_emoji(row["rank"])
+        streak_str = f" \U0001f525{row['streak']}" if row["streak"] > 0 else ""
+        medal = {0: "\U0001f947", 1: "\U0001f948", 2: "\U0001f949"}.get(i, f"#{i+1}")
+        lines.append(
+            f"{medal} {emoji} **{name}** \u2014 {row['mmr']} MMR "
+            f"({row['wins']}W/{row['losses']}L){streak_str}"
+        )
+
+    embed.description = "\n".join(lines)
+    embed.set_footer(text=f"Live Leaderboard \u2022 {len(rows)} players")
+    return embed
+
+
+async def _refresh_mmr_board(bot, guild: discord.Guild):
+    """Refresh the persistent MMR leaderboard message for a guild.
+    If no board is configured, silently returns."""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT message_id, channel_id FROM mmr_board WHERE guild_id=?",
+        (str(guild.id),),
+    )
+    row = cur.fetchone()
+    conn.close()
+
+    if not row:
+        return
+
+    channel = guild.get_channel(int(row["channel_id"]))
+    if not channel:
+        return
+
+    embed = await _build_mmr_board_embed(guild)
+
+    try:
+        msg = await channel.fetch_message(int(row["message_id"]))
+        await msg.edit(embed=embed)
+    except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+        # Original message deleted/blocked — recreate and update DB
+        try:
+            new_msg = await channel.send(embed=embed)
+            conn2 = get_db()
+            conn2.cursor().execute(
+                "UPDATE mmr_board SET message_id=?, channel_id=? WHERE guild_id=?",
+                (str(new_msg.id), str(channel.id), str(guild.id)),
+            )
+            conn2.commit()
+            conn2.close()
+        except Exception:
+            pass
 
 
 # =============================================================================
@@ -2811,6 +2898,7 @@ class DashboardView(discord.ui.View):
                         mvp_id=flow.mvp_id,
                         guild=self.guild,
                         match_name=t["name"],
+                        bot=interaction.client,
                     )
                     await mvp_int.edit_original_response(
                         content="✅ 结算完成！ / Settle complete!", embed=None, view=None
@@ -3421,6 +3509,63 @@ class Dashboard(commands.Cog):
             color=discord.Color.gold(),
         )
         await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(
+        name="gmpt-mmr-board",
+        description="Send a live MMR leaderboard to a channel (auto-refreshes after each match)",
+    )
+    @app_commands.describe(
+        channel="Target channel for the live leaderboard / 目标频道",
+    )
+    async def gmpt_mmr_board(
+        self, interaction: discord.Interaction,
+        channel: discord.TextChannel,
+    ):
+        # Check bot permissions in target channel
+        perms = channel.permissions_for(interaction.guild.me)
+        if not perms.send_messages or not perms.read_message_history:
+            return await interaction.response.send_message(
+                "I need Send Messages + Read Message History permissions in that channel.",
+                ephemeral=True,
+            )
+
+        guild_id = str(interaction.guild.id)
+
+        # Check if a board already exists for this guild
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT message_id, channel_id FROM mmr_board WHERE guild_id=?", (guild_id,))
+        existing = cur.fetchone()
+        conn.close()
+
+        # If existing board is in a different channel, delete the old message
+        if existing and str(channel.id) != existing["channel_id"]:
+            old_channel = interaction.guild.get_channel(int(existing["channel_id"]))
+            if old_channel:
+                try:
+                    old_msg = await old_channel.fetch_message(int(existing["message_id"]))
+                    await old_msg.delete()
+                except Exception:
+                    pass
+
+        # Send new board
+        embed = await _build_mmr_board_embed(interaction.guild)
+        new_msg = await channel.send(embed=embed)
+
+        # Upsert mmr_board record
+        conn2 = get_db()
+        conn2.cursor().execute(
+            "INSERT INTO mmr_board (guild_id, message_id, channel_id) VALUES (?,?,?) "
+            "ON CONFLICT(guild_id) DO UPDATE SET message_id=?, channel_id=?",
+            (guild_id, str(new_msg.id), str(channel.id), str(new_msg.id), str(channel.id)),
+        )
+        conn2.commit()
+        conn2.close()
+
+        await interaction.response.send_message(
+            f"MMR leaderboard sent to {channel.mention} — will auto-refresh after each match settlement.",
+            ephemeral=True,
+        )
 
 
 async def setup(bot):
