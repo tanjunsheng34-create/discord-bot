@@ -1804,7 +1804,7 @@ class MatchViewWithID(discord.ui.View):
             traceback.print_exc()
             await interaction.followup.send("查询失败 / Query failed.", ephemeral=True)
 
-    @discord.ui.button(label="替补报名", style=discord.ButtonStyle.primary, emoji="📋", row=0, custom_id="matchv2_sub_signup")
+    @discord.ui.button(label="替补", style=discord.ButtonStyle.primary, emoji="📋", row=0, custom_id="matchv2_sub_signup")
     async def sub_signup_btn(self, interaction: discord.Interaction, button):
         """任何玩家点击直接以 is_sub=1 报名。"""
         await interaction.response.defer(ephemeral=True)
@@ -2193,58 +2193,6 @@ class MatchViewWithID(discord.ui.View):
         view = discord.ui.View(timeout=120)
         view.add_item(user_select)
         await interaction.response.send_message("选择要添加的用户 / Select users to add:", view=view, ephemeral=True)
-
-    @discord.ui.button(label="替补", style=discord.ButtonStyle.secondary, emoji="🔄", row=2, custom_id="matchv2_sub")
-    async def sub_btn(self, interaction: discord.Interaction, button):
-        """Admin-only: add substitutes via UserSelect (no modal, no capacity check)."""
-        if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("管理员专用 / Admin only.", ephemeral=True)
-
-        mid, t, guild = await self._get_context(interaction)
-        if not t:
-            return await interaction.response.send_message("比赛不存在 / Match not found.", ephemeral=True)
-        if t["status"] != "open":
-            return await interaction.response.send_message("报名已关闭 / Signup closed.", ephemeral=True)
-
-        user_select = discord.ui.UserSelect(
-            placeholder="选择替补玩家 / Select substitutes...",
-            min_values=1,
-            max_values=25,
-        )
-
-        async def sub_select_callback(sel_int: discord.Interaction):
-            selected = list(user_select.values)
-            added = []
-            skipped = []
-            conn = get_db(); cur = conn.cursor()
-            for member in selected:
-                uid = str(member.id)
-                cur.execute("SELECT id FROM registrations WHERE tournament_id=? AND discord_id=?", (mid, uid))
-                if cur.fetchone():
-                    skipped.append(member.display_name)
-                    continue
-                cur.execute(
-                    "INSERT INTO registrations (tournament_id, discord_id, is_sub) VALUES (?,?,1)",
-                    (mid, uid),
-                )
-                cur.execute("INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)", (uid, member.name))
-                added.append(member.display_name)
-            conn.commit(); conn.close()
-
-            msg = []
-            if added:
-                msg.append(f"✅ 已添加 {len(added)} 名替补: {', '.join(added)}")
-            if skipped:
-                msg.append(f"⏭️ 已跳过 (重复): {', '.join(skipped)}")
-            await sel_int.response.send_message("\n".join(msg) or "无操作", ephemeral=True)
-
-            await self._refresh_list(sel_int, mid)
-
-        user_select.callback = sub_select_callback
-        view = discord.ui.View(timeout=120)
-        view.add_item(user_select)
-        await interaction.response.send_message("选择替补玩家 / Select substitutes:", view=view, ephemeral=True)
-
 
 # ══════════ 向后兼容别名══════════
 MatchView = MatchViewWithID
