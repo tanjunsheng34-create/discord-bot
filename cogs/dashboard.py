@@ -3686,10 +3686,22 @@ class Dashboard(commands.Cog):
             # Defer immediately to avoid 3-second Discord interaction timeout
             await interaction.response.defer()
 
+            target = channel or interaction.channel
+
+            # Dedup: delete old dashboard panels in the target channel before sending a new one
+            try:
+                async for msg in target.history(limit=50):
+                    if msg.author == self.bot.user and msg.embeds:
+                        for emb in msg.embeds:
+                            if emb.title and "GMPT 控制面板" in emb.title:
+                                await msg.delete()
+                                break
+            except Exception:
+                pass
+
             embed = self._build_dashboard_embed()
             view = DashboardView(guild=interaction.guild, session=self.session)
 
-            target = channel or interaction.channel
             msg = await target.send(embed=embed, view=view)
             if target != interaction.channel:
                 await interaction.followup.send(
