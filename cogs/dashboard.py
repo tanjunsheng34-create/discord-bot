@@ -3693,7 +3693,7 @@ class Dashboard(commands.Cog):
         self.session = aiohttp.ClientSession()
         # Auto-refresh persistent dashboard panels so old messages
         # (with stale button layouts) get replaced by fresh ones.
-        self.bot.loop.create_task(self._refresh_all_panels())
+        asyncio.create_task(self._refresh_all_panels())
 
     async def _refresh_all_panels(self):
         """On startup, delete old dashboard panel messages and re-send fresh ones."""
