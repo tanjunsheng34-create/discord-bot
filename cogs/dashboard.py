@@ -550,6 +550,91 @@ class AdminSubPlayerModal(discord.ui.Modal, title="设置替补 / Set Substitute
         await fake_view._refresh_list(interaction, self.match_id)
 
 
+class ReShuffleView(discord.ui.View):
+    """结算后显示的「重新分队」按钮视图。"""
+
+    def __init__(self, match_id: int, guild: discord.Guild):
+        super().__init__(timeout=604800)  # 7 days
+        self.match_id = match_id
+        self.guild = guild
+
+    @discord.ui.button(label="重新分队", style=discord.ButtonStyle.primary, emoji="🔄")
+    async def reshuffle_btn(self, interaction: discord.Interaction, button):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("管理员专用 / Admin only.", ephemeral=True)
+
+        await interaction.response.defer(ephemeral=False)
+
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT * FROM tournaments WHERE id=?", (self.match_id,))
+        src = cur.fetchone()
+        if not src:
+            conn.close()
+            return await interaction.followup.send("源比赛不存在 / Source match not found.")
+
+        cur.execute(
+            "SELECT discord_id FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0)",
+            (self.match_id,),
+        )
+        players = [r["discord_id"] for r in cur.fetchall()]
+        conn.close()
+
+        if len(players) < 2:
+            return await interaction.followup.send("参赛人数不足 (至少2人) / Not enough players (min 2).")
+
+        # Ensure even
+        if len(players) % 2 != 0:
+            players = players[:-1]
+
+        team_size = len(players) // 2
+        import random
+        match_name = f"{src['name']} (续战 #{self.match_id})"
+
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO tournaments (name, max_teams, team_size, created_by, status) VALUES (?, 2, ?, ?, 'open')",
+            (match_name, team_size, str(interaction.user.id)),
+        )
+        conn.commit()
+        new_mid = cur.lastrowid
+
+        for pid in players:
+            cur.execute("INSERT INTO registrations (tournament_id, discord_id) VALUES (?,?)", (new_mid, pid))
+            cur.execute("INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)", (pid, "unknown"))
+
+        random.shuffle(players)
+        split = len(players) // 2
+        ta, tb = players[:split], players[split:]
+
+        cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (new_mid, "A 队 Team A"))
+        aid = cur.lastrowid
+        for u in ta:
+            cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (aid, new_mid, u))
+
+        cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (new_mid, "B 队 Team B"))
+        bid = cur.lastrowid
+        for u in tb:
+            cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (bid, new_mid, u))
+
+        cur.execute("UPDATE tournaments SET status='closed' WHERE id=?", (new_mid,))
+        conn.commit(); conn.close()
+
+        a_mentions = [f"<@{uid}>" for uid in ta]
+        b_mentions = [f"<@{uid}>" for uid in tb]
+
+        embed = discord.Embed(
+            title=f"🔄 重新分队 — {match_name}",
+            description=(
+                f"🔵 **A 队 Team A** (ID:{aid}): {' '.join(a_mentions)}\n"
+                f"🔴 **B 队 Team B** (ID:{bid}): {' '.join(b_mentions)}\n\n"
+                f"Match ID: {new_mid}\n"
+                f"Settle: `/gmpt-settle {new_mid} <win_team_id>`"
+            ),
+            color=discord.Color.gold(),
+        )
+        await interaction.followup.send(embed=embed)
+
+
 class MatchViewWithID(discord.ui.View):
     """
     持久化比赛视图：通过 message_id → DB 反查 match_id，Bot 重启后按钮仍可响应。
@@ -800,6 +885,17 @@ class MatchViewWithID(discord.ui.View):
                         content="✅ 结算完成！ / Settle complete!", embed=None, view=None
                     )
 
+                    # Send public re-shuffle button
+                    reshuffle_embed = discord.Embed(
+                        title=f"结算完成 — {t['name']}",
+                        description="点击下方按钮用相同参赛者重新分队 / Click below to re-shuffle with same players.",
+                        color=discord.Color.gold(),
+                    )
+                    await interaction.channel.send(
+                        embed=reshuffle_embed,
+                        view=ReShuffleView(match_id=mid, guild=guild),
+                    )
+
                 mvp_select.callback = mvp_callback
                 mvp_view = discord.ui.View(timeout=120)
                 mvp_view.add_item(mvp_select)
@@ -852,7 +948,7 @@ class MatchViewWithID(discord.ui.View):
 
     @discord.ui.button(label="管理员加人", style=discord.ButtonStyle.primary, emoji="➕", row=2, custom_id="matchv2_admin_add")
     async def admin_add_btn(self, interaction: discord.Interaction, button):
-        """Admin-only: manually add a player to the match via a modal."""
+        """Admin-only: batch add players or substitutes via UserSelect + type dropdown."""
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("管理员专用 / Admin only.", ephemeral=True)
 
@@ -862,12 +958,99 @@ class MatchViewWithID(discord.ui.View):
         if t["status"] != "open":
             return await interaction.response.send_message("报名已关闭 / Signup closed.", ephemeral=True)
 
-        modal = AdminAddPlayerModal(match_id=mid, guild=guild)
-        await interaction.response.send_modal(modal)
+        # Step 1: UserSelect for multi-select
+        user_select = discord.ui.UserSelect(
+            placeholder="选择要添加的用户 / Select users to add...",
+            min_values=1,
+            max_values=25,
+        )
+
+        async def user_select_callback(sel_int: discord.Interaction):
+            selected_members = list(user_select.values)
+
+            # Step 2: dropdown for player/sub choice
+            type_select = discord.ui.Select(
+                placeholder="选择类型 / Select type...",
+                options=[
+                    discord.SelectOption(label="玩家 / Player", value="player",
+                                         description="占用正式名额 / Counts toward capacity"),
+                    discord.SelectOption(label="替补 / Substitute", value="sub",
+                                         description="不占名额 / Does not count toward capacity"),
+                ],
+            )
+
+            async def type_select_callback(type_int: discord.Interaction):
+                is_sub = type_int.data["values"][0] == "sub"
+                added = []
+                skipped = []
+                full_skipped = []
+
+                conn = get_db(); cur = conn.cursor()
+
+                # Re-check match status
+                cur.execute("SELECT * FROM tournaments WHERE id=?", (mid,))
+                t2 = cur.fetchone()
+                if not t2 or t2["status"] != "open":
+                    conn.close()
+                    return await type_int.response.send_message("报名已关闭 / Signup closed.", ephemeral=True)
+
+                max_p = t2["max_teams"] * t2["team_size"]
+
+                for member in selected_members:
+                    uid = str(member.id)
+                    cur.execute("SELECT id FROM registrations WHERE tournament_id=? AND discord_id=?", (mid, uid))
+                    if cur.fetchone():
+                        skipped.append(member.display_name)
+                        continue
+
+                    if not is_sub:
+                        cur.execute(
+                            "SELECT COUNT(*) as cnt FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0)",
+                            (mid,),
+                        )
+                        cnt = cur.fetchone()["cnt"]
+                        if cnt >= max_p:
+                            full_skipped.append(member.display_name)
+                            continue
+
+                    cur.execute(
+                        "INSERT INTO registrations (tournament_id, discord_id, is_sub) VALUES (?,?,?)",
+                        (mid, uid, 1 if is_sub else 0),
+                    )
+                    cur.execute("INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)", (uid, member.name))
+                    added.append(member.display_name)
+
+                conn.commit(); conn.close()
+
+                msg = []
+                role = "替补" if is_sub else "玩家"
+                if added:
+                    msg.append(f"✅ 已添加 {len(added)} 名{role}: {', '.join(added)}")
+                if skipped:
+                    msg.append(f"⏭️ 已跳过 (重复): {', '.join(skipped)}")
+                if full_skipped:
+                    msg.append(f"🚫 已跳过 (名额已满): {', '.join(full_skipped)}")
+                await type_int.response.send_message("\n".join(msg) or "无操作", ephemeral=True)
+
+                await self._refresh_list(type_int, mid)
+
+            type_select.callback = type_select_callback
+            tview = discord.ui.View(timeout=60)
+            tview.add_item(type_select)
+            await sel_int.response.send_message(
+                f"已选择 {len(selected_members)} 人。请选择添加类型 / Select type:",
+                view=tview,
+                ephemeral=True,
+            )
+
+        user_select.callback = user_select_callback
+        view = discord.ui.View(timeout=120)
+        view.add_item(user_select)
+        await interaction.response.send_message("选择要添加的用户 / Select users to add:", view=view, ephemeral=True)
 
     @discord.ui.button(label="替补", style=discord.ButtonStyle.secondary, emoji="🔄", row=2, custom_id="matchv2_sub")
     async def sub_btn(self, interaction: discord.Interaction, button):
-        """Admin-only: set a player as substitute (does not count toward capacity)."""
+        """Admin-only: add substitutes via UserSelect (no modal, no capacity check)."""
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("管理员专用 / Admin only.", ephemeral=True)
 
@@ -877,8 +1060,44 @@ class MatchViewWithID(discord.ui.View):
         if t["status"] != "open":
             return await interaction.response.send_message("报名已关闭 / Signup closed.", ephemeral=True)
 
-        modal = AdminSubPlayerModal(match_id=mid, guild=guild)
-        await interaction.response.send_modal(modal)
+        user_select = discord.ui.UserSelect(
+            placeholder="选择替补玩家 / Select substitutes...",
+            min_values=1,
+            max_values=25,
+        )
+
+        async def sub_select_callback(sel_int: discord.Interaction):
+            selected = list(user_select.values)
+            added = []
+            skipped = []
+            conn = get_db(); cur = conn.cursor()
+            for member in selected:
+                uid = str(member.id)
+                cur.execute("SELECT id FROM registrations WHERE tournament_id=? AND discord_id=?", (mid, uid))
+                if cur.fetchone():
+                    skipped.append(member.display_name)
+                    continue
+                cur.execute(
+                    "INSERT INTO registrations (tournament_id, discord_id, is_sub) VALUES (?,?,1)",
+                    (mid, uid),
+                )
+                cur.execute("INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)", (uid, member.name))
+                added.append(member.display_name)
+            conn.commit(); conn.close()
+
+            msg = []
+            if added:
+                msg.append(f"✅ 已添加 {len(added)} 名替补: {', '.join(added)}")
+            if skipped:
+                msg.append(f"⏭️ 已跳过 (重复): {', '.join(skipped)}")
+            await sel_int.response.send_message("\n".join(msg) or "无操作", ephemeral=True)
+
+            await self._refresh_list(sel_int, mid)
+
+        user_select.callback = sub_select_callback
+        view = discord.ui.View(timeout=120)
+        view.add_item(user_select)
+        await interaction.response.send_message("选择替补玩家 / Select substitutes:", view=view, ephemeral=True)
 
 
 # ══════════ 向后兼容别名══════════
@@ -1427,6 +1646,17 @@ class DashboardView(discord.ui.View):
                         content="✅ 结算完成！ / Settle complete!", embed=None, view=None
                     )
 
+                    # Send public re-shuffle button
+                    reshuffle_embed = discord.Embed(
+                        title=f"结算完成 — {t['name']}",
+                        description="点击下方按钮用相同参赛者重新分队 / Click below to re-shuffle with same players.",
+                        color=discord.Color.gold(),
+                    )
+                    await interaction.channel.send(
+                        embed=reshuffle_embed,
+                        view=ReShuffleView(match_id=mid, guild=self.guild),
+                    )
+
                 mvp_select.callback = mvp_callback_dash
                 mvp_view = discord.ui.View(timeout=120)
                 mvp_view.add_item(mvp_select)
@@ -1899,7 +2129,7 @@ class Dashboard(commands.Cog):
     ):
         try:
             # Defer immediately to avoid 3-second Discord interaction timeout
-            await interaction.response.defer(ephemeral=False, thinking=False)
+            await interaction.response.defer()
 
             embed = discord.Embed(
                 title="🎮 GMPT 控制面板 / Control Panel",
