@@ -222,19 +222,14 @@ class VoiceTracker(commands.Cog):
 
     @app_commands.command(name="gmpt-voice-leaderboard", description="Voice time leaderboard / 语音时长排行榜")
     async def voice_leaderboard_cmd(self, interaction: discord.Interaction):
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(
-            "SELECT user_id, total_seconds, login_days, total_joins "
-            "FROM voice_tracker ORDER BY total_seconds DESC"
-        )
-        data = cur.fetchall()
-        conn.close()
-
+        data = VoiceLeaderboardView._fetch_leaderboard_data()
         if not data:
             return await interaction.response.send_message("No voice data yet.", ephemeral=True)
 
-        view = VoiceLeaderboardView(data=data, page=0, guild=interaction.guild, cog=self)
-        embed = self._build_leaderboard_embed(data, 0, interaction.guild)
+        view = VoiceLeaderboardView()
+        embed = VoiceLeaderboardView._build_embed(data, 0, interaction.guild)
+        view.prev_btn.disabled = True
+        view.next_btn.disabled = len(data) <= 10
         await interaction.response.send_message(embed=embed, view=view)
 
 
@@ -277,19 +272,14 @@ class VoiceTimeView(discord.ui.View):
     @discord.ui.button(label="View Leaderboard", style=discord.ButtonStyle.success, emoji="🏆", row=0)
     async def view_leaderboard_btn(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(
-            "SELECT user_id, total_seconds, login_days, total_joins "
-            "FROM voice_tracker ORDER BY total_seconds DESC"
-        )
-        data = cur.fetchall()
-        conn.close()
-
+        data = VoiceLeaderboardView._fetch_leaderboard_data()
         if not data:
             return await interaction.followup.send("No voice data yet.", ephemeral=True)
 
-        view = VoiceLeaderboardView(data=data, page=0, guild=self.guild, cog=self.cog)
-        embed = self.cog._build_leaderboard_embed(data, 0, self.guild)
+        view = VoiceLeaderboardView()
+        embed = VoiceLeaderboardView._build_embed(data, 0, self.guild)
+        view.prev_btn.disabled = True
+        view.next_btn.disabled = len(data) <= 10
         await interaction.response.edit_message(embed=embed, view=view)
 
     @discord.ui.button(label="View Someone", style=discord.ButtonStyle.secondary, emoji="🔍", row=0)
@@ -378,38 +368,125 @@ class VoiceTimeView(discord.ui.View):
 # VoiceLeaderboardView — 分页排行榜 / Paginated Leaderboard
 # =============================================================================
 class VoiceLeaderboardView(discord.ui.View):
-    def __init__(self, data, page=0, guild=None, cog=None, timeout=180):
+    """持久化分页排行榜 View。按钮通过 custom_id 持久化，Bot 重启后仍可翻页。
+
+    状态完全从 interaction 和 DB 实时派生，不存实例字段：
+    - 当前页：从 embed description 的 "Page X/Y" 解析
+    - 数据：从 SQLite voice_tracker 表实时查询
+    """
+
+    def __init__(self):
         super().__init__(timeout=None)
-        self.data = data
-        self.page = page
-        self.per_page = 10
-        self.guild = guild
-        self.cog = cog
-        self._update_buttons()
 
-    def _update_buttons(self):
-        self.prev_btn.disabled = self.page == 0
-        self.next_btn.disabled = (self.page + 1) * self.per_page >= len(self.data)
+    @staticmethod
+    def _parse_page_from_embed(embed: discord.Embed) -> int:
+        """从 embed description 中提取当前页码（1-based → 0-based）。"""
+        if embed.description:
+            # "Total **N** users | Page **P/T**"
+            import re
+            m = re.search(r"Page \*\*(\d+)/(\d+)\*\*", embed.description)
+            if m:
+                return int(m.group(1)) - 1
+        return 0
 
-    @discord.ui.button(label="Prev", emoji="⬅️", style=discord.ButtonStyle.secondary)
+    @staticmethod
+    def _fetch_leaderboard_data():
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT user_id, total_seconds, login_days, total_joins "
+            "FROM voice_tracker ORDER BY total_seconds DESC"
+        )
+        data = cur.fetchall()
+        conn.close()
+        return data
+
+    @classmethod
+    def _build_embed(cls, data, page, guild):
+        """Build leaderboard embed — standalone version that doesn't need a cog."""
+        per_page = 10
+        start = page * per_page
+        end = min(start + per_page, len(data))
+        page_data = data[start:end]
+
+        total_pages = max((len(data) + per_page - 1) // per_page, 1)
+        sum_seconds = sum((r["total_seconds"] or 0) for r in data)
+        sum_days = sum((r["login_days"] or 0) for r in data)
+        sum_joins = sum((r["total_joins"] or 0) for r in data)
+
+        embed = discord.Embed(
+            title="Voice Leaderboard / Voice Leaderboard",
+            description=f"Total **{len(data)}** users | Page **{page + 1}/{total_pages}**",
+            color=discord.Color.purple(),
+        )
+
+        lines = []
+        for i, row in enumerate(page_data, start + 1):
+            uid = row["user_id"]
+            member = guild.get_member(int(uid)) if guild else None
+            name = member.display_name if member else f"<@{uid}>"
+            total_seconds = row["total_seconds"] or 0
+            login_days = row["login_days"] or 0
+            total_joins = row["total_joins"] or 0
+            medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f" #{i}"
+            lines.append(
+                f"{medal} **{name}**\n"
+                f"　　Time: `{format_duration(total_seconds)}` | Days: `{login_days}` | Joins: `{total_joins}`"
+            )
+
+        embed.add_field(
+            name=f"Top {start + 1}-{end}",
+            value="\n".join(lines) if lines else "(Empty)",
+            inline=False,
+        )
+        embed.add_field(
+            name="Global Summary / 全局汇总",
+            value=(
+                f"**Total Time:** {format_duration(sum_seconds)}\n"
+                f"**Total Login Days:** {sum_days} days\n"
+                f"**Total Joins:** {sum_joins} times"
+            ),
+            inline=False,
+        )
+        return embed
+
+    @discord.ui.button(label="Prev", emoji="⬅️", style=discord.ButtonStyle.secondary, custom_id="vl_prev")
     async def prev_btn(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
-        if self.page > 0:
-            self.page -= 1
-            self._update_buttons()
-            embed = self.cog._build_leaderboard_embed(self.data, self.page, self.guild)
-            await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.response.defer()
+        page = self._parse_page_from_embed(interaction.message.embeds[0])
+        if page > 0:
+            page -= 1
+        data = self._fetch_leaderboard_data()
+        if not data:
+            return await interaction.edit_original_response(content="No voice data yet.", embed=None, view=None)
+        # Clamp page
+        total_pages = max((len(data) + 9) // 10, 1)
+        page = max(0, min(page, total_pages - 1))
+        embed = self._build_embed(data, page, interaction.guild)
+        # Update button states
+        self.prev_btn.disabled = page == 0
+        self.next_btn.disabled = (page + 1) * 10 >= len(data)
+        await interaction.edit_original_response(embed=embed, view=self)
 
-    @discord.ui.button(label="Next", emoji="➡️", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Next", emoji="➡️", style=discord.ButtonStyle.secondary, custom_id="vl_next")
     async def next_btn(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
-        if (self.page + 1) * self.per_page < len(self.data):
-            self.page += 1
-            self._update_buttons()
-            embed = self.cog._build_leaderboard_embed(self.data, self.page, self.guild)
-            await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.response.defer()
+        page = self._parse_page_from_embed(interaction.message.embeds[0])
+        data = self._fetch_leaderboard_data()
+        if not data:
+            return await interaction.edit_original_response(content="No voice data yet.", embed=None, view=None)
+        total_pages = max((len(data) + 9) // 10, 1)
+        if page < total_pages - 1:
+            page += 1
+        # Clamp page
+        page = max(0, min(page, total_pages - 1))
+        embed = self._build_embed(data, page, interaction.guild)
+        self.prev_btn.disabled = page == 0
+        self.next_btn.disabled = (page + 1) * 10 >= len(data)
+        await interaction.edit_original_response(embed=embed, view=self)
 
 
 async def setup(bot):
+    # Register persistent VoiceLeaderboardView so buttons survive restarts
+    bot.add_view(VoiceLeaderboardView())
     await bot.add_cog(VoiceTracker(bot))
 

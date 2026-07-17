@@ -1607,12 +1607,11 @@ class DashboardView(discord.ui.View):
         if not data:
             return await interaction.followup.send("No voice data yet.", ephemeral=True)
 
-        from cogs.voice_tracker import VoiceLeaderboardView, VoiceTracker
-
-        # Get cog instance to use build_leaderboard_embed
-        cog = self._get_voice_cog(interaction)
-        view = VoiceLeaderboardView(data=data, page=0, guild=interaction.guild, cog=cog)
-        embed = cog._build_leaderboard_embed(data, 0, interaction.guild)
+        from cogs.voice_tracker import VoiceLeaderboardView
+        view = VoiceLeaderboardView()
+        embed = VoiceLeaderboardView._build_embed(data, 0, interaction.guild)
+        view.prev_btn.disabled = True
+        view.next_btn.disabled = len(data) <= 10
         await interaction.followup.send(embed=embed, view=view)
 
     def _get_voice_cog(self, interaction):
