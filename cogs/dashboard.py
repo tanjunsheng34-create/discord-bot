@@ -602,6 +602,8 @@ class ReShuffleView(discord.ui.View):
         super().__init__(timeout=604800)  # 7 days
         self.match_id = match_id
         self.guild = guild
+        self._voice_used_a = False
+        self._voice_used_b = False
 
     def _get_main_players(self):
         """只取正式玩家（is_sub=0），替补不计入。"""
@@ -1007,22 +1009,8 @@ class ReShuffleView(discord.ui.View):
         await interaction.followup.send(f"{interaction.user.mention} 已退出比赛 / Left the match.", ephemeral=False)
         await self._refresh_embed(interaction)
 
-    @discord.ui.button(label="拉入语音", style=discord.ButtonStyle.primary, emoji="📢", row=2)
-    async def pull_voice_btn(self, interaction: discord.Interaction, button):
-        """将两队玩家拉入对应语音频道。"""
-        await interaction.response.defer(ephemeral=True)
-
-        VA_ID = 1438050912814895186
-        VB_ID = 1437626921394372658
-        NOTIFY_ID = 1462616745197043722
-
-        va_channel = self.guild.get_channel(VA_ID)
-        vb_channel = self.guild.get_channel(VB_ID)
-        notify_channel = self.guild.get_channel(NOTIFY_ID)
-
-        if not va_channel or not vb_channel:
-            return await interaction.followup.send("语音频道未找到 / Voice channels not found.", ephemeral=True)
-
+    def _resolve_team_ids(self):
+        """从 DB 解析本 match 的 A/B 队成员（按 id DESC 取最新一组）。"""
         conn = get_db(); cur = conn.cursor()
         cur.execute("SELECT id, name FROM teams WHERE tournament_id=? ORDER BY id DESC", (self.match_id,))
         teams = cur.fetchall()
@@ -1035,7 +1023,7 @@ class ReShuffleView(discord.ui.View):
             )
             pids = [r["discord_id"] for r in cur.fetchall()]
             if not pids:
-                continue  # 跳过无成员的残留 teams 行
+                continue
             is_a = bool(t["name"]) and ("A" in t["name"].upper() or "蓝" in t["name"])
             if is_a and not team_a_ids:
                 team_a_ids = pids
@@ -1044,60 +1032,70 @@ class ReShuffleView(discord.ui.View):
             if team_a_ids and team_b_ids:
                 break
         conn.close()
+        return team_a_ids, team_b_ids
 
-        moved_a = []
-        moved_b = []
-        not_in_voice = []
-
-        for uid in team_a_ids:
+    async def _do_pull(self, interaction, uids, channel_id, team_label):
+        channel = self.guild.get_channel(channel_id)
+        if not channel:
+            return [f"⚠️ 语音频道未找到 ({team_label}队)"]
+        moved = []
+        not_in = []
+        for uid in uids:
             member = self.guild.get_member(int(uid))
             if member and member.voice and member.voice.channel:
                 try:
-                    await member.move_to(va_channel)
-                    moved_a.append(member)
+                    await member.move_to(channel)
+                    moved.append(member)
                 except Exception:
-                    not_in_voice.append((member, "A"))
+                    not_in.append(member.mention if member else f"<@{uid}>")
             else:
-                not_in_voice.append((member, "A"))
-
-        for uid in team_b_ids:
-            member = self.guild.get_member(int(uid))
-            if member and member.voice and member.voice.channel:
-                try:
-                    await member.move_to(vb_channel)
-                    moved_b.append(member)
-                except Exception:
-                    not_in_voice.append((member, "B"))
-            else:
-                not_in_voice.append((member, "B"))
-
+                not_in.append(member.mention if member else f"<@{uid}>")
         lines = []
-        if moved_a:
-            lines.append(f"✅ A队已拉入：{' '.join(m.mention for m in moved_a)}")
-        if moved_b:
-            lines.append(f"✅ B队已拉入：{' '.join(m.mention for m in moved_b)}")
-        if not_in_voice:
-            fail_mentions = []
-            for m, team in not_in_voice:
-                if m:
-                    fail_mentions.append(f"{m.mention}({team}队)")
-                else:
-                    fail_mentions.append(f"(未知)({team}队)")
-            lines.append(f"⚠️ 未在语音频道（无法拉入）：{' '.join(fail_mentions)}")
+        if moved:
+            lines.append(f"✅ {team_label}队已拉入：{' '.join(m.mention for m in moved)}")
+        if not_in:
+            lines.append(f"⚠️ {team_label}队未在语音频道（无法拉入）：{' '.join(not_in)}")
+        return lines
 
+    @discord.ui.button(label="🔵 拉 A 队入语音", style=discord.ButtonStyle.primary, emoji="📢", row=2)
+    async def pull_voice_a_btn(self, interaction: discord.Interaction, button):
+        if self._voice_used_a:
+            return await interaction.response.send_message("A队已经拉过了！", ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
+        team_a_ids, _ = self._resolve_team_ids()
+        lines = await self._do_pull(interaction, team_a_ids, 1438050912814895186, "A")
+        notify_channel = self.guild.get_channel(1462616745197043722)
         if notify_channel and lines:
             try:
                 await notify_channel.send("\n".join(lines))
             except Exception:
                 pass
-
         button.disabled = True
+        self._voice_used_a = True
         await interaction.edit_original_response(view=self)
-        await interaction.followup.send("拉入完成！", ephemeral=True)
+        await interaction.followup.send("A 队拉入完成！", ephemeral=True)
+
+    @discord.ui.button(label="🔴 拉 B 队入语音", style=discord.ButtonStyle.primary, emoji="📢", row=2)
+    async def pull_voice_b_btn(self, interaction: discord.Interaction, button):
+        if self._voice_used_b:
+            return await interaction.response.send_message("B队已经拉过了！", ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
+        _, team_b_ids = self._resolve_team_ids()
+        lines = await self._do_pull(interaction, team_b_ids, 1437626921394372658, "B")
+        notify_channel = self.guild.get_channel(1462616745197043722)
+        if notify_channel and lines:
+            try:
+                await notify_channel.send("\n".join(lines))
+            except Exception:
+                pass
+        button.disabled = True
+        self._voice_used_b = True
+        await interaction.edit_original_response(view=self)
+        await interaction.followup.send("B 队拉入完成！", ephemeral=True)
 
 
 class VoicePullView(discord.ui.View):
-    """一键将分队玩家拉入对应语音频道 / Pull players into voice channels."""
+    """双按钮独立拉入 A/B 队语音频道。"""
 
     VA_CHANNEL_ID = 1438050912814895186
     VB_CHANNEL_ID = 1437626921394372658
@@ -1108,13 +1106,13 @@ class VoicePullView(discord.ui.View):
         self.team_a_ids = list(team_a_ids)
         self.team_b_ids = list(team_b_ids)
         self.guild = guild
-        self._used = False
+        self._used_a = False
+        self._used_b = False
 
     @classmethod
     def from_match(cls, match_id: int, guild: discord.Guild, timeout: float = 300):
         """从数据库查询 match 的 A/B 队成员创建 VoicePullView。"""
         conn = get_db(); cur = conn.cursor()
-        # ORDER BY id DESC: 最新分队产生的 teams 行 id 最大，优先采用
         cur.execute("SELECT id, name FROM teams WHERE tournament_id=? ORDER BY id DESC", (match_id,))
         teams = cur.fetchall()
         team_a_ids = []
@@ -1126,81 +1124,76 @@ class VoicePullView(discord.ui.View):
             )
             pids = [r["discord_id"] for r in cur.fetchall()]
             if not pids:
-                continue  # 跳过无成员的旧/残留 teams 行，避免空结果覆盖正确数据
+                continue
             is_a = bool(t["name"]) and ("A" in t["name"].upper() or "蓝" in t["name"])
             if is_a and not team_a_ids:
                 team_a_ids = pids
             elif (not is_a) and not team_b_ids:
                 team_b_ids = pids
             if team_a_ids and team_b_ids:
-                break  # 已找到最新一组 A/B 队，停止
+                break
         conn.close()
         return cls(team_a_ids, team_b_ids, guild, timeout)
 
-    @discord.ui.button(label="拉入语音", style=discord.ButtonStyle.primary, emoji="📢")
-    async def pull_voice_btn(self, interaction: discord.Interaction, button):
-        if self._used:
-            return await interaction.response.send_message("已经拉过了！", ephemeral=True)
+    async def _do_pull(self, interaction, uids, channel_id, team_label):
+        """将 uid 列表的成员拉入指定频道，返回通知行列表。"""
+        channel = self.guild.get_channel(channel_id)
+        if not channel:
+            return [f"⚠️ 语音频道未找到 ({team_label}队)"]
 
-        await interaction.response.defer(ephemeral=True)
-
-        va_channel = self.guild.get_channel(self.VA_CHANNEL_ID)
-        vb_channel = self.guild.get_channel(self.VB_CHANNEL_ID)
-        notify_channel = self.guild.get_channel(self.NOTIFY_CHANNEL_ID)
-
-        if not va_channel or not vb_channel:
-            return await interaction.followup.send("语音频道未找到 / Voice channels not found.", ephemeral=True)
-
-        moved_a = []
-        moved_b = []
-        not_in_voice = []
-
-        for uid in self.team_a_ids:
+        moved = []
+        not_in = []
+        for uid in uids:
             member = self.guild.get_member(int(uid))
             if member and member.voice and member.voice.channel:
                 try:
-                    await member.move_to(va_channel)
-                    moved_a.append(member)
+                    await member.move_to(channel)
+                    moved.append(member)
                 except Exception:
-                    not_in_voice.append((member, "A"))
+                    not_in.append(member.mention if member else f"<@{uid}>")
             else:
-                not_in_voice.append((member, "A"))
-
-        for uid in self.team_b_ids:
-            member = self.guild.get_member(int(uid))
-            if member and member.voice and member.voice.channel:
-                try:
-                    await member.move_to(vb_channel)
-                    moved_b.append(member)
-                except Exception:
-                    not_in_voice.append((member, "B"))
-            else:
-                not_in_voice.append((member, "B"))
+                not_in.append(member.mention if member else f"<@{uid}>")
 
         lines = []
-        if moved_a:
-            lines.append(f"✅ A队已拉入：{' '.join(m.mention for m in moved_a)}")
-        if moved_b:
-            lines.append(f"✅ B队已拉入：{' '.join(m.mention for m in moved_b)}")
-        if not_in_voice:
-            fail_mentions = []
-            for m, team in not_in_voice:
-                if m:
-                    fail_mentions.append(f"{m.mention}({team}队)")
-                else:
-                    fail_mentions.append(f"(未知)({team}队)")
-            lines.append(f"⚠️ 未在语音频道（无法拉入）：{' '.join(fail_mentions)}")
+        if moved:
+            lines.append(f"✅ {team_label}队已拉入：{' '.join(m.mention for m in moved)}")
+        if not_in:
+            lines.append(f"⚠️ {team_label}队未在语音频道（无法拉入）：{' '.join(not_in)}")
+        return lines
 
+    @discord.ui.button(label="🔵 拉 A 队入语音", style=discord.ButtonStyle.primary, row=0)
+    async def pull_a_btn(self, interaction: discord.Interaction, button):
+        if self._used_a:
+            return await interaction.response.send_message("A队已经拉过了！", ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
+        lines = await self._do_pull(interaction, self.team_a_ids, self.VA_CHANNEL_ID, "A")
+        notify_channel = self.guild.get_channel(self.NOTIFY_CHANNEL_ID)
         if notify_channel and lines:
             try:
                 await notify_channel.send("\n".join(lines))
             except Exception:
                 pass
-
         button.disabled = True
-        self._used = True
+        self._used_a = True
         await interaction.edit_original_response(view=self)
-        await interaction.followup.send("拉入完成！", ephemeral=True)
+        await interaction.followup.send("A 队拉入完成！", ephemeral=True)
+
+    @discord.ui.button(label="🔴 拉 B 队入语音", style=discord.ButtonStyle.primary, row=0)
+    async def pull_b_btn(self, interaction: discord.Interaction, button):
+        if self._used_b:
+            return await interaction.response.send_message("B队已经拉过了！", ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
+        lines = await self._do_pull(interaction, self.team_b_ids, self.VB_CHANNEL_ID, "B")
+        notify_channel = self.guild.get_channel(self.NOTIFY_CHANNEL_ID)
+        if notify_channel and lines:
+            try:
+                await notify_channel.send("\n".join(lines))
+            except Exception:
+                pass
+        button.disabled = True
+        self._used_b = True
+        await interaction.edit_original_response(view=self)
+        await interaction.followup.send("B 队拉入完成！", ephemeral=True)
 
 
 class ManualTeamView(discord.ui.View):
