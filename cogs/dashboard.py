@@ -305,6 +305,7 @@ class TeamAssignView(discord.ui.View):
         await interaction.response.defer()
 
         conn = get_db(); cur = conn.cursor()
+        cur.execute("DELETE FROM teams WHERE tournament_id=?", (self.match_id,))
         cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (self.match_id, "A 队 Team A"))
         aid = cur.lastrowid
         for uid in self.team_a:
@@ -1023,7 +1024,7 @@ class ReShuffleView(discord.ui.View):
             return await interaction.followup.send("语音频道未找到 / Voice channels not found.", ephemeral=True)
 
         conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT id, name FROM teams WHERE tournament_id=?", (self.match_id,))
+        cur.execute("SELECT id, name FROM teams WHERE tournament_id=? ORDER BY id DESC", (self.match_id,))
         teams = cur.fetchall()
         team_a_ids = []
         team_b_ids = []
@@ -1033,10 +1034,15 @@ class ReShuffleView(discord.ui.View):
                 (t["id"],),
             )
             pids = [r["discord_id"] for r in cur.fetchall()]
-            if t["name"] and ("A" in t["name"].upper() or "蓝" in t["name"]):
+            if not pids:
+                continue  # 跳过无成员的残留 teams 行
+            is_a = bool(t["name"]) and ("A" in t["name"].upper() or "蓝" in t["name"])
+            if is_a and not team_a_ids:
                 team_a_ids = pids
-            else:
+            elif (not is_a) and not team_b_ids:
                 team_b_ids = pids
+            if team_a_ids and team_b_ids:
+                break
         conn.close()
 
         moved_a = []
@@ -1108,7 +1114,8 @@ class VoicePullView(discord.ui.View):
     def from_match(cls, match_id: int, guild: discord.Guild, timeout: float = 300):
         """从数据库查询 match 的 A/B 队成员创建 VoicePullView。"""
         conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT id, name FROM teams WHERE tournament_id=?", (match_id,))
+        # ORDER BY id DESC: 最新分队产生的 teams 行 id 最大，优先采用
+        cur.execute("SELECT id, name FROM teams WHERE tournament_id=? ORDER BY id DESC", (match_id,))
         teams = cur.fetchall()
         team_a_ids = []
         team_b_ids = []
@@ -1118,10 +1125,15 @@ class VoicePullView(discord.ui.View):
                 (t["id"],),
             )
             pids = [r["discord_id"] for r in cur.fetchall()]
-            if t["name"] and ("A" in t["name"].upper() or "蓝" in t["name"]):
+            if not pids:
+                continue  # 跳过无成员的旧/残留 teams 行，避免空结果覆盖正确数据
+            is_a = bool(t["name"]) and ("A" in t["name"].upper() or "蓝" in t["name"])
+            if is_a and not team_a_ids:
                 team_a_ids = pids
-            else:
+            elif (not is_a) and not team_b_ids:
                 team_b_ids = pids
+            if team_a_ids and team_b_ids:
+                break  # 已找到最新一组 A/B 队，停止
         conn.close()
         return cls(team_a_ids, team_b_ids, guild, timeout)
 
@@ -2434,6 +2446,7 @@ class ReadyCheckView(discord.ui.View):
         ts = t["team_size"] or 5
         split = min(ts, len(players) // 2)
         ta, tb = players[:split], players[split:split * 2]
+        cur.execute("DELETE FROM teams WHERE tournament_id=?", (self.match_id,))
         cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (self.match_id, "A \u961f Team A"))
         aid = cur.lastrowid
         for u in ta:
@@ -2880,6 +2893,7 @@ class DashboardView(discord.ui.View):
             split = min(ts, len(players) // 2)
             ta, tb = players[:split], players[split:split * 2]
 
+            cur2.execute("DELETE FROM teams WHERE tournament_id=?", (mid,))
             cur2.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (mid, "A 队 Team A"))
             aid = cur2.lastrowid
             for u in ta:
