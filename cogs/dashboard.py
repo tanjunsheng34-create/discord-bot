@@ -599,6 +599,45 @@ class ReShuffleView(discord.ui.View):
         conn.close()
         return src
 
+    def _build_player_list_embed(self) -> discord.Embed:
+        """Build embed showing settle title + current player list."""
+        src = self._get_source()
+        name = src["name"] if src else f"Match #{self.match_id}"
+
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT discord_id FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0) ORDER BY id ASC",
+            (self.match_id,),
+        )
+        rows = cur.fetchall()
+        conn.close()
+
+        max_p = (src["max_teams"] * src["team_size"]) if src else (len(rows) * 2)
+
+        if rows:
+            lines = []
+            for i, r in enumerate(rows, 1):
+                member = self.guild.get_member(int(r["discord_id"]))
+                name_str = member.display_name if member else f"<@{r['discord_id']}>"
+                lines.append(f"{i}. {name_str}")
+            desc = "\n".join(lines)
+        else:
+            desc = "(暂无参赛玩家 / No players)"
+
+        return discord.Embed(
+            title=f"结算完成 — {name}",
+            description=f"**当前参赛玩家 ({len(rows)}/{max_p})：**\n{desc}",
+            color=discord.Color.gold(),
+        )
+
+    async def _refresh_embed(self, interaction: discord.Interaction):
+        """Update the ReShuffleView message embed with current player list."""
+        try:
+            embed = self._build_player_list_embed()
+            await interaction.message.edit(embed=embed, view=self)
+        except Exception:
+            pass
+
     @discord.ui.button(label="完赛", style=discord.ButtonStyle.success, emoji="✅", row=0)
     async def finish_btn(self, interaction: discord.Interaction, button):
         if not interaction.user.guild_permissions.administrator:
@@ -869,64 +908,43 @@ class ReShuffleView(discord.ui.View):
 
     @discord.ui.button(label="报名", style=discord.ButtonStyle.primary, emoji="📝", row=1)
     async def signup_btn(self, interaction: discord.Interaction, button):
-        """Create a rematch and sign the user up."""
-        await interaction.response.defer(ephemeral=False)
+        """Re-add the clicking user to this match's registrations."""
+        await interaction.response.defer(ephemeral=True)
 
         src = self._get_source()
         if not src:
             return await interaction.followup.send("源比赛不存在 / Source match not found.", ephemeral=True)
 
-        match_name = f"{src['name']} (Rematch)"
-        team_size = src["team_size"]
-        max_players = team_size * 2
-
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO tournaments (name, max_teams, team_size, created_by) VALUES (?, 2, ?, ?)",
-            (match_name, team_size, str(interaction.user.id)),
-        )
-        conn.commit(); new_mid = cur.lastrowid
-
         uid = str(interaction.user.id)
-        cur.execute("INSERT INTO registrations (tournament_id, discord_id) VALUES (?,?)", (new_mid, uid))
+        conn = get_db(); cur = conn.cursor()
+
+        # Check if already registered
+        cur.execute("SELECT id FROM registrations WHERE tournament_id=? AND discord_id=?", (self.match_id, uid))
+        if cur.fetchone():
+            conn.close()
+            return await interaction.followup.send("你已经报名了 / You are already signed up.", ephemeral=True)
+
+        # Check capacity
+        max_p = src["max_teams"] * src["team_size"]
+        cur.execute(
+            "SELECT COUNT(*) as cnt FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0)",
+            (self.match_id,),
+        )
+        cnt = cur.fetchone()["cnt"]
+        if cnt >= max_p:
+            conn.close()
+            return await interaction.followup.send(f"比赛已满 ({cnt}/{max_p}) / Match is full.", ephemeral=True)
+
+        cur.execute("INSERT INTO registrations (tournament_id, discord_id) VALUES (?,?)", (self.match_id, uid))
         cur.execute("INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)", (uid, interaction.user.name))
         conn.commit(); conn.close()
 
-        embed = discord.Embed(
-            title=f"Match: {match_name}",
-            description=f"**{max_players}** 人 | 每队 {team_size}\n点击下方按钮报名 / Click below to sign up",
-            color=discord.Color.gold(),
-        ).set_footer(text=f"Match ID: {new_mid}")
-        view = MatchViewWithID()
-        followup_msg = await interaction.followup.send(embed=embed, view=view, ephemeral=False)
-
-        try:
-            # Register mapping so the persistent view works
-            save_match_view_state(
-                new_mid,
-                followup_msg.id,
-                interaction.channel_id,
-            )
-            # Send player list
-            list_embed = discord.Embed(
-                title=f"已报名玩家 / Signed Up (1/{max_players})",
-                description=f"1. {interaction.user.mention}",
-                color=discord.Color.green(),
-            )
-            list_msg = await interaction.followup.send(embed=list_embed)
-            set_player_list_msg(new_mid, list_msg.id)
-            save_match_view_state(
-                new_mid,
-                followup_msg.id,
-                interaction.channel_id,
-                player_list_msg_id=list_msg.id,
-            )
-        except Exception:
-            pass
+        await interaction.followup.send(f"{interaction.user.mention} 已报名 / Signed up.", ephemeral=False)
+        await self._refresh_embed(interaction)
 
     @discord.ui.button(label="退出", style=discord.ButtonStyle.secondary, emoji="🚪", row=1)
     async def leave_btn(self, interaction: discord.Interaction, button):
-        """Remove self from this match's registrations."""
+        """Remove self from this match's registrations and update embed."""
         await interaction.response.defer(ephemeral=True)
 
         uid = str(interaction.user.id)
@@ -940,6 +958,7 @@ class ReShuffleView(discord.ui.View):
         cur.execute("DELETE FROM registrations WHERE tournament_id=? AND discord_id=?", (self.match_id, uid))
         conn.commit(); conn.close()
         await interaction.followup.send(f"{interaction.user.mention} 已退出比赛 / Left the match.", ephemeral=False)
+        await self._refresh_embed(interaction)
 
 
 class ManualTeamView(discord.ui.View):
@@ -1612,15 +1631,12 @@ class MatchViewWithID(discord.ui.View):
                         content="✅ 结算完成！ / Settle complete!", embed=None, view=None
                     )
 
-                    # Send public re-shuffle button
-                    reshuffle_embed = discord.Embed(
-                        title=f"结算完成 — {t['name']}",
-                        description="点击下方按钮用相同参赛者重新分队 / Click below to re-shuffle with same players.",
-                        color=discord.Color.gold(),
-                    )
+                    # Send public re-shuffle button with player list
+                    reshuffle_view = ReShuffleView(match_id=mid, guild=guild)
+                    reshuffle_embed = reshuffle_view._build_player_list_embed()
                     await interaction.channel.send(
                         embed=reshuffle_embed,
-                        view=ReShuffleView(match_id=mid, guild=guild),
+                        view=reshuffle_view,
                     )
 
                 mvp_select.callback = mvp_callback
@@ -2460,15 +2476,12 @@ class DashboardView(discord.ui.View):
                         content="✅ 结算完成！ / Settle complete!", embed=None, view=None
                     )
 
-                    # Send public re-shuffle button
-                    reshuffle_embed = discord.Embed(
-                        title=f"结算完成 — {t['name']}",
-                        description="点击下方按钮用相同参赛者重新分队 / Click below to re-shuffle with same players.",
-                        color=discord.Color.gold(),
-                    )
+                    # Send public re-shuffle button with player list
+                    reshuffle_view = ReShuffleView(match_id=mid, guild=self.guild)
+                    reshuffle_embed = reshuffle_view._build_player_list_embed()
                     await interaction.channel.send(
                         embed=reshuffle_embed,
-                        view=ReShuffleView(match_id=mid, guild=self.guild),
+                        view=reshuffle_view,
                     )
 
                 mvp_select.callback = mvp_callback_dash
