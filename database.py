@@ -271,6 +271,16 @@ def init_db():
             last_join_time  TEXT
         );
 
+        -- === MMR 排位系统 ===
+        CREATE TABLE IF NOT EXISTS mmr (
+            discord_id  TEXT PRIMARY KEY,
+            mmr         INTEGER DEFAULT 1000,
+            wins        INTEGER DEFAULT 0,
+            losses      INTEGER DEFAULT 0,
+            streak      INTEGER DEFAULT 0,
+            rank        TEXT DEFAULT 'Iron'
+        );
+
         -- === MatchView 持久化状态（Bot 重启后恢复报名按钮）===
         CREATE TABLE IF NOT EXISTS match_view_state (
             message_id        TEXT PRIMARY KEY,

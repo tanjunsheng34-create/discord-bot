@@ -857,7 +857,22 @@ class ReShuffleView(discord.ui.View):
                 cur3.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)", (mvp_uid, 50, f"MVP #{mid}"))
 
             cur3.execute("UPDATE tournaments SET status='finished' WHERE id=?", (mid,))
-            conn3.commit(); conn3.close()
+            conn3.commit()
+
+            # ── MMR update ──
+            cur3.execute("SELECT discord_id, team_id FROM registrations WHERE tournament_id=?", (mid,))
+            all_regs = cur3.fetchall()
+            w_ids = [r["discord_id"] for r in all_regs if r["team_id"] == win_tid]
+            l_ids = [r["discord_id"] for r in all_regs if r["team_id"] != win_tid]
+            cur3.close()
+            _update_mmr(w_ids, l_ids, mvp_uid, conn2=None)
+
+            conn3 = get_db(); cur3 = conn3.cursor()
+            cur3.execute("SELECT name FROM tournaments WHERE id=?", (mid,))
+            name_row = cur3.fetchone()
+            match_name = name_row["name"] if name_row else f"Match #{mid}"
+            conn3.close()
+            analysis_embed = _generate_match_analysis(mid, match_name, w_ids, l_ids, mvp_uid, self.guild)
 
             for child in self.children:
                 if isinstance(child, discord.ui.Button) and child.label == "结算":
@@ -866,6 +881,13 @@ class ReShuffleView(discord.ui.View):
                 await interaction.message.edit(view=self)
             except Exception:
                 pass
+
+            # Send AI analysis
+            if analysis_embed:
+                try:
+                    await interaction.channel.send(embed=analysis_embed)
+                except Exception:
+                    pass
 
             mvp_text = f"\n🏅 MVP: <@{mvp_uid}> +50" if mvp_uid else ""
             await s_int.response.send_message(
@@ -1481,6 +1503,22 @@ class MatchViewWithID(discord.ui.View):
                 f"✅ {interaction.user.mention} 报名成功！ Signed up! ({cnt+1}/{max_p})", ephemeral=True
             )
             await self._refresh_list(interaction, mid)
+
+            # Check if match is now full → trigger Ready Check
+            if cnt + 1 >= max_p:
+                conn2 = get_db(); cur2 = conn2.cursor()
+                cur2.execute("SELECT discord_id FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0) ORDER BY id ASC", (mid,))
+                player_rows = cur2.fetchall(); conn2.close()
+                player_ids = [r["discord_id"] for r in player_rows]
+                ready_check_view = ReadyCheckView(
+                    match_id=mid,
+                    match_name=t["name"],
+                    player_ids=player_ids,
+                    guild=guild,
+                    channel=interaction.channel,
+                )
+                embed = await ready_check_view._build_embed(60)
+                await interaction.channel.send(embed=embed, view=ready_check_view)
         except Exception as e:
             import traceback
             print(f"[MatchView] signup error: {e}")
@@ -1619,7 +1657,7 @@ class MatchViewWithID(discord.ui.View):
                             content="结算已取消 / Settle cancelled.", embed=None, view=None
                         )
 
-                    await _execute_settle(
+                    analysis_embed = await _execute_settle(
                         match_id=mid,
                         win_team_id=flow.win_team_id,
                         mvp_id=flow.mvp_id,
@@ -1630,6 +1668,10 @@ class MatchViewWithID(discord.ui.View):
                     await mvp_int.edit_original_response(
                         content="✅ 结算完成！ / Settle complete!", embed=None, view=None
                     )
+
+                    # Send AI analysis
+                    if analysis_embed:
+                        await interaction.channel.send(embed=analysis_embed)
 
                     # Send public re-shuffle button with player list
                     reshuffle_view = ReShuffleView(match_id=mid, guild=guild)
@@ -1992,6 +2034,304 @@ async def _execute_settle(match_id, win_team_id, mvp_id, guild, match_name):
 
     if mvp_id:
         check_achievement(mvp_id, "MVP")
+
+    # ── MMR 排位更新 ──
+    _update_mmr(winner_ids, loser_ids, mvp_id, conn2=None)
+
+    # ── AI 赛事分析 ──
+    analysis_embed = _generate_match_analysis(match_id, match_name, winner_ids, loser_ids, mvp_id, guild)
+    return analysis_embed
+
+
+# ══════════ MMR 排位系统 / MMR Ranking System ══════════
+
+MMR_RANKS = [
+    ("Iron", 0, 799),
+    ("Bronze", 800, 999),
+    ("Silver", 1000, 1199),
+    ("Gold", 1200, 1399),
+    ("Platinum", 1400, 1599),
+    ("Diamond", 1600, 1799),
+    ("Master", 1800, 1999),
+    ("Challenger", 2000, 99999),
+]
+
+
+def _get_rank(mmr: int) -> str:
+    for name, lo, hi in MMR_RANKS:
+        if lo <= mmr <= hi:
+            return name
+    return "Iron"
+
+
+def _get_rank_emoji(rank: str) -> str:
+    emoji_map = {
+        "Iron": "\U0001faa8", "Bronze": "\U0001f949", "Silver": "\U0001f948",
+        "Gold": "\U0001f947", "Platinum": "\U0001f4a0", "Diamond": "\U0001f48e",
+        "Master": "\U0001f451", "Challenger": "\U0001f320",
+    }
+    return emoji_map.get(rank, "")
+
+
+def _mmr_change_amt(is_winner: bool, is_mvp: bool, streak: int, underdog_bonus: int) -> int:
+    delta = 25 if is_winner else -25
+    if is_winner and is_mvp:
+        delta += 5
+    if underdog_bonus > 0:
+        delta += underdog_bonus
+    if is_winner and streak >= 7:
+        delta += 15
+    elif is_winner and streak >= 5:
+        delta += 10
+    elif is_winner and streak >= 3:
+        delta += 5
+    return delta
+
+
+def _update_mmr(winner_ids: list, loser_ids: list, mvp_id, conn2=None):
+    conn = get_db(); cur = conn.cursor()
+    all_w_mmr, all_l_mmr = [], []
+    for wid in winner_ids:
+        cur.execute("SELECT mmr FROM mmr WHERE discord_id=?", (wid,))
+        row = cur.fetchone()
+        all_w_mmr.append(row["mmr"] if row else 1000)
+    for lid in loser_ids:
+        cur.execute("SELECT mmr FROM mmr WHERE discord_id=?", (lid,))
+        row = cur.fetchone()
+        all_l_mmr.append(row["mmr"] if row else 1000)
+
+    avg_winner = sum(all_w_mmr) / len(all_w_mmr) if all_w_mmr else 1000
+    avg_loser = sum(all_l_mmr) / len(all_l_mmr) if all_l_mmr else 1000
+    underdog = max(0, int(avg_loser - avg_winner)) if avg_loser > avg_winner + 100 else 0
+    underdog_bonus = underdog // 10
+
+    for wid in winner_ids:
+        cur.execute("INSERT OR IGNORE INTO mmr (discord_id, mmr, wins, losses, streak, rank) VALUES (?,1000,0,0,0,'Iron')", (wid,))
+        cur.execute("SELECT streak, mmr FROM mmr WHERE discord_id=?", (wid,))
+        row = cur.fetchone()
+        old_mmr = row["mmr"] if row else 1000
+        streak = row["streak"] + 1 if row["streak"] >= 0 else 1
+        delta = _mmr_change_amt(True, wid == mvp_id, streak, underdog_bonus)
+        new_mmr = max(0, old_mmr + delta)
+        cur.execute(
+            "UPDATE mmr SET mmr=?, wins=wins+1, streak=?, rank=? WHERE discord_id=?",
+            (new_mmr, streak, _get_rank(new_mmr), wid),
+        )
+
+    for lid in loser_ids:
+        cur.execute("INSERT OR IGNORE INTO mmr (discord_id, mmr, wins, losses, streak, rank) VALUES (?,1000,0,0,0,'Iron')", (lid,))
+        cur.execute("SELECT streak, mmr FROM mmr WHERE discord_id=?", (lid,))
+        row = cur.fetchone()
+        old_mmr = row["mmr"] if row else 1000
+        streak = row["streak"] - 1 if row["streak"] <= 0 else -1
+        delta = _mmr_change_amt(False, lid == mvp_id, -99, 0)
+        new_mmr = max(0, old_mmr + delta)
+        cur.execute(
+            "UPDATE mmr SET mmr=?, losses=losses+1, streak=?, rank=? WHERE discord_id=?",
+            (new_mmr, streak, _get_rank(new_mmr), lid),
+        )
+
+    conn.commit(); conn.close()
+
+
+# ══════════ Ready Check — 满人自动确认 ══════════
+
+class ReadyCheckView(discord.ui.View):
+    """Ready check view: 60s countdown, all-confirm triggers auto-shuffle."""
+
+    def __init__(self, match_id: int, match_name: str, player_ids: list,
+                 guild: discord.Guild, channel, timeout=65):
+        super().__init__(timeout=timeout)
+        self.match_id = match_id
+        self.match_name = match_name
+        self.guild = guild
+        self.channel = channel
+        self.ready: set = set()
+        self.all_ids: set = set(player_ids)
+        self.expired = False
+
+    async def _do_auto_shuffle(self, interaction: discord.Interaction):
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT * FROM tournaments WHERE id=?", (self.match_id,))
+        t = cur.fetchone()
+        if not t or t["status"] != "open":
+            conn.close()
+            return
+        cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=? ORDER BY RANDOM()", (self.match_id,))
+        players = [r["discord_id"] for r in cur.fetchall()]
+        if len(players) < 2:
+            conn.close()
+            return
+        ts = t["team_size"] or 5
+        split = min(ts, len(players) // 2)
+        ta, tb = players[:split], players[split:split * 2]
+        cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (self.match_id, "A \u961f Team A"))
+        aid = cur.lastrowid
+        for u in ta:
+            cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (aid, self.match_id, u))
+        cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (self.match_id, "B \u961f Team B"))
+        bid = cur.lastrowid
+        for u in tb:
+            cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (bid, self.match_id, u))
+        cur.execute("UPDATE tournaments SET status='closed' WHERE id=?", (self.match_id,))
+        conn.commit(); conn.close()
+
+        a_mentions = [getattr(self.guild.get_member(int(uid)), 'mention', f'<@{uid}>') for uid in ta]
+        b_mentions = [getattr(self.guild.get_member(int(uid)), 'mention', f'<@{uid}>') for uid in tb]
+        embed = discord.Embed(
+            title=f"\u2705 Ready Check Complete \u2014 {self.match_name}",
+            description=(
+                f"\U0001f7e2 **A \u961f Team A** (ID:{aid}): {' '.join(a_mentions)}\n"
+                f"\U0001f534 **B \u961f Team B** (ID:{bid}): {' '.join(b_mentions)}\n\n"
+                "All confirmed. Auto-shuffle complete."
+            ),
+            color=discord.Color.green(),
+        )
+        await self.channel.send(embed=embed)
+        reshuffle_view = ReShuffleView(match_id=self.match_id, guild=self.guild)
+        reshuffle_embed = reshuffle_view._build_player_list_embed()
+        await self.channel.send(embed=reshuffle_embed, view=reshuffle_view)
+
+    async def _timeout_cleanup(self):
+        self.expired = True
+        embed = discord.Embed(
+            title=f"\u23f0 Ready Check Timeout \u2014 {self.match_name}",
+            description="Not all confirmed in time. Match back to waiting, signups re-opened.",
+            color=discord.Color.orange(),
+        )
+        await self.channel.send(embed=embed)
+
+    async def _build_embed(self, remaining: int) -> discord.Embed:
+        unconfirmed = self.all_ids - self.ready
+        confirmed_lines = []
+        unconfirmed_lines = []
+        for uid in self.all_ids:
+            m = self.guild.get_member(int(uid))
+            name = m.display_name if m else f"<@{uid}>"
+            if uid in self.ready:
+                confirmed_lines.append(f"\u2705 {name}")
+            else:
+                unconfirmed_lines.append(f"\u23f3 {name}")
+        desc = f"\u23f1\ufe0f Countdown: **{remaining}s**\n\n"
+        if confirmed_lines:
+            desc += "Confirmed:\n" + "\n".join(confirmed_lines) + "\n\n"
+        desc += "Pending:\n" + "\n".join(unconfirmed_lines)
+        return discord.Embed(
+            title=f"\u26a1 Ready Check \u2014 {self.match_name} ({len(self.ready)}/{len(self.all_ids)})",
+            description=desc,
+            color=discord.Color.blue() if remaining > 20 else discord.Color.orange(),
+        )
+
+    @discord.ui.button(label="\u2705 Ready", style=discord.ButtonStyle.success)
+    async def ready_btn(self, interaction: discord.Interaction, button):
+        if self.expired:
+            return await interaction.response.send_message("Ready check expired.", ephemeral=True)
+        uid = str(interaction.user.id)
+        if uid not in self.all_ids:
+            return await interaction.response.send_message("You are not in this match.", ephemeral=True)
+        if uid in self.ready:
+            return await interaction.response.send_message("Already confirmed.", ephemeral=True)
+        self.ready.add(uid)
+        remaining = max(0, 60 - int(60 * len(self.ready) / len(self.all_ids)))
+        embed = await self._build_embed(remaining)
+        await interaction.response.edit_message(embed=embed, view=self)
+        if self.ready == self.all_ids:
+            self.expired = True
+            await self._do_auto_shuffle(interaction)
+            self.stop()
+
+    @discord.ui.button(label="\u274c Cancel", style=discord.ButtonStyle.danger)
+    async def cancel_btn(self, interaction: discord.Interaction, button):
+        if self.expired:
+            return await interaction.response.send_message("Ready check expired.", ephemeral=True)
+        uid = str(interaction.user.id)
+        if uid not in self.all_ids:
+            return await interaction.response.send_message("You are not in this match.", ephemeral=True)
+        self.expired = True
+        embed = discord.Embed(
+            title=f"\u274c Ready Check Cancelled \u2014 {self.match_name}",
+            description=f"{interaction.user.mention} cancelled. Match back to waiting.",
+            color=discord.Color.red(),
+        )
+        await interaction.response.edit_message(embed=embed, view=None)
+        self.stop()
+
+    async def on_timeout(self):
+        if not self.expired:
+            await self._timeout_cleanup()
+
+
+# ══════════ AI 赛事分析 / AI Match Analysis ══════════
+
+def _generate_match_analysis(match_id: int, match_name: str,
+                              winner_ids: list, loser_ids: list,
+                              mvp_id, guild: discord.Guild) -> discord.Embed:
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT id, name FROM teams WHERE tournament_id=?", (match_id,))
+    teams = {r["id"]: r["name"] for r in cur.fetchall()}
+    cur.execute("SELECT discord_id, team_id FROM registrations WHERE tournament_id=?", (match_id,))
+    regs = cur.fetchall()
+    total_players = len(regs)
+
+    mmr_lines = []
+    for r in regs:
+        uid = r["discord_id"]
+        cur.execute("SELECT mmr, wins, losses, streak, rank FROM mmr WHERE discord_id=?", (uid,))
+        row = cur.fetchone()
+        if row:
+            emoji = _get_rank_emoji(row["rank"])
+            mmr_lines.append(
+                f"{emoji} <@{uid}>: **{row['mmr']}** MMR ({row['rank']}) "
+                f"| {row['wins']}W/{row['losses']}L"
+            )
+
+    mvp_name = ""
+    if mvp_id:
+        mvp_member = guild.get_member(int(mvp_id))
+        mvp_name = mvp_member.display_name if mvp_member else f"<@{mvp_id}>"
+
+    import random
+    commentaries = [
+        "A fiery victory for the bravest warriors!",
+        "A spectacular showdown \u2014 skill speaks for itself!",
+        "Every point was earned through sweat and determination!",
+        "An intense battle, one for the history books!",
+        "Top-tier competition with maximum suspense!",
+    ]
+    commentary = random.choice(commentaries)
+
+    embed = discord.Embed(
+        title=f"\U0001f4ca Match Analysis \u2014 {match_name}",
+        description=(
+            f"\u2501" * 20 + "\n"
+            f"\U0001f3c6 **Result:** Winners {len(winner_ids)} vs Losers {len(loser_ids)}\n"
+            f"\U0001f465 **Players:** {total_players}\n"
+        ),
+        color=discord.Color.purple(),
+    )
+
+    if mmr_lines:
+        embed.add_field(
+            name="\U0001f4c8 MMR Rankings",
+            value="\n".join(mmr_lines[:15]) + ("\n..." if len(mmr_lines) > 15 else ""),
+            inline=False,
+        )
+
+    if mvp_name:
+        embed.add_field(
+            name="\U0001f3c5 Match MVP",
+            value=f"\U0001f451 **{mvp_name}** \u2014 outstanding performance!",
+            inline=False,
+        )
+
+    embed.add_field(
+        name="\U0001f4ac AI Commentary",
+        value=f"\u2728 {commentary}",
+        inline=False,
+    )
+    embed.set_footer(text=f"Match ID: {match_id} | GMPT AI Analysis")
+    conn.close()
+    return embed
 
 
 # =============================================================================
@@ -2465,7 +2805,7 @@ class DashboardView(discord.ui.View):
                             content="结算已取消 / Settle cancelled.", embed=None, view=None
                         )
 
-                    await _execute_settle(
+                    analysis_embed = await _execute_settle(
                         match_id=mid,
                         win_team_id=flow.win_team_id,
                         mvp_id=flow.mvp_id,
@@ -2475,6 +2815,10 @@ class DashboardView(discord.ui.View):
                     await mvp_int.edit_original_response(
                         content="✅ 结算完成！ / Settle complete!", embed=None, view=None
                     )
+
+                    # Send AI analysis
+                    if analysis_embed:
+                        await interaction.channel.send(embed=analysis_embed)
 
                     # Send public re-shuffle button with player list
                     reshuffle_view = ReShuffleView(match_id=mid, guild=self.guild)
@@ -2992,6 +3336,91 @@ class Dashboard(commands.Cog):
                 )
             except Exception:
                 pass
+
+    @app_commands.command(
+        name="gmpt-stats",
+        description="View player MMR, rank, and win/loss stats / 查看玩家MMR/段位/胜负",
+    )
+    @app_commands.describe(
+        user="Target user / 目标用户 (default: yourself)",
+    )
+    async def gmpt_stats(
+        self, interaction: discord.Interaction,
+        user: discord.Member = None,
+    ):
+        target = user or interaction.user
+        uid = str(target.id)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT * FROM mmr WHERE discord_id=?", (uid,))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            return await interaction.response.send_message(
+                f"{target.display_name} 暂无 MMR 数据 / No MMR data yet.",
+                ephemeral=True,
+            )
+        mmr = row["mmr"]; wins = row["wins"]; losses = row["losses"]
+        streak = row["streak"]; rank = row["rank"]
+        conn.close()
+
+        winrate = f"{wins / (wins + losses) * 100:.1f}%" if (wins + losses) > 0 else "N/A"
+        streak_text = f"+{streak} Win Streak!" if streak > 0 else f"{abs(streak)} Loss Streak" if streak < 0 else "-"
+        emoji = _get_rank_emoji(rank)
+
+        embed = discord.Embed(
+            title=f"{emoji} {target.display_name} MMR Stats",
+            description=(
+                f"**MMR:** {mmr}\n"
+                f"**Rank:** {emoji} {rank}\n"
+                f"**Wins:** {wins} | **Losses:** {losses} | **Win Rate:** {winrate}\n"
+                f"**Streak:** {streak_text}"
+            ),
+            color=discord.Color.gold(),
+        )
+        embed.set_thumbnail(url=target.display_avatar.url)
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(
+        name="gmpt-leaderboard-mmr",
+        description="View MMR leaderboard / 查看MMR排行榜",
+    )
+    @app_commands.describe(
+        limit="Number of players to show / 显示人数 (default: 10)",
+    )
+    async def gmpt_leaderboard_mmr(
+        self, interaction: discord.Interaction,
+        limit: int = 10,
+    ):
+        limit = max(1, min(limit, 25))
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT * FROM mmr ORDER BY mmr DESC LIMIT ?", (limit,))
+        rows = cur.fetchall()
+        conn.close()
+
+        if not rows:
+            return await interaction.response.send_message(
+                "暂无 MMR 数据 / No MMR data yet.", ephemeral=True
+            )
+
+        lines = []
+        for i, row in enumerate(rows):
+            uid = row["discord_id"]
+            member = interaction.guild.get_member(int(uid))
+            name = member.display_name if member else f"<@{uid}>"
+            emoji = _get_rank_emoji(row["rank"])
+            streak_str = f" [{row['streak']:+d}]" if row["streak"] != 0 else ""
+            medal = ":first_place:" if i == 0 else ":second_place:" if i == 1 else ":third_place:" if i == 2 else f"#{i+1}"
+            lines.append(
+                f"{medal} {emoji} **{name}** \u2014 {row['mmr']} MMR "
+                f"({row['wins']}W/{row['losses']}L){streak_str}"
+            )
+
+        embed = discord.Embed(
+            title=":trophy: MMR Leaderboard",
+            description="\n".join(lines),
+            color=discord.Color.gold(),
+        )
+        await interaction.response.send_message(embed=embed)
 
 
 async def setup(bot):
