@@ -551,34 +551,73 @@ class AdminSubPlayerModal(discord.ui.Modal, title="设置替补 / Set Substitute
 
 
 class ReShuffleView(discord.ui.View):
-    """结算后显示的「重新分队」按钮视图。"""
+    """结算后显示的「重新分队」按钮视图（4 个按钮一行）。"""
 
     def __init__(self, match_id: int, guild: discord.Guild):
         super().__init__(timeout=604800)  # 7 days
         self.match_id = match_id
         self.guild = guild
 
-    @discord.ui.button(label="重新分队", style=discord.ButtonStyle.primary, emoji="🔄")
-    async def reshuffle_btn(self, interaction: discord.Interaction, button):
-        if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("管理员专用 / Admin only.", ephemeral=True)
-
-        await interaction.response.defer(ephemeral=False)
-
+    def _get_main_players(self):
+        """只取正式玩家（is_sub=0），替补不计入。"""
         conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT * FROM tournaments WHERE id=?", (self.match_id,))
-        src = cur.fetchone()
-        if not src:
-            conn.close()
-            return await interaction.followup.send("源比赛不存在 / Source match not found.")
-
         cur.execute(
             "SELECT discord_id FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0)",
             (self.match_id,),
         )
         players = [r["discord_id"] for r in cur.fetchall()]
         conn.close()
+        return players
 
+    def _get_source(self):
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT * FROM tournaments WHERE id=?", (self.match_id,))
+        src = cur.fetchone()
+        conn.close()
+        return src
+
+    @discord.ui.button(label="完赛", style=discord.ButtonStyle.success, emoji="✅", row=0)
+    async def finish_btn(self, interaction: discord.Interaction, button):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("管理员专用 / Admin only.", ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
+
+        src = self._get_source()
+        if not src:
+            return await interaction.followup.send("源比赛不存在 / Source match not found.")
+        if src["status"] == "finished":
+            return await interaction.followup.send("比赛已完赛 / Already finished.")
+
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("UPDATE tournaments SET status='finished' WHERE id=?", (self.match_id,))
+        conn.commit(); conn.close()
+
+        # Disable all buttons on this view
+        for child in self.children:
+            child.disabled = True
+        embed = discord.Embed(
+            title=f"🏁 比赛已完赛 — {src['name']}",
+            description="本场比赛已结束，按钮已禁用 / Match finished, all buttons disabled.",
+            color=discord.Color.green(),
+        )
+        await interaction.followup.send(embed=embed)
+        try:
+            await interaction.message.edit(view=self)
+        except Exception:
+            pass
+
+    @discord.ui.button(label="重新分队", style=discord.ButtonStyle.primary, emoji="🔄", row=0)
+    async def reshuffle_btn(self, interaction: discord.Interaction, button):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("管理员专用 / Admin only.", ephemeral=True)
+
+        await interaction.response.defer(ephemeral=False)
+
+        src = self._get_source()
+        if not src:
+            return await interaction.followup.send("源比赛不存在 / Source match not found.")
+
+        players = self._get_main_players()
         if len(players) < 2:
             return await interaction.followup.send("参赛人数不足 (至少2人) / Not enough players (min 2).")
 
@@ -587,7 +626,6 @@ class ReShuffleView(discord.ui.View):
             players = players[:-1]
 
         team_size = len(players) // 2
-        import random
         match_name = f"{src['name']} (续战 #{self.match_id})"
 
         conn = get_db(); cur = conn.cursor()
@@ -633,6 +671,473 @@ class ReShuffleView(discord.ui.View):
             color=discord.Color.gold(),
         )
         await interaction.followup.send(embed=embed)
+
+    @discord.ui.button(label="自己分队", style=discord.ButtonStyle.secondary, emoji="✋", row=0)
+    async def manual_btn(self, interaction: discord.Interaction, button):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("管理员专用 / Admin only.", ephemeral=True)
+
+        await interaction.response.defer(ephemeral=True)
+
+        src = self._get_source()
+        if not src:
+            return await interaction.followup.send("源比赛不存在 / Source match not found.")
+
+        players = self._get_main_players()
+        if len(players) < 2:
+            return await interaction.followup.send("参赛人数不足 (至少2人) / Not enough players (min 2).")
+
+        if len(players) % 2 != 0:
+            players = players[:-1]
+
+        team_size = len(players) // 2
+        match_name = f"{src['name']} (续战 #{self.match_id})"
+
+        view = ManualTeamView(
+            src_match_id=self.match_id,
+            match_name=match_name,
+            player_ids=players,
+            guild=self.guild,
+            team_size=team_size,
+            created_by=str(interaction.user.id),
+        )
+        await interaction.followup.send(
+            f"**手动分队 / Manual Team Assign** — {match_name}\n选择玩家后点击 A 队 / B 队",
+            embed=view._build_embed(),
+            view=view,
+            ephemeral=True,
+        )
+
+    @discord.ui.button(label="队长分队", style=discord.ButtonStyle.secondary, emoji="👑", row=0)
+    async def captain_btn(self, interaction: discord.Interaction, button):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("管理员专用 / Admin only.", ephemeral=True)
+
+        await interaction.response.defer(ephemeral=True)
+
+        src = self._get_source()
+        if not src:
+            return await interaction.followup.send("源比赛不存在 / Source match not found.")
+
+        players = self._get_main_players()
+        if len(players) < 4:
+            return await interaction.followup.send("参赛人数不足 (至少4人) / Not enough players (min 4).")
+
+        if len(players) % 2 != 0:
+            players = players[:-1]
+
+        team_size = len(players) // 2
+        match_name = f"{src['name']} (续战 #{self.match_id})"
+
+        view = CaptainDraftView(
+            src_match_id=self.match_id,
+            match_name=match_name,
+            player_ids=players,
+            guild=self.guild,
+            team_size=team_size,
+            created_by=str(interaction.user.id),
+        )
+        await interaction.followup.send(
+            f"**队长分队 / Captain Draft** — {match_name}\n第一步：选择 2 名队长",
+            view=view,
+            ephemeral=True,
+        )
+
+
+class ManualTeamView(discord.ui.View):
+    """管理员手动将每个玩家分配到 A/B 队（自己分队）。"""
+
+    def __init__(self, src_match_id, match_name, player_ids, guild, team_size, created_by, timeout=300):
+        super().__init__(timeout=timeout)
+        self.src_match_id = src_match_id
+        self.match_name = match_name
+        self.guild = guild
+        self.team_size = team_size
+        self.created_by = created_by
+        self.all_player_ids = list(player_ids)
+        self.team_a = []
+        self.team_b = []
+        self.selected_player = None
+        self._rebuild_select()
+
+    def _get_unassigned(self):
+        return [pid for pid in self.all_player_ids if pid not in self.team_a and pid not in self.team_b]
+
+    def _rebuild_select(self):
+        for child in list(self.children):
+            if isinstance(child, discord.ui.Select):
+                self.remove_item(child)
+
+        unassigned = self._get_unassigned()
+        options = []
+        for pid in unassigned:
+            member = self.guild.get_member(int(pid))
+            label = member.display_name if member else f"<@{pid}>"
+            options.append(discord.SelectOption(label=label[:25], value=pid))
+
+        if not options:
+            options.append(discord.SelectOption(label="(无待分配玩家 / No players)", value="__none__"))
+
+        select = discord.ui.Select(
+            placeholder="选择玩家 / Select a player...",
+            options=options[:25],
+            row=0,
+        )
+        select.callback = self.select_callback
+        self.add_item(select)
+
+    async def select_callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        val = interaction.data["values"][0]
+        if val == "__none__":
+            return
+        self.selected_player = val
+        member = self.guild.get_member(int(val))
+        name = member.display_name if member else f"<@{val}>"
+        await interaction.followup.send(f"已选择 / Selected: {name}，点击加入 A 队或 B 队", ephemeral=True)
+
+    @discord.ui.button(label="加入 A 队 / A", style=discord.ButtonStyle.primary, emoji="🔵", row=1)
+    async def add_to_a(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        if not self.selected_player:
+            return await interaction.followup.send("请先从下拉菜单选择一个玩家 / Select a player first.", ephemeral=True)
+        if len(self.team_a) >= self.team_size:
+            return await interaction.followup.send(f"A 队已满 (上限 {self.team_size}) / Team A full.", ephemeral=True)
+        if self.selected_player in self.team_a or self.selected_player in self.team_b:
+            return await interaction.followup.send("该玩家已分配 / Already assigned.", ephemeral=True)
+        self.team_a.append(self.selected_player)
+        self.selected_player = None
+        self._rebuild_select()
+        await interaction.response.edit_message(embed=self._build_embed(), view=self)
+
+    @discord.ui.button(label="加入 B 队 / B", style=discord.ButtonStyle.danger, emoji="🔴", row=1)
+    async def add_to_b(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        if not self.selected_player:
+            return await interaction.followup.send("请先从下拉菜单选择一个玩家 / Select a player first.", ephemeral=True)
+        if len(self.team_b) >= self.team_size:
+            return await interaction.followup.send(f"B 队已满 (上限 {self.team_size}) / Team B full.", ephemeral=True)
+        if self.selected_player in self.team_a or self.selected_player in self.team_b:
+            return await interaction.followup.send("该玩家已分配 / Already assigned.", ephemeral=True)
+        self.team_b.append(self.selected_player)
+        self.selected_player = None
+        self._rebuild_select()
+        await interaction.response.edit_message(embed=self._build_embed(), view=self)
+
+    @discord.ui.button(label="清空 / Clear", style=discord.ButtonStyle.secondary, emoji="🔄", row=2)
+    async def clear_teams(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        self.team_a.clear()
+        self.team_b.clear()
+        self.selected_player = None
+        self._rebuild_select()
+        await interaction.response.edit_message(embed=self._build_embed(), view=self)
+
+    @discord.ui.button(label="确认分队 / Confirm", style=discord.ButtonStyle.success, emoji="✅", row=2)
+    async def confirm_teams(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        total = len(self.team_a) + len(self.team_b)
+        all_players = len(self.all_player_ids)
+        if total < min(2, all_players):
+            return await interaction.followup.send("请至少分配 2 名玩家到队伍中 / Assign at least 2 players.", ephemeral=True)
+
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO tournaments (name, max_teams, team_size, created_by, status) VALUES (?, 2, ?, ?, 'open')",
+            (self.match_name, self.team_size, self.created_by),
+        )
+        conn.commit()
+        new_mid = cur.lastrowid
+
+        for pid in self.all_player_ids:
+            cur.execute("INSERT INTO registrations (tournament_id, discord_id) VALUES (?,?)", (new_mid, pid))
+            cur.execute("INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)", (pid, "unknown"))
+
+        cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (new_mid, "A 队 Team A"))
+        aid = cur.lastrowid
+        for uid in self.team_a:
+            cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?",
+                        (aid, new_mid, uid))
+        cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (new_mid, "B 队 Team B"))
+        bid = cur.lastrowid
+        for uid in self.team_b:
+            cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?",
+                        (bid, new_mid, uid))
+        cur.execute("UPDATE tournaments SET status='closed' WHERE id=?", (new_mid,))
+        conn.commit(); conn.close()
+
+        a_mentions = [f"<@{uid}>" for uid in self.team_a]
+        b_mentions = [f"<@{uid}>" for uid in self.team_b]
+
+        for child in self.children:
+            child.disabled = True
+
+        embed = self._build_embed()
+        embed.title = f"✋ 手动分队完成 — {self.match_name}"
+        embed.description = (
+            f"🔵 **A 队 Team A** (ID:{aid}): {' '.join(a_mentions)}\n"
+            f"🔴 **B 队 Team B** (ID:{bid}): {' '.join(b_mentions)}\n\n"
+            f"Match ID: {new_mid}\n"
+            f"Settle: `/gmpt-settle {new_mid} <win_team_id>`"
+        )
+        embed.color = discord.Color.green()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    def _build_embed(self):
+        embed = discord.Embed(
+            title=f"手动分队 — {self.match_name}",
+            color=discord.Color.blue(),
+        )
+        a_names = []
+        for uid in self.team_a:
+            m = self.guild.get_member(int(uid))
+            a_names.append(m.display_name if m else f"<@{uid}>")
+        b_names = []
+        for uid in self.team_b:
+            m = self.guild.get_member(int(uid))
+            b_names.append(m.display_name if m else f"<@{uid}>")
+
+        unassigned = self._get_unassigned()
+        un_names = []
+        for uid in unassigned:
+            m = self.guild.get_member(int(uid))
+            un_names.append(m.display_name if m else f"<@{uid}>")
+
+        if a_names:
+            embed.add_field(name=f"🔵 A 队 / Team A ({len(self.team_a)}/{self.team_size})", value="\n".join(a_names), inline=True)
+        if b_names:
+            embed.add_field(name=f"🔴 B 队 / Team B ({len(self.team_b)}/{self.team_size})", value="\n".join(b_names), inline=True)
+        if not a_names and not b_names:
+            embed.description = "尚未分配任何玩家 / No players assigned yet."
+
+        if un_names:
+            embed.add_field(
+                name=f"待分配 / Unassigned ({len(un_names)})",
+                value="\n".join(un_names[:10]) + (f"\n... +{len(un_names)-10} more" if len(un_names) > 10 else ""),
+                inline=False,
+            )
+        return embed
+
+
+class CaptainDraftView(discord.ui.View):
+    """队长分队：先选 2 名队长，再轮流选人（draft 模式）。"""
+
+    def __init__(self, src_match_id, match_name, player_ids, guild, team_size, created_by, timeout=300):
+        super().__init__(timeout=timeout)
+        self.src_match_id = src_match_id
+        self.match_name = match_name
+        self.guild = guild
+        self.team_size = team_size
+        self.created_by = created_by
+        self.all_player_ids = list(player_ids)
+        self.captain_a = None
+        self.captain_b = None
+        self.team_a = []
+        self.team_b = []
+        self.turn = "A"  # whose turn to pick
+        self._build_captain_select()
+
+    def _get_unassigned(self):
+        return [pid for pid in self.all_player_ids
+                if pid not in self.team_a and pid not in self.team_b
+                and pid != self.captain_a and pid != self.captain_b]
+
+    def _build_captain_select(self):
+        for child in list(self.children):
+            self.remove_item(child)
+
+        options = []
+        for pid in self.all_player_ids:
+            member = self.guild.get_member(int(pid))
+            label = member.display_name if member else f"<@{pid}>"
+            options.append(discord.SelectOption(label=label[:25], value=pid))
+
+        select = discord.ui.Select(
+            placeholder="选择 2 名队长 / Select 2 captains...",
+            options=options[:25],
+            min_values=2,
+            max_values=2,
+            row=0,
+        )
+        select.callback = self.captain_select_callback
+        self.add_item(select)
+
+    async def captain_select_callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        vals = interaction.data["values"]
+        if len(vals) != 2:
+            return await interaction.followup.send("请选择恰好 2 名队长 / Select exactly 2 captains.", ephemeral=True)
+        self.captain_a, self.captain_b = vals[0], vals[1]
+        self.team_a = [self.captain_a]
+        self.team_b = [self.captain_b]
+        self.turn = "A"
+        self._build_draft_view()
+        await interaction.response.edit_message(
+            content=f"**队长分队 / Captain Draft** — {self.match_name}\n队长已选定，开始轮流选人！",
+            embed=self._build_embed(),
+            view=self,
+        )
+
+    def _build_draft_view(self):
+        for child in list(self.children):
+            self.remove_item(child)
+
+        unassigned = self._get_unassigned()
+        options = []
+        for pid in unassigned:
+            member = self.guild.get_member(int(pid))
+            label = member.display_name if member else f"<@{pid}>"
+            options.append(discord.SelectOption(label=label[:25], value=pid))
+
+        if not options:
+            options.append(discord.SelectOption(label="(无待选玩家 / No players)", value="__none__"))
+
+        select = discord.ui.Select(
+            placeholder=f"轮到 {'🔵 A队' if self.turn == 'A' else '🔴 B队'} 选人 / {self.turn} picks...",
+            options=options[:25],
+            row=0,
+        )
+        select.callback = self.draft_pick_callback
+        self.add_item(select)
+
+        # Show current turn indicator
+        turn_btn = discord.ui.Button(
+            label=f"当前: {'🔵 A队' if self.turn == 'A' else '🔴 B队'}",
+            style=discord.ButtonStyle.secondary,
+            disabled=True,
+            row=1,
+        )
+        self.add_item(turn_btn)
+
+    async def draft_pick_callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        val = interaction.data["values"][0]
+        if val == "__none__":
+            return
+        if self.turn == "A":
+            self.team_a.append(val)
+            self.turn = "B"
+        else:
+            self.team_b.append(val)
+            self.turn = "A"
+
+        if not self._get_unassigned():
+            # All picked — show confirm
+            self._build_confirm_view()
+            await interaction.response.edit_message(
+                content=f"**队长分队 / Captain Draft** — {self.match_name}\n所有玩家已选完，确认分队！",
+                embed=self._build_embed(),
+                view=self,
+            )
+        else:
+            self._build_draft_view()
+            await interaction.response.edit_message(embed=self._build_embed(), view=self)
+
+    def _build_confirm_view(self):
+        for child in list(self.children):
+            self.remove_item(child)
+        confirm = discord.ui.Button(label="确认分队 / Confirm", style=discord.ButtonStyle.success, emoji="✅", row=0)
+        confirm.callback = self.confirm_draft
+        self.add_item(confirm)
+
+        cancel = discord.ui.Button(label="重选队长 / Reset", style=discord.ButtonStyle.secondary, emoji="🔄", row=0)
+        cancel.callback = self.reset_draft
+        self.add_item(cancel)
+
+    async def reset_draft(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        self.captain_a = None
+        self.captain_b = None
+        self.team_a = []
+        self.team_b = []
+        self.turn = "A"
+        self._build_captain_select()
+        await interaction.response.edit_message(
+            content=f"**队长分队 / Captain Draft** — {self.match_name}\n第一步：选择 2 名队长",
+            embed=None,
+            view=self,
+        )
+
+    async def confirm_draft(self, interaction: discord.Interaction, button=None):
+        await interaction.response.defer(ephemeral=True)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO tournaments (name, max_teams, team_size, created_by, status) VALUES (?, 2, ?, ?, 'open')",
+            (self.match_name, self.team_size, self.created_by),
+        )
+        conn.commit()
+        new_mid = cur.lastrowid
+
+        for pid in self.all_player_ids:
+            cur.execute("INSERT INTO registrations (tournament_id, discord_id) VALUES (?,?)", (new_mid, pid))
+            cur.execute("INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)", (pid, "unknown"))
+
+        cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (new_mid, "A 队 Team A"))
+        aid = cur.lastrowid
+        for uid in self.team_a:
+            cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?",
+                        (aid, new_mid, uid))
+        cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (new_mid, "B 队 Team B"))
+        bid = cur.lastrowid
+        for uid in self.team_b:
+            cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?",
+                        (bid, new_mid, uid))
+        cur.execute("UPDATE tournaments SET status='closed' WHERE id=?", (new_mid,))
+        conn.commit(); conn.close()
+
+        a_mentions = [f"<@{uid}>" for uid in self.team_a]
+        b_mentions = [f"<@{uid}>" for uid in self.team_b]
+
+        for child in self.children:
+            child.disabled = True
+
+        embed = discord.Embed(
+            title=f"👑 队长分队完成 — {self.match_name}",
+            description=(
+                f"🔵 **A 队 Team A** (ID:{aid}, 队长 <@{self.captain_a}>): {' '.join(a_mentions)}\n"
+                f"🔴 **B 队 Team B** (ID:{bid}, 队长 <@{self.captain_b}>): {' '.join(b_mentions)}\n\n"
+                f"Match ID: {new_mid}\n"
+                f"Settle: `/gmpt-settle {new_mid} <win_team_id>`"
+            ),
+            color=discord.Color.green(),
+        )
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    def _build_embed(self):
+        embed = discord.Embed(
+            title=f"队长分队 — {self.match_name}",
+            color=discord.Color.gold(),
+        )
+        a_names = []
+        for uid in self.team_a:
+            m = self.guild.get_member(int(uid))
+            prefix = "👑 " if uid == self.captain_a else ""
+            a_names.append(prefix + (m.display_name if m else f"<@{uid}>"))
+        b_names = []
+        for uid in self.team_b:
+            m = self.guild.get_member(int(uid))
+            prefix = "👑 " if uid == self.captain_b else ""
+            b_names.append(prefix + (m.display_name if m else f"<@{uid}>"))
+
+        unassigned = self._get_unassigned()
+        un_names = []
+        for uid in unassigned:
+            m = self.guild.get_member(int(uid))
+            un_names.append(m.display_name if m else f"<@{uid}>")
+
+        if a_names:
+            embed.add_field(name=f"🔵 A 队 / Team A ({len(self.team_a)}/{self.team_size})", value="\n".join(a_names), inline=True)
+        if b_names:
+            embed.add_field(name=f"🔴 B 队 / Team B ({len(self.team_b)}/{self.team_size})", value="\n".join(b_names), inline=True)
+        if un_names:
+            embed.add_field(
+                name=f"待选 / Remaining ({len(un_names)})",
+                value="\n".join(un_names[:10]) + (f"\n... +{len(un_names)-10} more" if len(un_names) > 10 else ""),
+                inline=False,
+            )
+        if self.captain_a and self.captain_b:
+            embed.set_footer(text=f"当前轮到: {'🔵 A队' if self.turn == 'A' else '🔴 B队'}")
+        return embed
 
 
 class MatchViewWithID(discord.ui.View):
@@ -933,11 +1438,26 @@ class MatchViewWithID(discord.ui.View):
             if not cur.fetchone():
                 conn.close()
                 return await interaction.followup.send("你未报名 / You are not signed up.", ephemeral=True)
+            conn.close()
 
-            cur.execute("DELETE FROM registrations WHERE tournament_id=? AND discord_id=?", (mid, uid))
-            conn.commit(); conn.close()
+            # Confirmation before leaving
+            confirm_view = ConfirmView(timeout=60)
             await interaction.followup.send(
-                f"🚪 {interaction.user.mention} 已退赛 / Left the match.", ephemeral=True
+                f"确认退出比赛？ / Confirm leave match **{t['name']}**?",
+                view=confirm_view,
+                ephemeral=True,
+            )
+            await confirm_view.wait()
+            if confirm_view.value is None or not confirm_view.value:
+                return await interaction.edit_original_response(
+                    content="已取消 / Cancelled.", view=None
+                )
+
+            conn2 = get_db(); cur2 = conn2.cursor()
+            cur2.execute("DELETE FROM registrations WHERE tournament_id=? AND discord_id=?", (mid, uid))
+            conn2.commit(); conn2.close()
+            await interaction.edit_original_response(
+                content=f"🚪 {interaction.user.mention} 已退赛 / Left the match.", view=None
             )
             await self._refresh_list(interaction, mid)
         except Exception as e:
@@ -945,6 +1465,78 @@ class MatchViewWithID(discord.ui.View):
             print(f"[MatchView] leave error: {e}")
             traceback.print_exc()
             await interaction.followup.send("退赛失败 / Leave failed, please try again.", ephemeral=True)
+
+    @discord.ui.button(label="踢出 Kick", style=discord.ButtonStyle.danger, emoji="👢", row=1, custom_id="matchv2_kick")
+    async def kick_btn(self, interaction: discord.Interaction, button):
+        """Admin-only: select a player or sub to kick from the match."""
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("管理员专用 / Admin only.", ephemeral=True)
+
+        mid, t, guild = await self._get_context(interaction)
+        if not t:
+            return await interaction.response.send_message("比赛不存在 / Match not found.", ephemeral=True)
+        if t["status"] != "open":
+            return await interaction.response.send_message("报名已关闭 / Signup closed.", ephemeral=True)
+
+        # Get all registrations
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT discord_id, is_sub FROM registrations WHERE tournament_id=? ORDER BY id ASC", (mid,))
+        rows = cur.fetchall()
+        conn.close()
+
+        if not rows:
+            return await interaction.response.send_message("无人可踢 / No one to kick.", ephemeral=True)
+
+        # Build UserSelect
+        user_select = discord.ui.UserSelect(
+            placeholder="选择要踢出的用户 / Select users to kick...",
+            min_values=1,
+            max_values=1,
+        )
+
+        async def kick_select_callback(sel_int: discord.Interaction):
+            member = user_select.values[0]
+            uid = str(member.id)
+
+            # Check if user is registered
+            conn2 = get_db(); cur2 = conn2.cursor()
+            cur2.execute("SELECT id FROM registrations WHERE tournament_id=? AND discord_id=?", (mid, uid))
+            if not cur2.fetchone():
+                conn2.close()
+                return await sel_int.response.send_message(
+                    f"{member.display_name} 未报名 / Not signed up.", ephemeral=True
+                )
+
+            # Confirmation
+            confirm_view = ConfirmView(timeout=60)
+            await sel_int.response.send_message(
+                f"确认踢出 {member.mention}？ / Confirm kick?",
+                view=confirm_view,
+                ephemeral=True,
+            )
+            await confirm_view.wait()
+            if confirm_view.value is None or not confirm_view.value:
+                conn2.close()
+                return await sel_int.edit_original_response(
+                    content="已取消 / Cancelled.", view=None
+                )
+
+            cur2.execute("DELETE FROM registrations WHERE tournament_id=? AND discord_id=?", (mid, uid))
+            conn2.commit(); conn2.close()
+            await sel_int.edit_original_response(
+                content=f"👢 已踢出 {member.mention} / Kicked.",
+                view=None,
+            )
+            await self._refresh_list(sel_int, mid)
+
+        user_select.callback = kick_select_callback
+        kview = discord.ui.View(timeout=60)
+        kview.add_item(user_select)
+        await interaction.response.send_message(
+            "选择要踢出的玩家 / Select player to kick:",
+            view=kview,
+            ephemeral=True,
+        )
 
     @discord.ui.button(label="管理员加人", style=discord.ButtonStyle.primary, emoji="➕", row=2, custom_id="matchv2_admin_add")
     async def admin_add_btn(self, interaction: discord.Interaction, button):
