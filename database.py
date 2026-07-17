@@ -295,6 +295,13 @@ def init_db():
             channel_id        INTEGER NOT NULL,
             player_list_msg_id TEXT
         );
+
+        -- === Dashboard 面板持久化（Bot 重启后自动刷新）===
+        CREATE TABLE IF NOT EXISTS dashboard_panel (
+            guild_id    TEXT PRIMARY KEY,
+            message_id  TEXT NOT NULL,
+            channel_id  TEXT NOT NULL
+        );
     """)
 
     conn.commit()

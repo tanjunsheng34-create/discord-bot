@@ -3691,6 +3691,62 @@ class Dashboard(commands.Cog):
     async def cog_load(self):
         import aiohttp
         self.session = aiohttp.ClientSession()
+        # Auto-refresh persistent dashboard panels so old messages
+        # (with stale button layouts) get replaced by fresh ones.
+        self.bot.loop.create_task(self._refresh_all_panels())
+
+    async def _refresh_all_panels(self):
+        """On startup, delete old dashboard panel messages and re-send fresh ones."""
+        await self.bot.wait_until_ready()
+        try:
+            conn = get_db(); cur = conn.cursor()
+            cur.execute("SELECT guild_id, message_id, channel_id FROM dashboard_panel")
+            rows = cur.fetchall()
+            conn.close()
+
+            for r in rows:
+                guild = self.bot.get_guild(int(r["guild_id"]))
+                if not guild:
+                    continue
+                channel = guild.get_channel(int(r["channel_id"]))
+                if not channel:
+                    continue
+                try:
+                    old_msg = await channel.fetch_message(int(r["message_id"]))
+                    await old_msg.delete()
+                except Exception:
+                    pass
+                # Re-send fresh panel
+                try:
+                    embed = self._build_dashboard_embed()
+                    view = DashboardView(guild=guild, session=self.session)
+                    new_msg = await channel.send(embed=embed, view=view)
+                    conn2 = get_db(); cur2 = conn2.cursor()
+                    cur2.execute(
+                        "UPDATE dashboard_panel SET message_id=?, channel_id=? WHERE guild_id=?",
+                        (str(new_msg.id), str(channel.id), str(guild.id)),
+                    )
+                    conn2.commit(); conn2.close()
+                except Exception as e:
+                    print(f"[Dashboard] Failed to re-send panel for guild {r['guild_id']}: {e}")
+        except Exception as e:
+            print(f"[Dashboard] Error in _refresh_all_panels: {e}")
+
+    def _build_dashboard_embed(self):
+        return discord.Embed(
+            title="🎮 GMPT 控制面板 / Control Panel",
+            description=(
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "**自定义分队 / Custom Team** | **锦标赛 / Tournament**\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "Choose a function to begin / 选择一个功能开始操作\n\n"
+                "Row 1: 创建比赛 Create | 报名参加 Join | 选队长 Captain | 随机分队 Shuffle | 分 A/B 队 Teams\n"
+                "Row 2: 开打 Start | 结算 Settle | 📢 拉入语音\n"
+                "Row 3: 创建赛事 Tournament | 报名 Sign Up | 选秀/选队长 Draft | 上报比分 Report | 排名 Standings\n"
+                "Row 4: 对阵表 Bracket | Voice LB 语音排行"
+            ),
+            color=discord.Color.blurple(),
+        ).set_footer(text="GMPT Dashboard v1.3")
 
     async def cog_unload(self):
         if self.session:
@@ -3711,30 +3767,25 @@ class Dashboard(commands.Cog):
             # Defer immediately to avoid 3-second Discord interaction timeout
             await interaction.response.defer()
 
-            embed = discord.Embed(
-                title="🎮 GMPT 控制面板 / Control Panel",
-                description=(
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**自定义分队 / Custom Team** | **锦标赛 / Tournament**\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "Choose a function to begin / 选择一个功能开始操作\n\n"
-                    "Row 1: 创建比赛 Create | 报名参加 Join | 选队长 Captain | 随机分队 Shuffle | 分 A/B 队 Teams\n"
-                    "Row 2: 开打 Start | 结算 Settle | 📢 拉入语音\n"
-                    "Row 3: 创建赛事 Tournament | 报名 Sign Up | 选秀/选队长 Draft | 上报比分 Report | 排名 Standings\n"
-                    "Row 4: 对阵表 Bracket | Voice LB 语音排行"
-                ),
-                color=discord.Color.blurple(),
-            ).set_footer(text="GMPT Dashboard v1.2")
+            embed = self._build_dashboard_embed()
             view = DashboardView(guild=interaction.guild, session=self.session)
 
             target = channel or interaction.channel
+            msg = await target.send(embed=embed, view=view)
             if target != interaction.channel:
-                await target.send(embed=embed, view=view)
                 await interaction.followup.send(
                     f"Dashboard sent to {target.mention}", ephemeral=True
                 )
             else:
                 await interaction.followup.send(embed=embed, view=view)
+
+            # Persist panel so cog_load can auto-refresh it after restart
+            conn = get_db(); cur = conn.cursor()
+            cur.execute(
+                "INSERT OR REPLACE INTO dashboard_panel (guild_id, message_id, channel_id) VALUES (?,?,?)",
+                (str(interaction.guild.id), str(msg.id), str(target.id)),
+            )
+            conn.commit(); conn.close()
         except Exception as e:
             import traceback
             print(f"[Dashboard] Error in dashboard_cmd: {e}")
