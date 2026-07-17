@@ -1024,7 +1024,9 @@ class ReShuffleView(discord.ui.View):
             pids = [r["discord_id"] for r in cur.fetchall()]
             if not pids:
                 continue
-            is_a = bool(t["name"]) and ("A" in t["name"].upper() or "蓝" in t["name"])
+            # 名称为 "A 队 Team A" / "B 队 Team B"，按首字符精确匹配，避免 "B 队 TEAM B" 中的 "A" 误判
+            name_upper = (t["name"] or "").strip().upper()
+            is_a = name_upper.startswith("A ") or name_upper.startswith("A队") or "蓝" in name_upper
             if is_a and not team_a_ids:
                 team_a_ids = pids
             elif (not is_a) and not team_b_ids:
@@ -1125,7 +1127,9 @@ class VoicePullView(discord.ui.View):
             pids = [r["discord_id"] for r in cur.fetchall()]
             if not pids:
                 continue
-            is_a = bool(t["name"]) and ("A" in t["name"].upper() or "蓝" in t["name"])
+            # 名称为 "A 队 Team A" / "B 队 Team B"，按首字符精确匹配，避免 "B 队 TEAM B" 中的 "A" 误判
+            name_upper = (t["name"] or "").strip().upper()
+            is_a = name_upper.startswith("A ") or name_upper.startswith("A队") or "蓝" in name_upper
             if is_a and not team_a_ids:
                 team_a_ids = pids
             elif (not is_a) and not team_b_ids:
