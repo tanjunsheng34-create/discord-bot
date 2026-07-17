@@ -453,9 +453,9 @@ class AdminAddPlayerModal(discord.ui.Modal, title="管理员加人 / Admin Add P
                 f"{member.mention} 已经报过名了 / Already signed up.", ephemeral=True
             )
 
-        # Check capacity
+        # Check capacity (only main players, not subs)
         max_p = t["max_teams"] * t["team_size"]
-        cur.execute("SELECT COUNT(*) as cnt FROM registrations WHERE tournament_id=?", (self.match_id,))
+        cur.execute("SELECT COUNT(*) as cnt FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0)", (self.match_id,))
         cnt = cur.fetchone()["cnt"]
         if cnt >= max_p:
             conn.close()
@@ -470,6 +470,81 @@ class AdminAddPlayerModal(discord.ui.Modal, title="管理员加人 / Admin Add P
         )
 
         # Refresh the signup list in the channel
+        from cogs.dashboard import MatchViewWithID as _MV
+        fake_view = _MV()
+        await fake_view._refresh_list(interaction, self.match_id)
+
+
+class AdminSubPlayerModal(discord.ui.Modal, title="设置替补 / Set Substitute"):
+    """弹窗让管理员输入替补玩家。替补不占正式名额。"""
+    user_input = discord.ui.TextInput(
+        label="替补玩家 / Substitute (@mention, name, or ID)",
+        placeholder="@username 或 用户名 或 用户ID",
+        max_length=100,
+        required=True,
+    )
+
+    def __init__(self, match_id: int, guild: discord.Guild):
+        super().__init__()
+        self.match_id = match_id
+        self.guild = guild
+
+    async def on_submit(self, interaction: discord.Interaction):
+        raw = self.user_input.value.strip()
+        member = None
+
+        if raw.startswith("<@") and raw.endswith(">"):
+            uid = raw.replace("<@", "").replace("!", "").replace(">", "")
+            member = self.guild.get_member(int(uid))
+        elif raw.isdigit():
+            member = self.guild.get_member(int(raw))
+        if not member:
+            member = discord.utils.get(self.guild.members, name=raw)
+        if not member:
+            member = discord.utils.get(self.guild.members, display_name=raw)
+        if not member:
+            lower = raw.lower()
+            for m in self.guild.members:
+                if m.name.lower() == lower or m.display_name.lower() == lower:
+                    member = m
+                    break
+
+        if not member:
+            return await interaction.response.send_message(
+                f"找不到用户: `{raw}`。请检查输入。", ephemeral=True
+            )
+
+        uid = str(member.id)
+        conn = get_db(); cur = conn.cursor()
+
+        cur.execute("SELECT * FROM tournaments WHERE id=?", (self.match_id,))
+        t = cur.fetchone()
+        if not t or t["status"] != "open":
+            conn.close()
+            return await interaction.response.send_message("报名已关闭或比赛不存在。", ephemeral=True)
+
+        # Check if already in registrations (as main or sub)
+        cur.execute("SELECT id, is_sub FROM registrations WHERE tournament_id=? AND discord_id=?", (self.match_id, uid))
+        existing = cur.fetchone()
+        if existing:
+            conn.close()
+            label = "替补" if existing["is_sub"] else "正式"
+            return await interaction.response.send_message(
+                f"{member.mention} 已是{label}玩家 / Already registered as {label}.", ephemeral=True
+            )
+
+        # Insert as sub (no capacity check — subs don't count toward max)
+        cur.execute(
+            "INSERT INTO registrations (tournament_id, discord_id, is_sub) VALUES (?,?,1)",
+            (self.match_id, uid),
+        )
+        cur.execute("INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)", (uid, member.name))
+        conn.commit(); conn.close()
+
+        await interaction.response.send_message(
+            f"✅ 已将 {member.mention} 设为比赛 # {self.match_id} 的替补球员", ephemeral=True
+        )
+
         from cogs.dashboard import MatchViewWithID as _MV
         fake_view = _MV()
         await fake_view._refresh_list(interaction, self.match_id)
@@ -502,22 +577,37 @@ class MatchViewWithID(discord.ui.View):
                 pass
 
         conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=? ORDER BY id ASC", (match_id,))
+        cur.execute("SELECT discord_id, is_sub FROM registrations WHERE tournament_id=? ORDER BY is_sub ASC, id ASC", (match_id,))
         rows = cur.fetchall()
         cur.execute("SELECT max_teams, team_size FROM tournaments WHERE id=?", (match_id,))
         t = cur.fetchone()
         conn.close()
         max_p = (t["max_teams"] * t["team_size"]) if t else 0
 
-        names = []
+        main_names = []
+        sub_names = []
         for r in rows:
             member = interaction.guild.get_member(int(r["discord_id"]))
-            names.append(member.display_name if member else f"<@{r['discord_id']}>")
+            name = member.display_name if member else f"<@{r['discord_id']}>"
+            if r["is_sub"]:
+                sub_names.append(name)
+            else:
+                main_names.append(name)
 
-        count = len(names)
-        desc = "\n".join(f"{i+1}. {n}" for i, n in enumerate(names)) if count else "暂无玩家 / No signups yet"
+        count = len(main_names)
+        desc_parts = []
+        if main_names:
+            desc_parts.append("\n".join(f"{i+1}. {n}" for i, n in enumerate(main_names)))
+        else:
+            desc_parts.append("暂无玩家 / No signups yet")
+        if sub_names:
+            desc_parts.append("")
+            desc_parts.append("**替补 / Substitutes:**")
+            desc_parts.append("\n".join(f"S{i+1}. {n}" for i, n in enumerate(sub_names)))
+
+        desc = "\n".join(desc_parts)
         embed = discord.Embed(
-            title=f"已报名玩家 / Signed Up ({count}/{max_p})",
+            title=f"已报名玩家 / Signed Up ({count}/{max_p})" + (f" + {len(sub_names)} 替补" if sub_names else ""),
             description=desc,
             color=discord.Color.green(),
         )
@@ -541,7 +631,7 @@ class MatchViewWithID(discord.ui.View):
 
             max_p = t["max_teams"] * t["team_size"]
             conn = get_db(); cur = conn.cursor()
-            cur.execute("SELECT COUNT(*) as cnt FROM registrations WHERE tournament_id=?", (mid,))
+            cur.execute("SELECT COUNT(*) as cnt FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0)", (mid,))
             cnt = cur.fetchone()["cnt"]
             if cnt >= max_p:
                 conn.close()
@@ -575,20 +665,27 @@ class MatchViewWithID(discord.ui.View):
                 return await interaction.followup.send("比赛不存在 / Match not found.", ephemeral=True)
 
             conn = get_db(); cur = conn.cursor()
-            cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=? ORDER BY id ASC", (mid,))
+            cur.execute("SELECT discord_id, is_sub FROM registrations WHERE tournament_id=? ORDER BY is_sub ASC, id ASC", (mid,))
             rows = cur.fetchall()
             conn.close()
             if not rows:
                 return await interaction.followup.send("暂无玩家报名 / No signups yet.", ephemeral=True)
 
-            names = []
+            main_names = []
+            sub_names = []
             for r in rows:
                 member = guild.get_member(int(r["discord_id"]))
-                names.append(member.display_name if member else f"<@{r['discord_id']}>")
+                name = member.display_name if member else f"<@{r['discord_id']}>"
+                if r["is_sub"]:
+                    sub_names.append(name)
+                else:
+                    main_names.append(name)
 
-            text = "\n".join(f"{i+1}. {n}" for i, n in enumerate(names))
+            text = "\n".join(f"{i+1}. {n}" for i, n in enumerate(main_names))
+            if sub_names:
+                text += f"\n\n**替补 / Substitutes:**\n" + "\n".join(f"S{i+1}. {n}" for i, n in enumerate(sub_names))
             await interaction.followup.send(
-                f"**已报名玩家 / Signed up ({len(names)}人):**\n{text}", ephemeral=True
+                f"**已报名玩家 / Signed up ({len(main_names)}人):**\n{text}", ephemeral=True
             )
         except Exception as e:
             import traceback
@@ -637,7 +734,7 @@ class MatchViewWithID(discord.ui.View):
                 flow.win_team_id = int(sel_int.data["values"][0])
 
                 conn2 = get_db(); cur2 = conn2.cursor()
-                cur2.execute("SELECT discord_id FROM registrations WHERE tournament_id=?", (mid,))
+                cur2.execute("SELECT discord_id FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0)", (mid,))
                 players = cur2.fetchall()
                 conn2.close()
 
@@ -768,6 +865,21 @@ class MatchViewWithID(discord.ui.View):
         modal = AdminAddPlayerModal(match_id=mid, guild=guild)
         await interaction.response.send_modal(modal)
 
+    @discord.ui.button(label="替补", style=discord.ButtonStyle.secondary, emoji="🔄", row=2, custom_id="matchv2_sub")
+    async def sub_btn(self, interaction: discord.Interaction, button):
+        """Admin-only: set a player as substitute (does not count toward capacity)."""
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("管理员专用 / Admin only.", ephemeral=True)
+
+        mid, t, guild = await self._get_context(interaction)
+        if not t:
+            return await interaction.response.send_message("比赛不存在 / Match not found.", ephemeral=True)
+        if t["status"] != "open":
+            return await interaction.response.send_message("报名已关闭 / Signup closed.", ephemeral=True)
+
+        modal = AdminSubPlayerModal(match_id=mid, guild=guild)
+        await interaction.response.send_modal(modal)
+
 
 # ══════════ 向后兼容别名══════════
 MatchView = MatchViewWithID
@@ -890,7 +1002,7 @@ class DashboardView(discord.ui.View):
                 return await sel_interaction.followup.send("报名已关闭 / Signup closed.", ephemeral=True)
 
             max_p = t["max_teams"] * t["team_size"]
-            cur2.execute("SELECT COUNT(*) as cnt FROM registrations WHERE tournament_id=?", (mid,))
+            cur2.execute("SELECT COUNT(*) as cnt FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0)", (mid,))
             cnt = cur2.fetchone()["cnt"]
             if cnt >= max_p:
                 conn2.close()

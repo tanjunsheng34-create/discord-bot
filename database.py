@@ -166,6 +166,12 @@ def init_db():
         except sqlite3.OperationalError:
             pass  # Column already exists
 
+    # --- 新增 registrations.is_sub 字段（替补标记）---
+    try:
+        cursor.execute("ALTER TABLE registrations ADD COLUMN is_sub INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
     cursor.executescript("""
         CREATE TABLE IF NOT EXISTS tournament_players (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
