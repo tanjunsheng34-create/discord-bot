@@ -1795,6 +1795,37 @@ class MatchViewWithID(discord.ui.View):
             traceback.print_exc()
             await interaction.followup.send("查询失败 / Query failed.", ephemeral=True)
 
+    @discord.ui.button(label="替补报名", style=discord.ButtonStyle.primary, emoji="📋", row=0, custom_id="matchv2_sub_signup")
+    async def sub_signup_btn(self, interaction: discord.Interaction, button):
+        """任何玩家点击直接以 is_sub=1 报名。"""
+        await interaction.response.defer(ephemeral=True)
+        try:
+            mid, t, guild = await self._get_context(interaction)
+            if not t or t["status"] != "open":
+                return await interaction.followup.send("报名已关闭或比赛不存在 / Signup closed or match not found.", ephemeral=True)
+
+            uid = str(interaction.user.id)
+            conn = get_db(); cur = conn.cursor()
+            cur.execute("SELECT id, is_sub FROM registrations WHERE tournament_id=? AND discord_id=?", (mid, uid))
+            existing = cur.fetchone()
+            if existing:
+                conn.close()
+                if existing["is_sub"]:
+                    return await interaction.followup.send("你已经是替补了 / Already a substitute.", ephemeral=True)
+                else:
+                    return await interaction.followup.send("你已经报名正选了 / Already signed up as main player.", ephemeral=True)
+
+            cur.execute("INSERT INTO registrations (tournament_id, discord_id, is_sub) VALUES (?,?,1)", (mid, uid))
+            cur.execute("INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)", (uid, interaction.user.name))
+            conn.commit(); conn.close()
+            await interaction.followup.send("✅ 已报名替补 / Signed up as substitute!", ephemeral=True)
+            await self._refresh_list(interaction, mid)
+        except Exception as e:
+            import traceback
+            print(f"[MatchView] sub signup error: {e}")
+            traceback.print_exc()
+            await interaction.followup.send("替补报名失败 / Sub signup failed.", ephemeral=True)
+
     @discord.ui.button(label="结算 Settle", style=discord.ButtonStyle.danger, emoji="💰", row=1, custom_id="matchv2_settle")
     async def settle_btn(self, interaction: discord.Interaction, button):
         """Settle button on match message — select winner + optional MVP → confirm → distribute coins."""
