@@ -38,18 +38,22 @@ MATCH_WIN_COINS = 150       # coins awarded to each winner
 MATCH_PARTICIPATE_COINS = 50  # coins awarded to each loser / MVP
 
 DEFAULT_SHOP = [
-    {"name": "Queue 队长通行证 (Captain Pass)", "desc": "在自定义对战中担任队长选人 / Become captain in custom matches", "price": 500, "type": "pass", "emoji": "🎫"},
-    {"name": "双倍或清零 (Double or Nothing)", "desc": "使用后随机翻倍或清零当前余额 / Randomly double or zero your balance", "price": 300, "type": "gamble", "emoji": "🎲"},
-    {"name": "双倍积分卡 (Double Points Card)", "desc": "下一场比赛积分双倍 / Next match points doubled", "price": 400, "type": "doubler", "emoji": "⬆️"},
-    {"name": "个人资料头衔 (Profile Title)", "desc": "在余额页显示自定义头衔 / Display custom title on profile", "price": 1000, "type": "title", "emoji": "🏷️"},
-    {"name": "昵称炸弹 (Nickname Bomb)", "desc": "强制修改一位选手的昵称24h / Force rename a player for 24h", "price": 1500, "type": "nickname", "emoji": "💣"},
-    {"name": "自定义颜色角色 (Custom Color Role)", "desc": "获得自定义颜色的专属角色 / Get a custom color role", "price": 2000, "type": "role_color", "emoji": "🎨"},
-    {"name": "经验加成卡 (XP Boost Card)", "desc": "下一场比赛经验值+50% / Next match +50% XP", "price": 800, "type": "xp_boost", "emoji": "📈"},
-    {"name": "隐身卡 (Invisibility Card)", "desc": "24小时内排行榜隐藏你的名字 / Hide your name on leaderboard for 24h", "price": 1200, "type": "invisibility", "emoji": "🫥"},
-    {"name": "改名卡 (Name Change Card)", "desc": "修改一次你的游戏昵称 / Change your in-game nickname once", "price": 2500, "type": "name_change", "emoji": "✏️"},
-    {"name": "全服广播喇叭 (Server Broadcast)", "desc": "向全服发送一条醒目公告 / Send a server-wide announcement", "price": 5000, "type": "broadcast", "emoji": "📢"},
-    {"name": "比赛复活卡 (Match Revive Card)", "desc": "淘汰后可复活一次继续比赛 / Revive once after elimination", "price": 3000, "type": "revive", "emoji": "💚"},
-    {"name": "至尊传说称号 (Legendary Title)", "desc": "专属传说级称号，全服广播 / Legendary title with server broadcast", "price": 100000, "type": "legendary_title", "emoji": "👑"},
+    # ⚔️ 比赛道具（影响比赛）
+    {"name": "双倍或清零 (Double or Nothing)", "desc": "使用后随机翻倍或清零当前余额 / Randomly double or zero your balance", "price": 300, "type": "gamble", "emoji": "🎲", "category": "⚔️ 比赛道具"},
+    {"name": "比赛复活卡 (Match Revive Card)", "desc": "淘汰后可复活一次继续比赛 / Revive once after elimination", "price": 3000, "type": "revive", "emoji": "💚", "category": "⚔️ 比赛道具"},
+    # 🛡️ 防御道具（保护类）
+    {"name": "隐身卡 (Invisibility Card)", "desc": "24小时内排行榜隐藏你的名字 / Hide your name on leaderboard for 24h", "price": 1200, "type": "invisibility", "emoji": "🫥", "category": "🛡️ 防御道具"},
+    # 💰 加成道具（金币/MMR加成）
+    {"name": "双倍积分卡 (Double Points Card)", "desc": "下一场比赛积分双倍 / Next match points doubled", "price": 400, "type": "doubler", "emoji": "⬆️", "category": "💰 加成道具"},
+    {"name": "经验加成卡 (XP Boost Card)", "desc": "下一场比赛经验值+50% / Next match +50% XP", "price": 800, "type": "xp_boost", "emoji": "📈", "category": "💰 加成道具"},
+    # 🎭 社交道具（整活/互动）
+    {"name": "Queue 队长通行证 (Captain Pass)", "desc": "在自定义对战中担任队长选人 / Become captain in custom matches", "price": 500, "type": "pass", "emoji": "🎫", "category": "🎭 社交道具"},
+    {"name": "个人资料头衔 (Profile Title)", "desc": "在余额页显示自定义头衔 / Display custom title on profile", "price": 1000, "type": "title", "emoji": "🏷️", "category": "🎭 社交道具"},
+    {"name": "昵称炸弹 (Nickname Bomb)", "desc": "强制修改一位选手的昵称24h / Force rename a player for 24h", "price": 1500, "type": "nickname", "emoji": "💣", "category": "🎭 社交道具"},
+    {"name": "自定义颜色角色 (Custom Color Role)", "desc": "获得自定义颜色的专属角色 / Get a custom color role", "price": 2000, "type": "role_color", "emoji": "🎨", "category": "🎭 社交道具"},
+    {"name": "改名卡 (Name Change Card)", "desc": "修改一次你的游戏昵称 / Change your in-game nickname once", "price": 2500, "type": "name_change", "emoji": "✏️", "category": "🎭 社交道具"},
+    {"name": "全服广播喇叭 (Server Broadcast)", "desc": "向全服发送一条醒目公告 / Send a server-wide announcement", "price": 5000, "type": "broadcast", "emoji": "📢", "category": "🎭 社交道具"},
+    {"name": "至尊传说称号 (Legendary Title)", "desc": "专属传说级称号，全服广播 / Legendary title with server broadcast", "price": 100000, "type": "legendary_title", "emoji": "👑", "category": "🎭 社交道具"},
 ]
 
 ACHIEVEMENTS = [
@@ -308,13 +312,80 @@ def generate_ach_image(achievement_rows, unlocked_count, total_count, page=None,
 
 # ---------- 交互 View ----------
 
+CATEGORY_COLORS = {
+    "⚔️ 比赛道具": 0xE74C3C,
+    "🛡️ 防御道具": 0x3498DB,
+    "💰 加成道具": 0x2ECC71,
+    "🎭 社交道具": 0x9B59B6,
+    "🔥 限时商品": 0xE67E22,
+}
+
+class ShopCategoryView(discord.ui.View):
+    """Category selection view with Select Menu / 分类选择视图"""
+    def __init__(self, all_items, categories, user_id, bal, timeout=120):
+        super().__init__(timeout=None)
+        self.all_items = all_items
+        self.categories = categories
+        self.user_id = user_id
+        self.bal = bal
+
+        options = [discord.SelectOption(label=cat, value=cat) for cat in categories]
+        select = discord.ui.Select(
+            placeholder="Select a category / 选择分类...",
+            options=options,
+            row=0,
+        )
+        select.callback = self.on_category_select
+        self.add_item(select)
+
+    async def on_category_select(self, interaction: discord.Interaction):
+        if str(interaction.user.id) != self.user_id:
+            return await interaction.response.send_message(
+                "This is not your shop. / 这不是你的商店页面。", ephemeral=True
+            )
+
+        cat = interaction.data["values"][0]
+        items = [it for it in self.all_items if it.get("category", "其他") == cat]
+        color = CATEGORY_COLORS.get(cat, 0xFFD700)
+
+        img_buf = generate_shop_image(items, self.bal)
+        view = ShopView(
+            items=items,
+            all_items=self.all_items,
+            categories=self.categories,
+            user_id=self.user_id,
+            bal=self.bal,
+        )
+
+        if img_buf:
+            f = discord.File(img_buf, filename="shop.png")
+            await interaction.response.edit_message(attachments=[f], view=view, embed=None)
+        else:
+            embed = discord.Embed(title=f"{cat} | GMPT COIN SHOP / 积分商店", color=color)
+            embed.add_field(name="Balance / 余额", value=f"🪙 {self.bal} GMPT Coins", inline=False)
+            embed.add_field(name="Items / 商品", value="\n".join(
+                f"**#{it['id']}** {it.get('emoji','🛒')} {it['name']} — 🪙 {it['price']}\n_{it['description']}_"
+                for it in items
+            ), inline=False)
+            embed.set_footer(text="GMPT Bot • Economy System")
+            await interaction.response.edit_message(embed=embed, view=view, attachments=[])
+
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+
+
 class ShopView(discord.ui.View):
-    def __init__(self, items, user_id, timeout=120):
+    def __init__(self, items, user_id, timeout=120,
+                 all_items=None, categories=None, bal=None):
         super().__init__(timeout=None)
         self.user_id = user_id
-        # 最多 12 个购买按钮，分布在三行（每行 4 个）
+        self.all_items = all_items
+        self.categories = categories
+        self.bal = bal
+        # buy buttons (rows 0-2, max 12 items)
         for idx, it in enumerate(items[:12]):
-            r = idx // 4  # 0,1,2
+            r = idx // 4
             btn = discord.ui.Button(
                 label=f"{it['name'][:12]}",
                 emoji=it.get("emoji", "🛒"),
@@ -325,7 +396,16 @@ class ShopView(discord.ui.View):
             btn.callback = self.make_buy_callback(it['id'])
             self.add_item(btn)
 
-    @discord.ui.button(label="Balance", emoji="💰", style=discord.ButtonStyle.secondary, row=3)
+        # back to categories button (row 3, only if viewing a filtered category)
+        if all_items is not None and categories is not None:
+            back_btn = discord.ui.Button(
+                label="Categories", emoji="📂",
+                style=discord.ButtonStyle.secondary, row=3,
+            )
+            back_btn.callback = self.back_callback
+            self.add_item(back_btn)
+
+    @discord.ui.button(label="Balance", emoji="💰", style=discord.ButtonStyle.secondary, row=4)
     async def balance_btn(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.user_id:
@@ -333,7 +413,7 @@ class ShopView(discord.ui.View):
         bal = get_balance(str(interaction.user.id))
         await interaction.followup.send(f"🪙 Balance / 余额: **{bal}** GMPT Coins", ephemeral=True)
 
-    @discord.ui.button(label="Inventory", emoji="🎒", style=discord.ButtonStyle.secondary, row=3)
+    @discord.ui.button(label="Inventory", emoji="🎒", style=discord.ButtonStyle.secondary, row=4)
     async def inv_btn(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.user_id:
@@ -351,6 +431,33 @@ class ShopView(discord.ui.View):
             return await interaction.followup.send("Backpack is empty. / 背包是空的。", ephemeral=True)
         lines = [f"📦 **{r['name']}** x{r['quantity']}" for r in rows]
         await interaction.followup.send("\n".join(lines), ephemeral=True)
+
+    async def back_callback(self, interaction: discord.Interaction):
+        """Return to category selection view / 返回分类选择"""
+        if str(interaction.user.id) != self.user_id:
+            return await interaction.response.send_message(
+                "This is not your shop. / 这不是你的商店页面。", ephemeral=True
+            )
+        bal = self.bal or get_balance(str(interaction.user.id))
+        img_buf = generate_shop_image(self.all_items, bal)
+        view = ShopCategoryView(
+            all_items=self.all_items,
+            categories=self.categories,
+            user_id=self.user_id,
+            bal=bal,
+        )
+        if img_buf:
+            f = discord.File(img_buf, filename="shop.png")
+            await interaction.response.edit_message(attachments=[f], view=view, embed=None)
+        else:
+            embed = discord.Embed(title="🛒 GMPT COIN SHOP / 积分商店", color=0xFFD700)
+            embed.add_field(name="Balance / 余额", value=f"🪙 {bal} GMPT Coins", inline=False)
+            embed.add_field(name="Items / 商品", value="\n".join(
+                f"**#{it['id']}** {it.get('emoji','🛒')} {it['name']} — 🪙 {it['price']}\n_{it['description']}_"
+                for it in self.all_items
+            ), inline=False)
+            embed.set_footer(text="GMPT Bot • Economy System")
+            await interaction.response.edit_message(embed=embed, view=view, attachments=[])
 
     def make_buy_callback(self, item_id):
         async def callback(interaction: discord.Interaction):
@@ -973,37 +1080,41 @@ class Economy(commands.Cog):
         if cur.fetchone()["cnt"] == 0:
             for item in DEFAULT_SHOP:
                 cur.execute(
-                    "INSERT INTO shop_items (name, description, price, item_type) VALUES (?,?,?,?)",
-                    (item["name"], item["desc"], item["price"], item["type"]),
+                    "INSERT INTO shop_items (name, description, price, item_type, category) VALUES (?,?,?,?,?)",
+                    (item["name"], item["desc"], item["price"], item["type"], item.get("category", "其他")),
                 )
             conn.commit()
 
-        cur.execute("SELECT id, name, description, price, item_type FROM shop_items ORDER BY price")
-        items = [dict(r) for r in cur.fetchall()]
+        cur.execute("SELECT id, name, description, price, item_type, category FROM shop_items ORDER BY price")
+        all_items = [dict(r) for r in cur.fetchall()]
         conn.close()
 
-        for it in items:
+        for it in all_items:
             for d in DEFAULT_SHOP:
                 if d["name"] == it["name"]:
                     it["emoji"] = d["emoji"]; break
             else:
                 it["emoji"] = "🛒"
 
-        img_buf = generate_shop_image(items, bal)
-        if img_buf is None:
+        # extract unique categories
+        categories = list(dict.fromkeys(it.get("category", "其他") for it in all_items))
+
+        # show all items image + category selector
+        img_buf = generate_shop_image(all_items, bal)
+        view = ShopCategoryView(all_items=all_items, categories=categories, user_id=uid, bal=bal)
+
+        if img_buf:
+            f = discord.File(img_buf, filename="shop.png")
+            await interaction.response.send_message(file=f, view=view)
+        else:
             embed = discord.Embed(title="🛒 GMPT COIN SHOP / 积分商店", color=0xFFD700)
             embed.add_field(name="Balance / 余额", value=f"🪙 {bal} GMPT Coins", inline=False)
             embed.add_field(name="Items / 商品", value="\n".join(
                 f"**#{it['id']}** {it.get('emoji','🛒')} {it['name']} — 🪙 {it['price']}\n_{it['description']}_"
-                for it in items
+                for it in all_items
             ), inline=False)
             embed.set_footer(text="GMPT Bot • Economy System")
-            view = ShopView(items=items, user_id=uid)
-            return await interaction.response.send_message(embed=embed, view=view)
-
-        f = discord.File(img_buf, filename="shop.png")
-        view = ShopView(items=items, user_id=uid)
-        await interaction.response.send_message(file=f, view=view)
+            await interaction.response.send_message(embed=embed, view=view)
 
     # ========== 购买 ==========
     @app_commands.command(name="gmpt-buy", description="Buy item from shop / 购买商店物品")

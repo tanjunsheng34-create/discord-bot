@@ -152,8 +152,12 @@ def init_db():
             name        TEXT NOT NULL,
             description TEXT NOT NULL,
             price       INTEGER NOT NULL,
-            item_type   TEXT NOT NULL
+            item_type   TEXT NOT NULL,
+            category    TEXT DEFAULT '其他'
         );
+
+        -- migration: add category column if missing
+        ALTER TABLE shop_items ADD COLUMN category TEXT DEFAULT '其他';
 
         CREATE TABLE IF NOT EXISTS user_inventory (
             user_id     TEXT NOT NULL,
