@@ -2703,9 +2703,12 @@ def _resolve_vote_bets(match_id: int, win_team_id: int) -> list:
     # Give +5 MMR to each correct bettor
     for wid in winners:
         cur.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (wid,))
-        cur.execute("UPDATE mmr SET mmr=mmr+5 WHERE discord_id=?", (wid,))
-        # Ensure mmr row exists
-        cur.execute("INSERT INTO mmr (discord_id, mmr, wins, losses) VALUES (?,1005,0,0) ON CONFLICT(discord_id) DO NOTHING", (wid,))
+        cur.execute("INSERT OR IGNORE INTO mmr (discord_id, mmr, wins, losses, streak, rank) VALUES (?,1000,0,0,0,'Iron')", (wid,))
+        cur.execute("SELECT mmr FROM mmr WHERE discord_id=?", (wid,))
+        row = cur.fetchone()
+        if row:
+            new_mmr = row["mmr"] + 5
+            cur.execute("UPDATE mmr SET mmr=?, rank=? WHERE discord_id=?", (new_mmr, _get_rank(new_mmr), wid))
 
     conn.commit()
     winner_names = winners  # discord IDs
