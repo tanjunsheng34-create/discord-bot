@@ -159,6 +159,11 @@ def init_db():
         -- migration: add category column if missing
         ALTER TABLE shop_items ADD COLUMN category TEXT DEFAULT '其他';
 
+        -- migration: add stock / ends_at / discount_pct columns if missing
+        ALTER TABLE shop_items ADD COLUMN stock INTEGER DEFAULT -1;
+        ALTER TABLE shop_items ADD COLUMN ends_at TEXT DEFAULT NULL;
+        ALTER TABLE shop_items ADD COLUMN discount_pct INTEGER DEFAULT 0;
+
         CREATE TABLE IF NOT EXISTS user_inventory (
             user_id     TEXT NOT NULL,
             item_id     INTEGER NOT NULL,
@@ -335,6 +340,15 @@ def init_db():
             match_id          INTEGER NOT NULL,
             channel_id        INTEGER NOT NULL,
             player_list_msg_id TEXT
+        );
+
+        -- === 道具激活效果 / Active Item Effects ===
+        CREATE TABLE IF NOT EXISTS active_effects (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id     TEXT NOT NULL,
+            effect_type TEXT NOT NULL,
+            used_at     TEXT DEFAULT (datetime('now')),
+            consumed    INTEGER DEFAULT 0
         );
 
         -- === Dashboard 面板持久化（Bot 重启后自动刷新）===  [DEPRECATED: 零引用死表，待下个大版本删除]

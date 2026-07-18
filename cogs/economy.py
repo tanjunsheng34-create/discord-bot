@@ -44,7 +44,10 @@ DEFAULT_SHOP = [
     # 🛡️ 防御道具（保护类）
     {"name": "隐身卡 (Invisibility Card)", "desc": "24小时内排行榜隐藏你的名字 / Hide your name on leaderboard for 24h", "price": 1200, "type": "invisibility", "emoji": "🫥", "category": "🛡️ 防御道具"},
     # 💰 加成道具（金币/MMR加成）
+    {"name": "MMR保护卡 (MMR Protect)", "desc": "本场比赛输了不扣MMR / Lose without MMR penalty for this match", "price": 500, "type": "mmr_protect", "emoji": "🛡️", "category": "💰 加成道具"},
+    {"name": "双倍MMR卡 (Double MMR)", "desc": "本场比赛赢了MMR翻倍 / Double MMR gain if you win", "price": 600, "type": "double_mmr", "emoji": "⚡", "category": "💰 加成道具"},
     {"name": "双倍积分卡 (Double Points Card)", "desc": "下一场比赛积分双倍 / Next match points doubled", "price": 400, "type": "doubler", "emoji": "⬆️", "category": "💰 加成道具"},
+    {"name": "偷金币卡 (Coin Steal)", "desc": "结算时偷对手 30 coins / Steal 30 coins from opponent on settle", "price": 350, "type": "steal_coins", "emoji": "🥷", "category": "💰 加成道具"},
     {"name": "经验加成卡 (XP Boost Card)", "desc": "下一场比赛经验值+50% / Next match +50% XP", "price": 800, "type": "xp_boost", "emoji": "📈", "category": "💰 加成道具"},
     # 🎭 社交道具（整活/互动）
     {"name": "Queue 队长通行证 (Captain Pass)", "desc": "在自定义对战中担任队长选人 / Become captain in custom matches", "price": 500, "type": "pass", "emoji": "🎫", "category": "🎭 社交道具"},
@@ -1228,9 +1231,37 @@ class Economy(commands.Cog):
                 "🌟 A legendary player walks among us... / 传说级玩家降临..."
             )
         elif item_type == "xp_boost":
+            # 激活经验加成
+            conn3 = get_db(); cur3 = conn3.cursor()
+            cur3.execute("INSERT INTO active_effects (user_id, effect_type) VALUES (?,?)", (uid, "xp_boost"))
+            conn3.commit(); conn3.close()
             effect_msg = (
                 "✅ **XP Boost Activated! / 经验加成已激活！**\n"
-                "Next match: **+50% XP** / 下一场比赛**经验值 +50%**。"
+                "Next match: **+50% coins** / 下一场比赛**金币 +50%**。"
+            )
+        elif item_type == "mmr_protect":
+            conn3 = get_db(); cur3 = conn3.cursor()
+            cur3.execute("INSERT INTO active_effects (user_id, effect_type) VALUES (?,?)", (uid, "mmr_protect"))
+            conn3.commit(); conn3.close()
+            effect_msg = (
+                "🛡️ **MMR Protection Activated! / MMR保护已激活！**\n"
+                "Your next loss will not reduce MMR. / 下一场输了不扣MMR。"
+            )
+        elif item_type == "double_mmr":
+            conn3 = get_db(); cur3 = conn3.cursor()
+            cur3.execute("INSERT INTO active_effects (user_id, effect_type) VALUES (?,?)", (uid, "double_mmr"))
+            conn3.commit(); conn3.close()
+            effect_msg = (
+                "⚡ **Double MMR Activated! / 双倍MMR已激活！**\n"
+                "Your next win earns **2x MMR**. / 下一场赢了MMR**翻倍**。"
+            )
+        elif item_type == "steal_coins":
+            conn3 = get_db(); cur3 = conn3.cursor()
+            cur3.execute("INSERT INTO active_effects (user_id, effect_type) VALUES (?,?)", (uid, "steal_coins"))
+            conn3.commit(); conn3.close()
+            effect_msg = (
+                "🥷 **Coin Steal Ready! / 偷金币已就绪！**\n"
+                "Will steal 30 coins from opponent on next match settle. / 下场结算时偷对手 30 coins。"
             )
         elif item_type == "invisibility":
             effect_msg = (

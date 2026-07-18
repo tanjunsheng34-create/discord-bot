@@ -154,6 +154,75 @@ class CreateRoleMatchModal(discord.ui.Modal, title="创建选路比赛 / Create 
         conn2.commit(); conn2.close()
 
 
+class LaneSelectView(discord.ui.View):
+    """选路比赛报名时的路线选择下拉菜单 / Lane selection dropdown for role-pick match signup."""
+
+    def __init__(self, match_id: int, uid: str, user: discord.Member | discord.User):
+        super().__init__(timeout=120)
+        self.match_id = match_id
+        self.uid = uid
+        self.user = user
+
+        lane_select = discord.ui.Select(
+            placeholder="选择你的路线 / Select your lane...",
+            options=[
+                discord.SelectOption(label="Top", emoji="🔝", description="上路"),
+                discord.SelectOption(label="JG", emoji="🌲", description="打野 / Jungle"),
+                discord.SelectOption(label="Mid", emoji="⚔️", description="中路"),
+                discord.SelectOption(label="ADC", emoji="🏹", description="下路射手"),
+                discord.SelectOption(label="Support", emoji="🛡️", description="辅助"),
+            ],
+        )
+        lane_select.callback = self.lane_callback
+        self.add_item(lane_select)
+
+    async def lane_callback(self, interaction: discord.Interaction):
+        lane = interaction.data["values"][0]
+
+        conn = get_db(); cur = conn.cursor()
+        # 二次校验：防止并发重复报名
+        cur.execute(
+            "SELECT id FROM registrations WHERE tournament_id=? AND discord_id=?",
+            (self.match_id, self.uid),
+        )
+        if cur.fetchone():
+            conn.close()
+            return await interaction.response.send_message(
+                "你已经报名了 / You are already signed up.", ephemeral=True,
+            )
+
+        # 再次检查名额
+        cur.execute("SELECT max_teams, team_size FROM tournaments WHERE id=?", (self.match_id,))
+        src = cur.fetchone()
+        if src:
+            max_p = src["max_teams"] * src["team_size"]
+            cur.execute(
+                "SELECT COUNT(*) as cnt FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0)",
+                (self.match_id,),
+            )
+            cnt = cur.fetchone()["cnt"]
+            if cnt >= max_p:
+                conn.close()
+                return await interaction.response.send_message(
+                    f"比赛已满 ({cnt}/{max_p}) / Match is full.", ephemeral=True,
+                )
+
+        cur.execute(
+            "INSERT INTO registrations (tournament_id, discord_id, lane) VALUES (?,?,?)",
+            (self.match_id, self.uid, lane),
+        )
+        cur.execute(
+            "INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)",
+            (self.uid, self.user.name),
+        )
+        conn.commit(); conn.close()
+
+        await interaction.response.send_message(
+            f"{self.user.mention} 已报名 **{lane}** / Signed up as **{lane}**.",
+            ephemeral=False,
+        )
+
+
 class CreateTournamentModal(discord.ui.Modal, title="创建赛事 / Create Tournament"):
     tournament_name = discord.ui.TextInput(
         label="赛事名称 / Tournament Name",
@@ -1035,6 +1104,14 @@ class ReShuffleView(discord.ui.View):
         if cnt >= max_p:
             conn.close()
             return await interaction.followup.send(f"比赛已满 ({cnt}/{max_p}) / Match is full.", ephemeral=True)
+
+        # 选路比赛：弹出路线选择
+        if src.get("role_pick"):
+            conn.close()
+            lane_view = LaneSelectView(self.match_id, uid, interaction.user)
+            return await interaction.followup.send(
+                "请选择你的路线 / Select your lane:", view=lane_view, ephemeral=True,
+            )
 
         cur.execute("INSERT INTO registrations (tournament_id, discord_id) VALUES (?,?)", (self.match_id, uid))
         cur.execute("INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)", (uid, interaction.user.name))
@@ -2482,8 +2559,67 @@ async def _execute_settle(match_id, win_team_id, mvp_id, guild, match_name, bot=
     if mvp_id:
         check_achievement(mvp_id, "MVP")
 
+    # ── 道具效果处理 / Active Item Effects ──
+    effect_msgs = []
+    conn_eff = get_db(); cur_eff = conn_eff.cursor()
+    all_pids = winner_ids + loser_ids
+
+    # 查询所有参赛者的未消耗激活效果
+    placeholders = ",".join("?" * len(all_pids))
+    cur_eff.execute(
+        f"SELECT id, user_id, effect_type FROM active_effects WHERE user_id IN ({placeholders}) AND consumed=0",
+        all_pids,
+    )
+    active_map = {}  # user_id -> set of effect_types
+    for row in cur_eff.fetchall():
+        active_map.setdefault(row["user_id"], set()).add(row["effect_type"])
+
+    # 双倍MMR：赢家
+    double_mmr_ids = set()
+    for wid in winner_ids:
+        if "double_mmr" in active_map.get(wid, set()):
+            double_mmr_ids.add(wid)
+            cur_eff.execute("UPDATE active_effects SET consumed=1 WHERE user_id=? AND effect_type='double_mmr' AND consumed=0", (wid,))
+            effect_msgs.append(f"⚡ <@{wid}> 双倍MMR生效! / Double MMR active!")
+
+    # MMR保护：输家
+    protect_ids = set()
+    for lid in loser_ids:
+        if "mmr_protect" in active_map.get(lid, set()):
+            protect_ids.add(lid)
+            cur_eff.execute("UPDATE active_effects SET consumed=1 WHERE user_id=? AND effect_type='mmr_protect' AND consumed=0", (lid,))
+            effect_msgs.append(f"🛡️ <@{lid}> MMR保护生效! / MMR protected!")
+
+    # 偷金币：赢家偷对手
+    for wid in winner_ids:
+        if "steal_coins" in active_map.get(wid, set()):
+            cur_eff.execute("UPDATE active_effects SET consumed=1 WHERE user_id=? AND effect_type='steal_coins' AND consumed=0", (wid,))
+            # 从每个对手偷 30 coins
+            stolen_total = 0
+            for lid in loser_ids:
+                cur_eff.execute("UPDATE users SET score=MAX(0, score-30) WHERE discord_id=?", (lid,))
+                stolen_total += 30
+                cur_eff.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                                (lid, -30, f"Coin stolen by <@{wid}> in match #{match_id}"))
+            cur_eff.execute("UPDATE users SET score=score+? WHERE discord_id=?", (stolen_total, wid))
+            cur_eff.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                            (wid, stolen_total, f"Stole coins in match #{match_id}"))
+            effect_msgs.append(f"🥷 <@{wid}> 偷了 {stolen_total} coins! / Stole {stolen_total} coins!")
+
+    # 经验加成：+50% coins
+    for pid in all_pids:
+        if "xp_boost" in active_map.get(pid, set()):
+            cur_eff.execute("UPDATE active_effects SET consumed=1 WHERE user_id=? AND effect_type='xp_boost' AND consumed=0", (pid,))
+            bonus = 75 if pid in winner_ids else 25  # 150*0.5=75, 50*0.5=25
+            cur_eff.execute("UPDATE users SET score=score+? WHERE discord_id=?", (bonus, pid))
+            cur_eff.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                            (pid, bonus, f"XP Boost bonus in match #{match_id}"))
+            effect_msgs.append(f"📈 <@{pid}> 经验加成 +{bonus} coins! / XP Boost +{bonus} coins!")
+
+    conn_eff.commit(); conn_eff.close()
+
     # ── MMR 排位更新 ──
-    _update_mmr(winner_ids, loser_ids, mvp_id, conn2=None)
+    _update_mmr(winner_ids, loser_ids, mvp_id, conn2=None, double_mmr_ids=double_mmr_ids, protect_ids=protect_ids)
 
     # ── 竞猜结算 / Vote Resolution ──
     vote_winners = _resolve_vote_bets(match_id, win_team_id)
@@ -2497,9 +2633,15 @@ async def _execute_settle(match_id, win_team_id, mvp_id, guild, match_name, bot=
 
     # ── AI 赛事分析 ──
     analysis_embed = _generate_match_analysis(match_id, match_name, winner_ids, loser_ids, mvp_id, guild)
-    # Append vote results to analysis embed
-    if analysis_embed and vote_text:
-        analysis_embed.description = (analysis_embed.description or "") + vote_text
+    # Append vote results and item effects to analysis embed
+    extra_lines = []
+    if vote_text:
+        extra_lines.append(vote_text.strip())
+    if effect_msgs:
+        extra_lines.append("\n🎒 **道具效果 / Item Effects:**")
+        extra_lines.extend(effect_msgs)
+    if analysis_embed and extra_lines:
+        analysis_embed.description = (analysis_embed.description or "") + "\n".join(extra_lines)
     return analysis_embed
 
 
@@ -2548,7 +2690,7 @@ def _mmr_change_amt(is_winner: bool, is_mvp: bool, streak: int, underdog_bonus: 
     return delta
 
 
-def _update_mmr(winner_ids: list, loser_ids: list, mvp_id, conn2=None):
+def _update_mmr(winner_ids: list, loser_ids: list, mvp_id, conn2=None, double_mmr_ids: set = None, protect_ids: set = None):
     conn = get_db(); cur = conn.cursor()
     all_w_mmr, all_l_mmr = [], []
     for wid in winner_ids:
@@ -2572,6 +2714,8 @@ def _update_mmr(winner_ids: list, loser_ids: list, mvp_id, conn2=None):
         old_mmr = row["mmr"] if row else 1000
         streak = row["streak"] + 1 if row["streak"] >= 0 else 1
         delta = _mmr_change_amt(True, wid == mvp_id, streak, underdog_bonus)
+        if double_mmr_ids and wid in double_mmr_ids:
+            delta *= 2
         new_mmr = max(0, old_mmr + delta)
         cur.execute(
             "UPDATE mmr SET mmr=?, wins=wins+1, streak=?, rank=? WHERE discord_id=?",
@@ -2584,8 +2728,12 @@ def _update_mmr(winner_ids: list, loser_ids: list, mvp_id, conn2=None):
         row = cur.fetchone()
         old_mmr = row["mmr"] if row else 1000
         streak = row["streak"] - 1 if row["streak"] <= 0 else -1
-        delta = _mmr_change_amt(False, lid == mvp_id, -99, 0)
-        new_mmr = max(0, old_mmr + delta)
+        if protect_ids and lid in protect_ids:
+            delta = 0
+            new_mmr = old_mmr
+        else:
+            delta = _mmr_change_amt(False, lid == mvp_id, -99, 0)
+            new_mmr = max(0, old_mmr + delta)
         cur.execute(
             "UPDATE mmr SET mmr=?, losses=losses+1, streak=?, rank=? WHERE discord_id=?",
             (new_mmr, streak, _get_rank(new_mmr), lid),
