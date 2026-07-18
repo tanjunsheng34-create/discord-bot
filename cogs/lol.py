@@ -8,18 +8,21 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from database import get_db
+from config import RIOT_API_KEY
 from cogs.economy import check_achievement, add_coins, MATCH_WIN_COINS, MATCH_PARTICIPATE_COINS
 from cogs.match_autocomplete import match_id_autocomplete
 import aiohttp
-import os
+
+import logging
+logger = logging.getLogger(__name__)
+
 try:
     from PIL import Image, ImageDraw, ImageFont
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
-    print("[LOL] Pillow not installed — image features disabled")
+    logger.warning("Pillow not installed — image features disabled")
 
-RIOT_KEY = os.getenv("RIOT_API_KEY", "")
 
 REGIONS = {
     "kr": ("KR", "asia"),
@@ -44,7 +47,7 @@ REGIONS = {
 
 async def riot_request(session, url):
     """返回 (status_code, data_or_None)。200 时返回数据，其他返回 None。"""
-    headers = {"X-Riot-Token": RIOT_KEY}
+    headers = {"X-Riot-Token": RIOT_API_KEY}
     try:
         async with session.get(url, headers=headers) as resp:
             if resp.status == 200:
@@ -496,8 +499,7 @@ class GMPT(commands.Cog):
             embed = view.render()
             await interaction.followup.send(embed=embed, view=view)
         except Exception as e:
-            import traceback
-            traceback.print_exc()
+            logger.error("Operation failed", exc_info=True)
             await interaction.followup.send(f"查询失败 / Query failed: {e}", ephemeral=True)
 
     # ============ 报名 ============
@@ -892,7 +894,7 @@ class GMPT(commands.Cog):
         name: str, tag: str, region: str,
     ):
         await interaction.response.defer()
-        if not RIOT_KEY:
+        if not RIOT_API_KEY:
             return await interaction.followup.send("Riot API Key 未配置。")
 
         cont_region = REGIONS[region][1]
@@ -954,7 +956,7 @@ class GMPT(commands.Cog):
         name: str, tag: str, region: str, count: int = 5,
     ):
         await interaction.response.defer()
-        if not RIOT_KEY or not self.session:
+        if not RIOT_API_KEY or not self.session:
             return await interaction.followup.send("Riot API Key 未配置。")
 
         cont_region = REGIONS[region][1]
@@ -964,7 +966,7 @@ class GMPT(commands.Cog):
 
         count = min(count, 10)
         url = f"https://{cont_region}.api.riotgames.com/lol/match/v5/matches/by-puuid/{puuid}/ids?start=0&count={count}"
-        headers = {"X-Riot-Token": RIOT_KEY}
+        headers = {"X-Riot-Token": RIOT_API_KEY}
         async with self.session.get(url, headers=headers) as resp:
             match_ids = await resp.json() if resp.status == 200 else []
 
@@ -1010,7 +1012,7 @@ class GMPT(commands.Cog):
         name: str, tag: str, region: str,
     ):
         await interaction.response.defer()
-        if not RIOT_KEY: return await interaction.followup.send("Riot API Key 未配置。")
+        if not RIOT_API_KEY: return await interaction.followup.send("Riot API Key 未配置。")
 
         cont_region = REGIONS[region][1]
         puuid, err = await get_puuid(self.session, cont_region, name, tag)
@@ -1102,8 +1104,8 @@ class GMPT(commands.Cog):
     )
     async def riot_status(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        if not RIOT_KEY:
-            return await interaction.followup.send("❌ Riot API Key 未配置。请在 Railway 环境变量中设置 `RIOT_API_KEY`。")
+        if not RIOT_API_KEY:
+            return await interaction.followup.send("❌ Riot API Key 未配置。请在环境变量中设置 `RIOT_API_KEY`。")
 
         # 用已知玩家测试 key 有效性
         url = "https://asia.api.riotgames.com/riot/account/v1/accounts/by-riot-id/Hide%20on%20bush/KR1"
@@ -1116,7 +1118,7 @@ class GMPT(commands.Cog):
             await interaction.followup.send(
                 "❌ API Key **已过期或无效** (403 Forbidden)。\n"
                 "Riot 开发密钥有效期仅 **24 小时**。\n"
-                "请前往 https://developer.riotgames.com 重新生成，然后更新 Railway 环境变量。"
+                "请前往 https://developer.riotgames.com 重新生成，然后更新环境变量。"
             )
         elif code == 429:
             await interaction.followup.send("⚠️ 请求太频繁，请稍后再试 (429)。")
@@ -1186,7 +1188,7 @@ class GMPT(commands.Cog):
             conn.close()
             return await interaction.followup.send("暂无已报名玩家 / No registered players")
 
-        if not RIOT_KEY:
+        if not RIOT_API_KEY:
             conn.close()
             lines = []
             for i, row in enumerate(rows, 1):

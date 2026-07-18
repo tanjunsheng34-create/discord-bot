@@ -12,12 +12,16 @@ from discord.ext import commands
 from database import get_db
 from datetime import date, datetime
 from cogs.shared_views import ConfirmView
+
+import logging
+logger = logging.getLogger(__name__)
+
 try:
     from PIL import Image, ImageDraw, ImageFont
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
-    print("[Economy] Pillow not installed — image features disabled")
+    logger.warning("Pillow not installed — image features disabled")
 
 
 # ---------- 常量 ----------
@@ -28,6 +32,10 @@ STREAK_REWARDS = {
 }
 
 ACH_PER_PAGE = 8
+
+# ── Match reward constants ──
+MATCH_WIN_COINS = 150       # coins awarded to each winner
+MATCH_PARTICIPATE_COINS = 50  # coins awarded to each loser / MVP
 
 DEFAULT_SHOP = [
     {"name": "Queue 队长通行证 (Captain Pass)", "desc": "在自定义对战中担任队长选人 / Become captain in custom matches", "price": 500, "type": "pass", "emoji": "🎫"},

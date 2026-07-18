@@ -308,12 +308,19 @@ class Giveaway(commands.Cog):
             color=discord.Color.gold(),
         )
 
-        for g in active:
-            cur2 = get_db().cursor()
-            cur2.execute("SELECT COUNT(*) as cnt FROM giveaway_entries WHERE giveaway_id=?", (g["id"],))
-            cnt = cur2.fetchone()["cnt"]
-            cur2.connection.close()
+        # Batch-query entry counts (avoid N+1)
+        g_ids = [g["id"] for g in active]
+        placeholders = ",".join("?" * len(g_ids))
+        cur2 = get_db().cursor()
+        cur2.execute(
+            f"SELECT giveaway_id, COUNT(*) as cnt FROM giveaway_entries WHERE giveaway_id IN ({placeholders}) GROUP BY giveaway_id",
+            g_ids,
+        )
+        counts = {row["giveaway_id"]: row["cnt"] for row in cur2.fetchall()}
+        cur2.connection.close()
 
+        for g in active:
+            cnt = counts.get(g["id"], 0)
             ends = g["ends_at"][:16] if g["ends_at"] else "?"
             embed.add_field(
                 name=f"#{g['id']} — {g['prize']}",

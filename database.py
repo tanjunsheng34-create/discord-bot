@@ -1,5 +1,6 @@
 import sqlite3
 import time
+from contextlib import contextmanager
 from config import DATABASE
 
 # WAL mode enabled at module load — ensures all connections inherit it
@@ -46,6 +47,22 @@ def get_db(max_retries=3):
             raise
 
     raise last_error
+
+
+@contextmanager
+def db_context():
+    """上下文管理器：自动 commit / rollback / close。"""
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        yield cur
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
 
 
 def init_db():
@@ -305,13 +322,25 @@ def init_db():
             player_list_msg_id TEXT
         );
 
-        -- === Dashboard 面板持久化（Bot 重启后自动刷新）===
+        -- === Dashboard 面板持久化（Bot 重启后自动刷新）===  [DEPRECATED: 零引用死表，待下个大版本删除]
         CREATE TABLE IF NOT EXISTS dashboard_panel (
             guild_id    TEXT PRIMARY KEY,
             message_id  TEXT NOT NULL,
             channel_id  TEXT NOT NULL
         );
     """)
+
+    # ── 性能索引 / Performance Indexes ──
+    for idx_sql in [
+        "CREATE INDEX IF NOT EXISTS idx_registrations_discord_id ON registrations(discord_id)",
+        "CREATE INDEX IF NOT EXISTS idx_registrations_tournament_team ON registrations(tournament_id, team_id)",
+        "CREATE INDEX IF NOT EXISTS idx_giveaway_entries_giveaway ON giveaway_entries(giveaway_id)",
+        "CREATE INDEX IF NOT EXISTS idx_transactions_discord_id ON transactions(discord_id)",
+    ]:
+        try:
+            cursor.execute(idx_sql)
+        except sqlite3.OperationalError:
+            pass
 
     conn.commit()
     conn.close()

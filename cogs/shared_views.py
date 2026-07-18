@@ -3,6 +3,10 @@ Shared Discord UI Views — imported by multiple cogs to avoid circular imports.
 """
 import discord
 
+import logging
+logger = logging.getLogger(__name__)
+
+
 
 class ConfirmView(discord.ui.View):
     """Two-button confirmation dialog (Confirm / Cancel).
@@ -28,7 +32,7 @@ class ConfirmView(discord.ui.View):
                 child.disabled = True
             await interaction.edit_original_response(view=self)
         except Exception as e:
-            print(f"[ConfirmView] confirm error: {e}")
+            logger.error(f"confirm error: {e}")
         finally:
             self.stop()
 
@@ -41,6 +45,6 @@ class ConfirmView(discord.ui.View):
                 child.disabled = True
             await interaction.edit_original_response(view=self)
         except Exception as e:
-            print(f"[ConfirmView] cancel error: {e}")
+            logger.error(f"cancel error: {e}")
         finally:
             self.stop()

@@ -1,18 +1,20 @@
 """
 GMPT Bot — Tournament System (Swiss / Elimination / Captain Draft)
 """
-import os
 import discord
 from discord import app_commands
 from discord.ext import commands
 from database import get_db
+from config import RIOT_API_KEY
 from cogs.economy import add_coins
 from cogs.shared_views import ConfirmView
 import aiohttp
 from datetime import datetime
 from collections import defaultdict
 
-RIOT_KEY = os.getenv("RIOT_API_KEY", "")
+import logging
+logger = logging.getLogger(__name__)
+
 
 # ---------- tier → seed 映射 ----------
 TIER_SEED = {"CHALLENGER": 1, "GRANDMASTER": 2, "MASTER": 3,
@@ -93,7 +95,7 @@ async def fetch_player_tier(session, uid):
     if not riot:
         return (None, "未关联", None)
 
-    if not RIOT_KEY:
+    if not RIOT_API_KEY:
         return (None, "API Key 未配置", None)
 
     cont_region = {"kr": "asia", "jp": "asia", "na": "americas", "euw": "europe",
@@ -1057,9 +1059,7 @@ class Tournament(commands.Cog):
             await interaction.followup.send(embed=embed, view=view)
 
         except Exception as e:
-            import traceback
-            print(f"[tournament.create] ERROR: {e}")
-            traceback.print_exc()
+            logger.error(f"create tournament error: {e}", exc_info=True)
             try:
                 await interaction.followup.send(
                     f"创建锦标赛失败 / Failed to create tournament: {e}", ephemeral=True

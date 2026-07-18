@@ -5,29 +5,22 @@ import os
 import sys
 import json
 import io
+import logging
 import asyncio
 import discord
 from discord.ext import commands
 from database import get_db, init_db
-from config import TOKEN
+from config import TOKEN, BACKUP_CHANNEL_ID, BACKUP_INTERVAL, BACKUP_TABLES
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 if TOKEN is None:
-    print("请在 .env 文件中设置 DISCORD_TOKEN")
+    logger.critical("请在 .env 文件中设置 DISCORD_TOKEN")
     exit(1)
-
-# =============================================================================
-# Auto-backup configuration (Discord channel-based, no volume needed)
-# =============================================================================
-BACKUP_CHANNEL_ID = os.getenv("BACKUP_CHANNEL_ID")          # REQUIRED for auto-backup
-BACKUP_INTERVAL = int(os.getenv("BACKUP_INTERVAL", "300"))  # seconds
-BACKUP_TABLES = [
-    "users",
-    "voice_tracker",
-    "daily_checkin",
-    "giveaway",
-    "giveaway_entries",
-    "user_inventory",
-]
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -44,6 +37,63 @@ COGS = [
     "cogs.voice_tracker",
     "cogs.admin_backup",
 ]
+
+
+# =============================================================================
+# Global app command error handler
+# =============================================================================
+async def setup_hook(self):
+    """Register global on_app_command_error handler."""
+
+    @self.tree.error
+    async def on_app_command_error(
+        interaction: discord.Interaction,
+        error: discord.app_commands.AppCommandError,
+    ):
+        # Already handled by local error handlers
+        if interaction.command is not None and getattr(interaction.command, "_has_error_handler", False):
+            # Pass to cog-level handler if exists
+            if hasattr(error, "handled"):
+                return
+            raise error
+
+        if isinstance(error, discord.app_commands.CommandOnCooldown):
+            await interaction.response.send_message(
+                f"冷却中，请在 {error.retry_after:.0f} 秒后重试 / "
+                f"On cooldown, retry after {error.retry_after:.0f}s",
+                ephemeral=True,
+            )
+        elif isinstance(error, discord.app_commands.MissingPermissions):
+            await interaction.response.send_message(
+                "你没有使用此命令的权限 / You don't have permission.",
+                ephemeral=True,
+            )
+        elif isinstance(error, discord.app_commands.BotMissingPermissions):
+            await interaction.response.send_message(
+                "机器人缺少必要权限 / Bot missing required permissions.",
+                ephemeral=True,
+            )
+        else:
+            logger.error(
+                f"Unhandled command error in /{interaction.command.qualified_name if interaction.command else 'unknown'}: "
+                f"{error}",
+                exc_info=True,
+            )
+            try:
+                if interaction.response.is_done():
+                    await interaction.followup.send(
+                        "命令执行时发生意外错误，请稍后再试 / An unexpected error occurred, please try again later.",
+                        ephemeral=True,
+                    )
+                else:
+                    await interaction.response.send_message(
+                        "命令执行时发生意外错误，请稍后再试 / An unexpected error occurred, please try again later.",
+                        ephemeral=True,
+                    )
+            except Exception:
+                pass
+
+bot.setup_hook = setup_hook.__get__(bot)
 
 
 # =============================================================================
@@ -72,7 +122,7 @@ async def _get_backup_channel():
     try:
         cid = int(BACKUP_CHANNEL_ID)
     except ValueError:
-        print(f"[Backup] Invalid BACKUP_CHANNEL_ID: {BACKUP_CHANNEL_ID}", file=sys.stderr)
+        logger.error(f"Invalid BACKUP_CHANNEL_ID: {BACKUP_CHANNEL_ID}")
         return None
     # fetch_channel works even before full guild cache is ready
     channel = bot.get_channel(cid)
@@ -82,7 +132,7 @@ async def _get_backup_channel():
         except Exception:
             pass
     if channel is None:
-        print(f"[Backup] Channel {cid} not accessible.", file=sys.stderr)
+        logger.error(f"Channel {cid} not accessible.")
     return channel
 
 
@@ -124,15 +174,15 @@ async def do_backup():
             content=f"Auto-backup — {total} records / {len(BACKUP_TABLES)} tables",
             file=file,
         )
-        print(f"[Backup] Sent {total} records → channel {BACKUP_CHANNEL_ID} (msg {msg.id})")
+        logger.info(f"Backup sent: {total} records → channel {BACKUP_CHANNEL_ID} (msg {msg.id})")
     except Exception as e:
-        print(f"[Backup] Failed: {e}", file=sys.stderr)
+        logger.error(f"Backup failed: {e}")
 
 
 async def auto_backup_loop():
     """Background task: periodically push backup to Discord channel."""
     if not BACKUP_CHANNEL_ID:
-        print("[Backup] BACKUP_CHANNEL_ID not set — auto-backup disabled.")
+        logger.info("BACKUP_CHANNEL_ID not set — auto-backup disabled.")
         return
 
     await asyncio.sleep(15)  # let bot fully start
@@ -148,14 +198,12 @@ async def auto_backup_loop():
 async def auto_restore():
     """On startup: download latest backup JSON from Discord channel and restore to SQLite."""
     if not BACKUP_CHANNEL_ID:
-        print("[Restore] BACKUP_CHANNEL_ID not set — skipping auto-restore.")
+        logger.info("BACKUP_CHANNEL_ID not set — skipping auto-restore.")
         return
 
-    # 默认禁用 auto_restore，避免多实例数据互相覆盖。
-    # 设置环境变量 AUTO_RESTORE=1 或 AUTO_RESTORE=true 可手动开启。
     auto_restore_env = os.getenv("AUTO_RESTORE", "0").strip().lower()
     if auto_restore_env not in ("1", "true"):
-        print(f"[Restore] AUTO_RESTORE={auto_restore_env!r} — auto-restore disabled (set to '1' to enable).")
+        logger.info(f"AUTO_RESTORE={auto_restore_env!r} — auto-restore disabled (set to '1' to enable).")
         return
 
     await bot.wait_until_ready()
@@ -167,7 +215,7 @@ async def auto_restore():
     try:
         last = await _find_last_backup(channel)
         if last is None:
-            print("[Restore] No backup message found in channel, starting fresh.")
+            logger.info("No backup message found in channel, starting fresh.")
             return
 
         # Find JSON attachment
@@ -177,13 +225,13 @@ async def auto_restore():
                 attachment = att
                 break
         if attachment is None:
-            print("[Restore] No JSON attachment on backup message.")
+            logger.info("No JSON attachment on backup message.")
             return
 
         content = await attachment.read()
         data = json.loads(content.decode("utf-8"))
     except Exception as e:
-        print(f"[Restore] Failed to fetch backup: {e}", file=sys.stderr)
+        logger.error(f"Failed to fetch backup: {e}")
         return
 
     conn = get_db()
@@ -261,11 +309,9 @@ async def auto_restore():
         conn.commit()
 
         summary = ", ".join(f"{k}: {v}" for k, v in restored.items())
-        print(f"[Restore] Complete: {summary}")
+        logger.info(f"Restore complete: {summary}")
     except Exception as e:
-        print(f"[Restore] Failed: {e}", file=sys.stderr)
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Restore failed: {e}", exc_info=True)
     finally:
         conn.close()
 
@@ -278,19 +324,20 @@ async def on_ready():
     init_db()
     # Restore data from Discord backup channel (if configured)
     await auto_restore()
-    print(f"Bot online: {bot.user}")
+    logger.info(f"Bot online: {bot.user}")
     try:
+        await bot.tree.clear_commands(guild=None)
         synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} commands")
+        logger.info(f"Synced {len(synced)} commands")
     except Exception as e:
-        print(f"Sync error: {e}")
+        logger.error(f"Sync error: {e}")
 
 
 # =============================================================================
-# Railway 保活 — 内置 HTTP 服务器，每 30 秒自检，防止容器休眠
+# 保活 — 内置 HTTP 服务器，每 30 秒自检，防止容器休眠
 # =============================================================================
 async def health_server():
-    """启动一个简单的 HTTP 服务器响应 /health 请求，占用 Railway 端口。"""
+    """启动一个简单的 HTTP 服务器响应 /health 请求。"""
     from aiohttp import web
 
     async def health(request):
@@ -303,7 +350,7 @@ async def health_server():
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    print(f"Health server running on port {port}")
+    logger.info(f"Health server running on port {port}")
 
 
 async def health_check():
@@ -322,8 +369,6 @@ async def health_check():
 
 
 async def main():
-    import traceback
-
     # Start background backup loop (pushes to Discord channel)
     asyncio.create_task(auto_backup_loop())
 
@@ -334,10 +379,9 @@ async def main():
     for cog in COGS:
         try:
             await bot.load_extension(cog)
-            print(f"Loaded: {cog}")
+            logger.info(f"Loaded: {cog}")
         except Exception as e:
-            print(f"FAILED to load {cog}: {e}")
-            traceback.print_exc()
+            logger.error(f"FAILED to load {cog}: {e}", exc_info=True)
     await bot.start(TOKEN)
 
 

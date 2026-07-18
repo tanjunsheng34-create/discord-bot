@@ -1,5 +1,5 @@
 """
-Backup & Restore — Database backup/restore for Railway persistence
+Backup & Restore — Database backup/restore
 """
 import json
 import io

@@ -8,7 +8,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from database import get_db
-from cogs.tournament import ConfirmView
+from cogs.shared_views import ConfirmView
 
 # UTC+8 timezone
 UTC8 = timezone(timedelta(hours=8))
