@@ -156,14 +156,6 @@ def init_db():
             category    TEXT DEFAULT '其他'
         );
 
-        -- migration: add category column if missing
-        ALTER TABLE shop_items ADD COLUMN category TEXT DEFAULT '其他';
-
-        -- migration: add stock / ends_at / discount_pct columns if missing
-        ALTER TABLE shop_items ADD COLUMN stock INTEGER DEFAULT -1;
-        ALTER TABLE shop_items ADD COLUMN ends_at TEXT DEFAULT NULL;
-        ALTER TABLE shop_items ADD COLUMN discount_pct INTEGER DEFAULT 0;
-
         CREATE TABLE IF NOT EXISTS user_inventory (
             user_id     TEXT NOT NULL,
             item_id     INTEGER NOT NULL,
@@ -215,6 +207,20 @@ def init_db():
 
     try:
         cursor.execute("ALTER TABLE registrations ADD COLUMN lane TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+
+    # --- 新增商店字段（stock/ends_at/discount_pct）---
+    try:
+        cursor.execute("ALTER TABLE shop_items ADD COLUMN stock INTEGER DEFAULT -1")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE shop_items ADD COLUMN ends_at TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE shop_items ADD COLUMN discount_pct INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass
 
