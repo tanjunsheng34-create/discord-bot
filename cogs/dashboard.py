@@ -8,6 +8,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from database import get_db
+from cogs.match_autocomplete import match_id_autocomplete
 
 # Try to import shared utilities from tournament cog
 from cogs.tournament import (
@@ -859,26 +860,27 @@ class ReShuffleView(discord.ui.View):
         state = SettleState()
 
         async def _do_settle(s_int, mid, win_tid, mvp_uid):
+            from cogs.economy import MATCH_WIN_COINS, MATCH_PARTICIPATE_COINS
             conn3 = get_db(); cur3 = conn3.cursor()
             cur3.execute("SELECT discord_id FROM registrations WHERE tournament_id=? AND team_id=?", (mid, win_tid))
             for r in cur3.fetchall():
                 wid = r["discord_id"]
                 cur3.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (wid,))
-                cur3.execute("UPDATE users SET score=score+150 WHERE discord_id=?", (wid,))
-                cur3.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)", (wid, 150, f"比赛胜利 #{mid}"))
-            cur3.execute("INSERT INTO results (tournament_id,team_id,rank,score_awarded) VALUES (?,?,1,150)", (mid, win_tid))
+                cur3.execute("UPDATE users SET score=score+? WHERE discord_id=?", (MATCH_WIN_COINS, wid))
+                cur3.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)", (wid, MATCH_WIN_COINS, f"比赛胜利 #{mid}"))
+            cur3.execute("INSERT INTO results (tournament_id,team_id,rank,score_awarded) VALUES (?,?,1,?)", (mid, win_tid, MATCH_WIN_COINS))
 
             cur3.execute("SELECT discord_id FROM registrations WHERE tournament_id=? AND team_id!=?", (mid, win_tid))
             for r in cur3.fetchall():
                 lid = r["discord_id"]
                 cur3.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (lid,))
-                cur3.execute("UPDATE users SET score=score+50 WHERE discord_id=?", (lid,))
-                cur3.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)", (lid, 50, f"比赛参与 #{mid}"))
+                cur3.execute("UPDATE users SET score=score+? WHERE discord_id=?", (MATCH_PARTICIPATE_COINS, lid))
+                cur3.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)", (lid, MATCH_PARTICIPATE_COINS, f"比赛参与 #{mid}"))
 
             if mvp_uid:
                 cur3.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (mvp_uid,))
-                cur3.execute("UPDATE users SET score=score+50 WHERE discord_id=?", (mvp_uid,))
-                cur3.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)", (mvp_uid, 50, f"MVP #{mid}"))
+                cur3.execute("UPDATE users SET score=score+? WHERE discord_id=?", (MATCH_PARTICIPATE_COINS, mvp_uid))
+                cur3.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)", (mvp_uid, MATCH_PARTICIPATE_COINS, f"MVP #{mid}"))
 
             cur3.execute("UPDATE tournaments SET status='finished' WHERE id=?", (mid,))
             conn3.commit()
@@ -2284,7 +2286,7 @@ MatchView = MatchViewWithID
 # =============================================================================
 async def _execute_settle(match_id, win_team_id, mvp_id, guild, match_name, bot=None):
     """Distribute coins, record results, check achievements. Reused by both dashboard and MatchView."""
-    from cogs.economy import check_achievement
+    from cogs.economy import check_achievement, MATCH_WIN_COINS, MATCH_PARTICIPATE_COINS
 
     conn = get_db(); cur = conn.cursor()
 
@@ -2293,44 +2295,51 @@ async def _execute_settle(match_id, win_team_id, mvp_id, guild, match_name, bot=
     winner_ids = [r["discord_id"] for r in cur.fetchall()]
     for wid in winner_ids:
         cur.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (wid,))
-        cur.execute("UPDATE users SET score=score+150 WHERE discord_id=?", (wid,))
+        cur.execute("UPDATE users SET score=score+? WHERE discord_id=?", (MATCH_WIN_COINS, wid))
         cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                     (wid, 150, f"Match win #{match_id}"))
-    cur.execute("INSERT INTO results (tournament_id,team_id,rank,score_awarded) VALUES (?,?,1,150)", (match_id, win_team_id))
+                     (wid, MATCH_WIN_COINS, f"Match win #{match_id}"))
+    cur.execute("INSERT INTO results (tournament_id,team_id,rank,score_awarded) VALUES (?,?,1,?)", (match_id, win_team_id, MATCH_WIN_COINS))
 
     # Loser +50
     cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=? AND team_id!=?", (match_id, win_team_id))
     loser_ids = [r["discord_id"] for r in cur.fetchall()]
     for lid in loser_ids:
         cur.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (lid,))
-        cur.execute("UPDATE users SET score=score+50 WHERE discord_id=?", (lid,))
+        cur.execute("UPDATE users SET score=score+? WHERE discord_id=?", (MATCH_PARTICIPATE_COINS, lid))
         cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                     (lid, 50, f"Match participation #{match_id}"))
+                     (lid, MATCH_PARTICIPATE_COINS, f"Match participation #{match_id}"))
 
     # MVP +50
     if mvp_id:
         cur.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (mvp_id,))
-        cur.execute("UPDATE users SET score=score+50 WHERE discord_id=?", (mvp_id,))
+        cur.execute("UPDATE users SET score=score+? WHERE discord_id=?", (MATCH_PARTICIPATE_COINS, mvp_id))
         cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                     (mvp_id, 50, f"MVP #{match_id}"))
+                     (mvp_id, MATCH_PARTICIPATE_COINS, f"MVP #{match_id}"))
 
     cur.execute("UPDATE tournaments SET status='finished' WHERE id=?", (match_id,))
     conn.commit(); conn.close()
 
-    # Achievement checks
+    # Achievement checks — batch query to avoid N+1
     all_participants = winner_ids + loser_ids
-    for pid in set(all_participants):
+    unique_pids = list(set(all_participants))
+    if unique_pids:
+        placeholders = ",".join("?" * len(unique_pids))
         conn2 = get_db(); cur2 = conn2.cursor()
-        cur2.execute("SELECT COUNT(*) as cnt FROM registrations WHERE discord_id=?", (pid,))
-        match_cnt = cur2.fetchone()["cnt"]
+        cur2.execute(
+            f"SELECT discord_id, COUNT(*) as cnt FROM registrations WHERE discord_id IN ({placeholders}) GROUP BY discord_id",
+            unique_pids,
+        )
+        cnt_map = {row["discord_id"]: row["cnt"] for row in cur2.fetchall()}
         conn2.close()
-        check_achievement(pid, "首次参赛")
-        if match_cnt >= 5:
-            check_achievement(pid, "参加 5 场")
-        if match_cnt >= 10:
-            check_achievement(pid, "参加 10 场")
-        if match_cnt >= 25:
-            check_achievement(pid, "参加 25 场")
+        for pid in unique_pids:
+            match_cnt = cnt_map.get(pid, 0)
+            check_achievement(pid, "首次参赛")
+            if match_cnt >= 5:
+                check_achievement(pid, "参加 5 场")
+            if match_cnt >= 10:
+                check_achievement(pid, "参加 10 场")
+            if match_cnt >= 25:
+                check_achievement(pid, "参加 25 场")
 
     for wid in winner_ids:
         check_achievement(wid, "首胜")
@@ -4178,6 +4187,7 @@ class Dashboard(commands.Cog):
     @app_commands.describe(
         match_id="Match ID to recover / 要恢复的比赛ID",
     )
+    @app_commands.autocomplete(match_id=match_id_autocomplete)
     async def gmpt_recover(self, interaction: discord.Interaction, match_id: int):
         await interaction.response.defer(ephemeral=True)
         conn = get_db(); cur = conn.cursor()

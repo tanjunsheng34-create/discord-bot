@@ -8,7 +8,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from database import get_db
-from cogs.economy import check_achievement, add_coins
+from cogs.economy import check_achievement, add_coins, MATCH_WIN_COINS, MATCH_PARTICIPATE_COINS
+from cogs.match_autocomplete import match_id_autocomplete
 import aiohttp
 import os
 try:
@@ -505,6 +506,7 @@ class GMPT(commands.Cog):
         description="Join a match / 报名",
     )
     @app_commands.describe(match_id="Match ID")
+    @app_commands.autocomplete(match_id=match_id_autocomplete)
     async def join_match(
         self, interaction: discord.Interaction,
         match_id: int,
@@ -533,6 +535,7 @@ class GMPT(commands.Cog):
         description="Split into 2 teams / 分队",
     )
     @app_commands.describe(match_id="Match ID")
+    @app_commands.autocomplete(match_id=match_id_autocomplete)
     async def shuffle(self, interaction: discord.Interaction, match_id: int):
         conn = get_db(); cur = conn.cursor()
         cur.execute("SELECT * FROM tournaments WHERE id=?", (match_id,))
@@ -593,6 +596,7 @@ class GMPT(commands.Cog):
         description="Settle match / 结算积分",
     )
     @app_commands.describe(match_id="Match ID", win_team_id="Winning team ID", mvp="MVP")
+    @app_commands.autocomplete(match_id=match_id_autocomplete)
     async def settle(
         self, interaction: discord.Interaction,
         match_id: int, win_team_id: int,
@@ -609,48 +613,54 @@ class GMPT(commands.Cog):
         winner_ids = [r["discord_id"] for r in cur.fetchall()]
         for wid in winner_ids:
             cur.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (wid,))
-            cur.execute("UPDATE users SET score=score+150 WHERE discord_id=?", (wid,))
+            cur.execute("UPDATE users SET score=score+? WHERE discord_id=?", (MATCH_WIN_COINS, wid))
             cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                         (wid, 150, f"比赛胜利 #{match_id}"))
-        cur.execute("INSERT INTO results (tournament_id,team_id,rank,score_awarded) VALUES (?,?,1,150)", (match_id, win_team_id))
+                         (wid, MATCH_WIN_COINS, f"比赛胜利 #{match_id}"))
+        cur.execute("INSERT INTO results (tournament_id,team_id,rank,score_awarded) VALUES (?,?,1,?)", (match_id, win_team_id, MATCH_WIN_COINS))
 
         # 败方 +50 coins
         cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=? AND team_id!=?", (match_id, win_team_id))
         loser_ids = [r["discord_id"] for r in cur.fetchall()]
         for lid in loser_ids:
             cur.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (lid,))
-            cur.execute("UPDATE users SET score=score+50 WHERE discord_id=?", (lid,))
+            cur.execute("UPDATE users SET score=score+? WHERE discord_id=?", (MATCH_PARTICIPATE_COINS, lid))
             cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                         (lid, 50, f"比赛参与 #{match_id}"))
+                         (lid, MATCH_PARTICIPATE_COINS, f"比赛参与 #{match_id}"))
 
         mvp_text = ""
         mvp_id = ""
         if mvp:
             mvp_id = str(mvp.id)
             cur.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (mvp_id,))
-            cur.execute("UPDATE users SET score=score+50 WHERE discord_id=?", (mvp_id,))
+            cur.execute("UPDATE users SET score=score+? WHERE discord_id=?", (MATCH_PARTICIPATE_COINS, mvp_id))
             cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                         (mvp_id, 50, f"MVP #{match_id}"))
+                         (mvp_id, MATCH_PARTICIPATE_COINS, f"MVP #{match_id}"))
             mvp_text = f"\n🏅 MVP: {mvp.mention} +50"
 
         cur.execute("UPDATE tournaments SET status='finished' WHERE id=?", (match_id,))
         conn.commit()
 
-        # === 成就检测 ===
+        # === 成就检测 (batch query to avoid N+1) ===
         all_participants = winner_ids + loser_ids
-        for pid in set(all_participants):
+        unique_pids = list(set(all_participants))
+        if unique_pids:
+            placeholders = ",".join("?" * len(unique_pids))
             conn2 = get_db(); cur2 = conn2.cursor()
-            # 参赛次数
-            cur2.execute("SELECT COUNT(*) as cnt FROM registrations WHERE discord_id=?", (pid,))
-            match_cnt = cur2.fetchone()["cnt"]
+            cur2.execute(
+                f"SELECT discord_id, COUNT(*) as cnt FROM registrations WHERE discord_id IN ({placeholders}) GROUP BY discord_id",
+                unique_pids,
+            )
+            cnt_map = {row["discord_id"]: row["cnt"] for row in cur2.fetchall()}
             conn2.close()
-            check_achievement(pid, "首次参赛")
-            if match_cnt >= 5:
-                check_achievement(pid, "参加 5 场")
-            if match_cnt >= 10:
-                check_achievement(pid, "参加 10 场")
-            if match_cnt >= 25:
-                check_achievement(pid, "参加 25 场")
+            for pid in unique_pids:
+                match_cnt = cnt_map.get(pid, 0)
+                check_achievement(pid, "首次参赛")
+                if match_cnt >= 5:
+                    check_achievement(pid, "参加 5 场")
+                if match_cnt >= 10:
+                    check_achievement(pid, "参加 10 场")
+                if match_cnt >= 25:
+                    check_achievement(pid, "参加 25 场")
 
         for wid in winner_ids:
             check_achievement(wid, "首胜")
@@ -702,6 +712,7 @@ class GMPT(commands.Cog):
         description="List match players / 查看报名玩家",
     )
     @app_commands.describe(match_id="Match ID")
+    @app_commands.autocomplete(match_id=match_id_autocomplete)
     async def players(self, interaction: discord.Interaction, match_id: int):
         conn = get_db(); cur = conn.cursor()
         cur.execute("SELECT * FROM tournaments WHERE id=?", (match_id,))
@@ -722,6 +733,7 @@ class GMPT(commands.Cog):
         description="Kick a player / 踢出玩家",
     )
     @app_commands.describe(match_id="Match ID", player="Player to kick")
+    @app_commands.autocomplete(match_id=match_id_autocomplete)
     async def kick(
         self, interaction: discord.Interaction,
         match_id: int, player: discord.Member,
@@ -744,6 +756,7 @@ class GMPT(commands.Cog):
         description="Cancel a match / 取消比赛",
     )
     @app_commands.describe(match_id="Match ID")
+    @app_commands.autocomplete(match_id=match_id_autocomplete)
     async def cancel(self, interaction: discord.Interaction, match_id: int):
         conn = get_db(); cur = conn.cursor()
         cur.execute("SELECT created_by, status FROM tournaments WHERE id=?", (match_id,))
@@ -809,6 +822,7 @@ class GMPT(commands.Cog):
         match_id="Match ID",
         link="Stream URL (Twitch/YouTube/Bilibili etc.)",
     )
+    @app_commands.autocomplete(match_id=match_id_autocomplete)
     async def stream(self, interaction: discord.Interaction, match_id: int, link: str):
         conn = get_db(); cur = conn.cursor()
         cur.execute("SELECT id, name FROM tournaments WHERE id=?", (match_id,))
@@ -1230,6 +1244,7 @@ class GMPT(commands.Cog):
         description="Custom team assignment with buttons / 自定义分队（按钮交互）",
     )
     @app_commands.describe(match_id="Match ID / 比赛ID")
+    @app_commands.autocomplete(match_id=match_id_autocomplete)
     async def custom_team(self, interaction: discord.Interaction, match_id: int):
         conn = get_db(); cur = conn.cursor()
         cur.execute("SELECT * FROM tournaments WHERE id=?", (match_id,))
