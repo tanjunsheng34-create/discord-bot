@@ -1534,6 +1534,240 @@ class Economy(commands.Cog):
             f"✅ **{item['name']}** price updated / 价格已更新: 🪙 {old_price} → 🪙 {new_price}"
         )
 
+    # ========== 金币下注 / Betting ==========
+    @app_commands.command(name="gmpt-bet", description="对比赛下注 / Place a bet on a match")
+    @app_commands.describe(
+        match_id="比赛 ID / Match ID",
+        amount="下注金额 / Bet amount (max 500)",
+        team="下注队伍 ID / Team ID to bet on",
+    )
+    async def bet_cmd(
+        self, interaction: discord.Interaction,
+        match_id: int, amount: int, team: int,
+    ):
+        uid = str(interaction.user.id)
+
+        if amount < 1 or amount > 500:
+            return await interaction.response.send_message(
+                "下注金额需在 1-500 之间 / Bet amount must be 1-500.", ephemeral=True,
+            )
+
+        conn = get_db(); cur = conn.cursor()
+
+        # Check match status
+        cur.execute("SELECT id, status FROM tournaments WHERE id=?", (match_id,))
+        match = cur.fetchone()
+        if not match:
+            conn.close()
+            return await interaction.response.send_message(
+                "比赛不存在 / Match not found.", ephemeral=True,
+            )
+        if match["status"] == "finished":
+            conn.close()
+            return await interaction.response.send_message(
+                "比赛已结算，无法下注 / Match already settled.", ephemeral=True,
+            )
+
+        # Check team exists
+        cur.execute(
+            "SELECT id, name FROM teams WHERE id=? AND tournament_id=?",
+            (team, match_id),
+        )
+        team_row = cur.fetchone()
+        if not team_row:
+            conn.close()
+            return await interaction.response.send_message(
+                "队伍不存在 / Team not found.", ephemeral=True,
+            )
+
+        # Check balance
+        cur.execute(
+            "INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING",
+            (uid,),
+        )
+        cur.execute("SELECT score FROM users WHERE discord_id=?", (uid,))
+        user = cur.fetchone()
+        balance = user["score"] if user and user["score"] is not None else 0
+
+        if balance < amount:
+            conn.close()
+            return await interaction.response.send_message(
+                f"金币不足 / Insufficient coins. 余额: 🪙 {balance}", ephemeral=True,
+            )
+
+        # Check if already bet on this match
+        cur.execute(
+            "SELECT id FROM bets WHERE match_id=? AND discord_id=?",
+            (match_id, uid),
+        )
+        if cur.fetchone():
+            conn.close()
+            return await interaction.response.send_message(
+                "你已在本场比赛下注 / Already placed a bet on this match.", ephemeral=True,
+            )
+
+        # Deduct coins and place bet
+        cur.execute("UPDATE users SET score=score-? WHERE discord_id=?", (amount, uid))
+        cur.execute(
+            "INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+            (uid, -amount, f"下注比赛 #{match_id} — {team_row['name']}"),
+        )
+        cur.execute(
+            "INSERT INTO bets (match_id, discord_id, amount, team) VALUES (?,?,?,?)",
+            (match_id, uid, amount, str(team)),
+        )
+        conn.commit(); conn.close()
+
+        await interaction.response.send_message(
+            f"✅ {interaction.user.mention} 下注 🪙 **{amount}** → "
+            f"比赛 #{match_id} **{team_row['name']}** (Team {team})\n"
+            f"投对得 2x 返还 / Win = 2x payout!"
+        )
+
+    @bet_cmd.autocomplete("match_id")
+    async def bet_match_id_autocomplete(self, interaction: discord.Interaction, current: str):
+        from cogs.match_autocomplete import match_id_autocomplete
+        return await match_id_autocomplete(interaction, current)
+
+    @bet_cmd.autocomplete("team")
+    async def bet_team_autocomplete(self, interaction: discord.Interaction, current: str):
+        """Autocomplete team_id from the already selected match_id."""
+        try:
+            match_id_str = interaction.namespace.get("match_id")
+            if not match_id_str:
+                return []
+            match_id = int(match_id_str)
+        except (ValueError, TypeError):
+            return []
+
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT id, name FROM teams WHERE tournament_id=?", (match_id,))
+        teams = cur.fetchall(); conn.close()
+
+        return [
+            app_commands.Choice(
+                name=f"{t['name'][:80]} (ID:{t['id']})",
+                value=t["id"],
+            )
+            for t in teams
+            if current.lower() in str(t["id"]) or current.lower() in (t["name"] or "").lower()
+        ][:25]
+
+    @app_commands.command(name="gmpt-bet-stats", description="查看下注历史 / View bet history and stats")
+    async def bet_stats_cmd(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        conn = get_db(); cur = conn.cursor()
+
+        # Stats
+        cur.execute("SELECT COUNT(*) as total FROM bets WHERE discord_id=?", (uid,))
+        total = cur.fetchone()["total"]
+
+        cur.execute(
+            "SELECT COUNT(*) as wins FROM bets WHERE discord_id=? AND settled=1 AND won=1",
+            (uid,),
+        )
+        wins = cur.fetchone()["wins"]
+        win_pct = round(wins / total * 100, 1) if total > 0 else 0
+
+        # Recent bets
+        cur.execute(
+            """SELECT b.match_id, b.amount, b.team, b.placed_at, b.settled, b.won, t.name as match_name
+               FROM bets b
+               LEFT JOIN tournaments t ON b.match_id = t.id
+               WHERE b.discord_id=?
+               ORDER BY b.placed_at DESC LIMIT 10""",
+            (uid,),
+        )
+        recent = cur.fetchall(); conn.close()
+
+        embed = discord.Embed(
+            title="🎲 下注统计 / Betting Stats",
+            color=discord.Color.orange(),
+        )
+        embed.add_field(name="总下注 / Total Bets", value=str(total), inline=True)
+        embed.add_field(name="猜对 / Wins", value=str(wins), inline=True)
+        embed.add_field(name="胜率 / Win Rate", value=f"{win_pct}%", inline=True)
+
+        if recent:
+            lines = []
+            for b in recent:
+                match_label = b["match_name"] or f"#{b['match_id']}"
+                status = "✅" if b["settled"] and b["won"] else ("❌" if b["settled"] else "⏳")
+                lines.append(
+                    f"{status} {match_label} — 🪙 {b['amount']} → Team {b['team']} "
+                    f"({b['placed_at'][:10] if b['placed_at'] else '?'})"
+                )
+            embed.add_field(
+                name="最近下注 / Recent Bets",
+                value="\n".join(lines),
+                inline=False,
+            )
+
+        await interaction.response.send_message(embed=embed)
+
+
+# ══════════ Betting Settlement / 下注结算 ══════════
+
+def settle_bets(match_id: int, winning_team_id: int) -> list:
+    """结算指定比赛的所有下注。投对的 2x 返还，投错的没收。返回结果摘要行列表。"""
+    conn = get_db(); cur = conn.cursor()
+    cur.execute(
+        "SELECT id, discord_id, amount, team FROM bets WHERE match_id=? AND settled=0",
+        (match_id,),
+    )
+    bets = cur.fetchall()
+
+    settled = 0
+    won = 0
+    result_lines = []
+
+    for b in bets:
+        won_flag = 1 if str(b["team"]) == str(winning_team_id) else 0
+        cur.execute(
+            "UPDATE bets SET settled=1, won=? WHERE id=?",
+            (won_flag, b["id"]),
+        )
+        settled += 1
+        if won_flag:
+            won += 1
+            payout = b["amount"] * 2
+            cur.execute(
+                "UPDATE users SET score=score+? WHERE discord_id=?",
+                (payout, b["discord_id"]),
+            )
+            cur.execute(
+                "INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                (b["discord_id"], payout, f"下注获胜 #{match_id} — 2x 返还"),
+            )
+
+    # Check for vote bets (旧版下注系统)
+    try:
+        cur.execute(
+            "SELECT id, discord_id, amount FROM vote_bets WHERE match_id=? AND settled=0",
+            (match_id,),
+        )
+        vote_bets = cur.fetchall()
+    except Exception:
+        vote_bets = []
+
+    for vb in vote_bets:
+        try:
+            cur.execute("UPDATE vote_bets SET settled=1, won=1 WHERE id=?", (vb["id"],))
+        except Exception:
+            pass
+        settled += 1
+        won += 1
+
+    conn.commit(); conn.close()
+
+    total = settled
+    lost = total - won
+    if total > 0:
+        result_lines.append(
+            f"🎲 下注结算 #{match_id}: {total} 注 | ✅ {won} 胜 {lost} 负"
+        )
+    return result_lines
+
 
 # =============================================================================
 # AdminCoinsView — 管理员金币管理面板 / Admin Coin Management Panel

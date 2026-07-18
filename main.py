@@ -35,6 +35,7 @@ COGS = [
     "cogs.dashboard",
     "cogs.giveaway",
     "cogs.voice_tracker",
+    "cogs.queue",
     "cogs.admin_backup",
 ]
 

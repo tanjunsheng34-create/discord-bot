@@ -363,6 +363,18 @@ def init_db():
             message_id  TEXT NOT NULL,
             channel_id  TEXT NOT NULL
         );
+
+        -- === Betting / 金币下注 ===
+        CREATE TABLE IF NOT EXISTS bets (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            match_id    INTEGER NOT NULL,
+            discord_id  TEXT NOT NULL,
+            amount      INTEGER NOT NULL,
+            team        TEXT NOT NULL,
+            placed_at   TEXT DEFAULT (datetime('now')),
+            settled     INTEGER DEFAULT 0,
+            won         INTEGER DEFAULT 0
+        );
     """)
 
     # ── 性能索引 / Performance Indexes ──

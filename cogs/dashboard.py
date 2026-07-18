@@ -1038,6 +1038,30 @@ class ReShuffleView(discord.ui.View):
                 except Exception:
                     pass
 
+            # Send MVP vote
+            try:
+                await MvpVoteView.send_vote(
+                    match_id=mid, match_name=match_name,
+                    channel=interaction.channel, guild=self.guild,
+                )
+            except Exception as e:
+                logger.error(f"[MatchView] MvpVoteView error: {e}")
+
+            # Settle bets
+            try:
+                from cogs.economy import settle_bets
+                bet_lines = settle_bets(mid, win_tid)
+                if bet_lines:
+                    bet_embed = discord.Embed(
+                        title=f"🎲 金币下注结算 / Betting Results — {match_name}",
+                        description="\n".join(bet_lines),
+                        color=discord.Color.blurple(),
+                    )
+                    bet_embed.set_footer(text=f"Match ID: {mid}")
+                    await interaction.channel.send(embed=bet_embed)
+            except Exception as e:
+                logger.error(f"[MatchView] settle_bets error: {e}")
+
             mvp_text = f"\n🏅 MVP: <@{mvp_uid}> +50" if mvp_uid else ""
             await s_int.response.send_message(
                 f"💰 结算完成 / Settled!{mvp_text}\n胜方 +150 | 参与 +50",
@@ -2164,6 +2188,15 @@ class MatchViewWithID(discord.ui.View):
                     if analysis_embed:
                         await interaction.channel.send(embed=analysis_embed)
 
+                    # Send MVP vote
+                    try:
+                        await MvpVoteView.send_vote(
+                            match_id=mid, match_name=t["name"],
+                            channel=interaction.channel, guild=guild,
+                        )
+                    except Exception as e:
+                        logger.error(f"[MatchView] MvpVoteView error: {e}")
+
                     # Send public re-shuffle button with player list
                     reshuffle_view = ReShuffleView(match_id=mid, guild=guild)
                     reshuffle_embed = reshuffle_view._build_player_list_embed()
@@ -2494,6 +2527,160 @@ MatchView = MatchViewWithID
 
 
 # =============================================================================
+# MVP Vote View — 赛后 MVP 投票
+# =============================================================================
+class MvpVoteView(discord.ui.View):
+    """赛后自动发送 MVP 投票，队员互投，5 分钟超时，得票最高 +10 MMR。"""
+
+    def __init__(self, match_id: int, match_name: str, player_ids: list[str], guild: discord.Guild, timeout=300):
+        super().__init__(timeout=timeout)
+        self.match_id = match_id
+        self.match_name = match_name
+        self.guild = guild
+        self.votes: dict[str, str] = {}  # voter_id -> voted_id
+        self._message = None
+
+        options = []
+        for pid in player_ids:
+            member = guild.get_member(int(pid))
+            name = member.display_name if member else f"<@{pid}>"
+            options.append(discord.SelectOption(label=name[:100], value=pid))
+
+        self.select = discord.ui.Select(
+            placeholder="选择本场 MVP / Select match MVP...",
+            options=options[:25],
+        )
+        self.select.callback = self._select_callback
+        self.add_item(self.select)
+
+    async def _select_callback(self, interaction: discord.Interaction):
+        voter_id = str(interaction.user.id)
+
+        # Check voter is a participant
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT id FROM registrations WHERE tournament_id=? AND discord_id=?",
+            (self.match_id, voter_id),
+        )
+        if not cur.fetchone():
+            conn.close()
+            return await interaction.response.send_message(
+                "只有参赛者可以投票 / Only participants can vote.", ephemeral=True,
+            )
+        conn.close()
+
+        voted_id = interaction.data["values"][0]
+
+        # Cannot vote for self
+        if voted_id == voter_id:
+            return await interaction.response.send_message(
+                "不能投给自己 / Cannot vote for yourself.", ephemeral=True,
+            )
+
+        # Already voted
+        if voter_id in self.votes:
+            return await interaction.response.send_message(
+                "你已投过票 / You already voted.", ephemeral=True,
+            )
+
+        self.votes[voter_id] = voted_id
+        member = self.guild.get_member(int(voted_id))
+        name = member.display_name if member else f"<@{voted_id}>"
+        await interaction.response.send_message(
+            f"✅ 你已投票给 **{name}** / Voted!", ephemeral=True,
+        )
+
+    async def on_timeout(self):
+        """Voting ended — tally results and update MMR."""
+        if not self._message:
+            return
+
+        # Tally votes
+        tally: dict[str, int] = {}
+        for _, voted_id in self.votes.items():
+            tally[voted_id] = tally.get(voted_id, 0) + 1
+
+        if not tally:
+            try:
+                await self._message.edit(content="⏰ MVP 投票结束 — 无人投票 / No votes cast.", view=None)
+            except Exception:
+                pass
+            return
+
+        max_votes = max(tally.values())
+        winners = [pid for pid, cnt in tally.items() if cnt == max_votes]
+        bonus = 10 if len(winners) == 1 else 5
+
+        conn = get_db(); cur = conn.cursor()
+        for pid in winners:
+            cur.execute("UPDATE users SET mmr=mmr+? WHERE discord_id=?", (bonus, pid))
+            cur.execute(
+                "INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                (pid, 0, f"MVP投票获胜 #{self.match_id} +{bonus} MMR"),
+            )
+        conn.commit(); conn.close()
+
+        w_names = []
+        for pid in winners:
+            m = self.guild.get_member(int(pid))
+            w_names.append(m.display_name if m else f"<@{pid}>")
+
+        result_lines = [f"🎖️ **MVP 投票结果 / Results:**"]
+        for pid, cnt in sorted(tally.items(), key=lambda x: -x[1]):
+            m = self.guild.get_member(int(pid))
+            name = m.mention if m else f"<@{pid}>"
+            result_lines.append(f"  {name} — **{cnt}** 票 / votes")
+
+        result_lines.append("")
+        if len(winners) == 1:
+            result_lines.append(f"🏆 <@{winners[0]}> 获得 MVP！**+{bonus} MMR**")
+        else:
+            mentions = " ".join(f"<@{pid}>" for pid in winners)
+            result_lines.append(f"🏆 平票！ {mentions} 各 **+{bonus} MMR**")
+
+        embed = discord.Embed(
+            title=f"🎖️ MVP 投票结束 — {self.match_name}",
+            description="\n".join(result_lines),
+            color=discord.Color.gold(),
+        )
+        embed.set_footer(text=f"Match ID: {self.match_id} | 共 {len(self.votes)} 人投票")
+
+        try:
+            await self._message.edit(content="", embed=embed, view=None)
+        except Exception as e:
+            logger.error(f"[MvpVoteView] on_timeout edit error: {e}")
+
+    @classmethod
+    async def send_vote(cls, match_id: int, match_name: str, channel, guild):
+        """发送 MVP 投票消息。"""
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT discord_id FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0)",
+            (match_id,),
+        )
+        rows = cur.fetchall(); conn.close()
+        player_ids = [r["discord_id"] for r in rows]
+
+        if len(player_ids) < 2:
+            return
+
+        embed = discord.Embed(
+            title=f"🏆 MVP 投票 — {match_name}",
+            description=(
+                f"参赛队员请投出你心中的 MVP！\n"
+                f"Match participants, vote for the MVP!\n\n"
+                f"得票最高 **+10 MMR** | 平票各 **+5 MMR**\n"
+                f"5 分钟自动截止 / Auto-close in 5 min"
+            ),
+            color=discord.Color.gold(),
+        )
+        embed.set_footer(text=f"Match ID: {match_id}")
+
+        view = cls(match_id, match_name, player_ids, guild)
+        view._message = await channel.send(embed=embed, view=view)
+
+
+# =============================================================================
 # Helper: execute settlement (coin distribution + achievements)
 # =============================================================================
 async def _execute_settle(match_id, win_team_id, mvp_id, guild, match_name, bot=None):
@@ -2627,16 +2814,27 @@ async def _execute_settle(match_id, win_team_id, mvp_id, guild, match_name, bot=
     if vote_winners:
         vote_text = f"\n\U0001f4ca 竞猜: {len(vote_winners)} 人猜对，各 +5 MMR"
 
+    # ── 金币下注结算 / Betting Settlement ──
+    try:
+        from cogs.economy import settle_bets
+        bet_lines = settle_bets(match_id, win_team_id)
+    except Exception as e:
+        logger.error(f"[_execute_settle] settle_bets error: {e}", exc_info=True)
+        bet_lines = []
+
     # ── 刷新实时排行榜 ──
     if bot is not None:
         await _refresh_mmr_board(bot, guild)
 
     # ── AI 赛事分析 ──
     analysis_embed = _generate_match_analysis(match_id, match_name, winner_ids, loser_ids, mvp_id, guild)
-    # Append vote results and item effects to analysis embed
+    # Append vote results, betting, and item effects to analysis embed
     extra_lines = []
     if vote_text:
         extra_lines.append(vote_text.strip())
+    if bet_lines:
+        extra_lines.append("\n🎲 **金币下注 / Betting:**")
+        extra_lines.extend(bet_lines)
     if effect_msgs:
         extra_lines.append("\n🎒 **道具效果 / Item Effects:**")
         extra_lines.extend(effect_msgs)
