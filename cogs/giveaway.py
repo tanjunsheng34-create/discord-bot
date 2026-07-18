@@ -184,11 +184,13 @@ class Giveaway(commands.Cog):
         description="Giveaway system / 抽奖系统",
     )
 
+    @app_commands.default_permissions(administrator=True)
     @giveaway_group.command(name="create", description="Create a new giveaway / 创建抽奖")
     async def create_cmd(self, interaction: discord.Interaction):
         modal = GiveawayModal()
         await interaction.response.send_modal(modal)
 
+    @app_commands.default_permissions(administrator=True)
     @giveaway_group.command(name="end", description="Manually end a giveaway / 手动结束抽奖")
     async def end_cmd(self, interaction: discord.Interaction):
         conn = get_db(); cur = conn.cursor()
@@ -225,6 +227,7 @@ class Giveaway(commands.Cog):
         view.add_item(select)
         await interaction.response.send_message(view=view, ephemeral=True)
 
+    @app_commands.default_permissions(administrator=True)
     @giveaway_group.command(name="reroll", description="Re-roll winners from existing entries / 重新抽奖")
     async def reroll_cmd(self, interaction: discord.Interaction):
         conn = get_db(); cur = conn.cursor()

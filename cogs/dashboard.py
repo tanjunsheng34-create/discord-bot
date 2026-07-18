@@ -1063,8 +1063,11 @@ class ReShuffleView(discord.ui.View):
     async def pull_voice_a_btn(self, interaction: discord.Interaction, button):
         if self._voice_used_a:
             return await interaction.response.send_message("A队已经拉过了！", ephemeral=True)
+        team_a_ids, team_b_ids = self._resolve_team_ids()
+        uid = str(interaction.user.id)
+        if not interaction.user.guild_permissions.administrator and uid not in team_a_ids and uid not in team_b_ids:
+            return await interaction.response.send_message("仅参赛者或管理员可操作", ephemeral=True)
         await interaction.response.defer(ephemeral=True)
-        team_a_ids, _ = self._resolve_team_ids()
         lines = await self._do_pull(interaction, team_a_ids, 1438050912814895186, "A")
         notify_channel = self.guild.get_channel(1462616745197043722)
         if notify_channel and lines:
@@ -1081,8 +1084,11 @@ class ReShuffleView(discord.ui.View):
     async def pull_voice_b_btn(self, interaction: discord.Interaction, button):
         if self._voice_used_b:
             return await interaction.response.send_message("B队已经拉过了！", ephemeral=True)
+        team_a_ids, team_b_ids = self._resolve_team_ids()
+        uid = str(interaction.user.id)
+        if not interaction.user.guild_permissions.administrator and uid not in team_a_ids and uid not in team_b_ids:
+            return await interaction.response.send_message("仅参赛者或管理员可操作", ephemeral=True)
         await interaction.response.defer(ephemeral=True)
-        _, team_b_ids = self._resolve_team_ids()
         lines = await self._do_pull(interaction, team_b_ids, 1437626921394372658, "B")
         notify_channel = self.guild.get_channel(1462616745197043722)
         if notify_channel and lines:
@@ -1169,6 +1175,9 @@ class VoicePullView(discord.ui.View):
     async def pull_a_btn(self, interaction: discord.Interaction, button):
         if self._used_a:
             return await interaction.response.send_message("A队已经拉过了！", ephemeral=True)
+        uid = str(interaction.user.id)
+        if not interaction.user.guild_permissions.administrator and uid not in self.team_a_ids and uid not in self.team_b_ids:
+            return await interaction.response.send_message("仅参赛者或管理员可操作", ephemeral=True)
         await interaction.response.defer(ephemeral=True)
         lines = await self._do_pull(interaction, self.team_a_ids, self.VA_CHANNEL_ID, "A")
         notify_channel = self.guild.get_channel(self.NOTIFY_CHANNEL_ID)
@@ -1186,6 +1195,9 @@ class VoicePullView(discord.ui.View):
     async def pull_b_btn(self, interaction: discord.Interaction, button):
         if self._used_b:
             return await interaction.response.send_message("B队已经拉过了！", ephemeral=True)
+        uid = str(interaction.user.id)
+        if not interaction.user.guild_permissions.administrator and uid not in self.team_a_ids and uid not in self.team_b_ids:
+            return await interaction.response.send_message("仅参赛者或管理员可操作", ephemeral=True)
         await interaction.response.defer(ephemeral=True)
         lines = await self._do_pull(interaction, self.team_b_ids, self.VB_CHANNEL_ID, "B")
         notify_channel = self.guild.get_channel(self.NOTIFY_CHANNEL_ID)
@@ -1382,6 +1394,7 @@ class ManualTeamView(discord.ui.View):
             await interaction.followup.send("📢 点击按钮将玩家拉入对应语音频道：", view=voice_view)
         except Exception:
             pass
+        await VoteView.send_vote(match_id=new_mid, match_name=self.match_name, channel=interaction.channel)
 
     def _build_embed(self):
         embed = discord.Embed(
@@ -1607,6 +1620,7 @@ class CaptainDraftView(discord.ui.View):
             await interaction.followup.send("📢 点击按钮将玩家拉入对应语音频道：", view=voice_view)
         except Exception:
             pass
+        await VoteView.send_vote(match_id=new_mid, match_name=self.match_name, channel=interaction.channel)
 
     def _build_embed(self):
         embed = discord.Embed(
@@ -1746,9 +1760,6 @@ class MatchViewWithID(discord.ui.View):
             )
             await self._refresh_list(interaction, mid)
 
-            # Trigger VoteView when match is full
-            if cnt + 1 >= max_p:
-                await VoteView.send_vote(match_id=mid, match_name=t["name"], channel=interaction.channel)
         except Exception as e:
             import traceback
             print(f"[MatchView] signup error: {e}")
@@ -2415,6 +2426,7 @@ class ReadyCheckView(discord.ui.View):
         reshuffle_view = ReShuffleView(match_id=self.match_id, guild=self.guild)
         reshuffle_embed = reshuffle_view._build_player_list_embed()
         await self.channel.send(embed=reshuffle_embed, view=reshuffle_view)
+        await VoteView.send_vote(match_id=self.match_id, match_name=self.match_name, channel=self.channel)
 
     async def _timeout_cleanup(self):
         self.expired = True
