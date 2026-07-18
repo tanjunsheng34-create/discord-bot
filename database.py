@@ -198,6 +198,17 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
+    # --- 新增选路比赛字段 / Role-Pick Match Fields ---
+    try:
+        cursor.execute("ALTER TABLE tournaments ADD COLUMN role_pick INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE registrations ADD COLUMN lane TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+
     cursor.executescript("""
         CREATE TABLE IF NOT EXISTS tournament_players (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,

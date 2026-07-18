@@ -91,6 +91,69 @@ class CreateMatchModal(discord.ui.Modal, title="创建比赛 / Create Match"):
         conn2.commit(); conn2.close()
 
 
+class CreateRoleMatchModal(discord.ui.Modal, title="创建选路比赛 / Create Role-Pick Match"):
+    """选路比赛：创建时 role_pick=1，报名时需选 Top/JG/Mid/ADC/Support。"""
+    match_name = discord.ui.TextInput(
+        label="比赛名称 / Match Name",
+        placeholder="e.g. 周五内战 / Friday Inhouse",
+        max_length=100,
+        required=True,
+    )
+    max_players = discord.ui.TextInput(
+        label="最大人数 / Max Players (偶数 / Even)",
+        placeholder="10",
+        default="10",
+        max_length=3,
+        required=True,
+    )
+
+    def __init__(self, guild, session):
+        super().__init__()
+        self.guild = guild
+        self.session = session
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            mp = int(self.max_players.value)
+        except ValueError:
+            return await interaction.response.send_message("人数必须是数字 / Number required.", ephemeral=True)
+        if mp < 2 or mp % 2 != 0:
+            return await interaction.response.send_message("人数必须为大于2的偶数 / Must be an even number > 2.", ephemeral=True)
+
+        team_size = mp // 2
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO tournaments (name, max_teams, team_size, created_by, status, role_pick) VALUES (?, 2, ?, ?, 'open', 1)",
+            (self.match_name.value, team_size, str(interaction.user.id)),
+        )
+        conn.commit(); tid = cur.lastrowid; conn.close()
+
+        embed = discord.Embed(
+            title=f"Match (选路): {self.match_name.value}",
+            description=f"**{mp}** 人 / Players | 每队 / Per Team: {team_size}\n选路比赛 — 报名时需选择路线 / Role-pick match, select lane on signup",
+            color=discord.Color.purple(),
+        ).set_footer(text=f"Match ID: {tid}")
+        view = MatchView()
+        await interaction.response.send_message(embed=embed, view=view)
+        save_match_view_state(tid, (await interaction.original_response()).id, interaction.channel_id)
+        # 发送初始报名列表（含路线分布）
+        list_embed = discord.Embed(
+            title="已报名玩家 / Signed Up (0/" + str(mp) + ")",
+            description="暂无玩家 / No signups yet\n\n🎯 路线分配 / Lane Distribution\n"
+                        "Top:    - (0/2)\nJG:     - (0/2)\nMid:    - (0/2)\n"
+                        "ADC:    - (0/2)\nSup:    - (0/2)",
+            color=discord.Color.purple(),
+        )
+        list_msg = await interaction.followup.send(embed=list_embed)
+        set_player_list_msg(tid, list_msg.id)
+        conn2 = get_db(); cur2 = conn2.cursor()
+        cur2.execute(
+            "UPDATE match_view_state SET player_list_msg_id=? WHERE message_id=?",
+            (str(list_msg.id), str((await interaction.original_response()).id)),
+        )
+        conn2.commit(); conn2.close()
+
+
 class CreateTournamentModal(discord.ui.Modal, title="创建赛事 / Create Tournament"):
     tournament_name = discord.ui.TextInput(
         label="赛事名称 / Tournament Name",
@@ -1665,46 +1728,85 @@ class MatchViewWithID(discord.ui.View):
                 pass
 
         conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT discord_id, is_sub FROM registrations WHERE tournament_id=? ORDER BY is_sub ASC, id ASC", (match_id,))
+        cur.execute("SELECT discord_id, is_sub, lane FROM registrations WHERE tournament_id=? ORDER BY is_sub ASC, id ASC", (match_id,))
         rows = cur.fetchall()
-        cur.execute("SELECT max_teams, team_size FROM tournaments WHERE id=?", (match_id,))
+        cur.execute("SELECT max_teams, team_size, role_pick FROM tournaments WHERE id=?", (match_id,))
         t = cur.fetchone()
         conn.close()
         max_p = (t["max_teams"] * t["team_size"]) if t else 0
+        is_role_pick = t["role_pick"] if t else 0
 
-        main_names = []
-        sub_names = []
-        for r in rows:
-            name = resolve_name(interaction.guild, r["discord_id"])
-            if r["is_sub"]:
-                sub_names.append(name)
-            else:
-                main_names.append(name)
+        if is_role_pick:
+            # 选路比赛：按路线分组显示
+            LANES = ["Top", "JG", "Mid", "ADC", "Sup"]
+            lane_players = {lane: [] for lane in LANES}
+            sub_names = []
+            main_count = 0
+            for r in rows:
+                name = resolve_name(interaction.guild, r["discord_id"])
+                if r["is_sub"]:
+                    sub_names.append(name)
+                else:
+                    lane = r["lane"] or "未选 / None"
+                    if lane in lane_players:
+                        lane_players[lane].append(name)
+                    else:
+                        lane_players[lane] = [name]
+                    main_count += 1
 
-        count = len(main_names)
-        desc_parts = []
-        if main_names:
-            desc_parts.append("\n".join(f"{i+1}. {n}" for i, n in enumerate(main_names)))
-        else:
-            desc_parts.append("暂无玩家 / No signups yet")
-        if sub_names:
+            count = main_count
+            desc_parts = ["🎯 路线分配 / Lane Distribution"]
+            for lane in LANES:
+                players = lane_players[lane]
+                names_line = ", ".join(players) if players else "-"
+                desc_parts.append(f"{lane}:    {names_line}    ({len(players)}/2)")
             desc_parts.append("")
-            desc_parts.append("**替补 / Substitutes:**")
-            desc_parts.append("\n".join(f"S{i+1}. {n}" for i, n in enumerate(sub_names)))
+            desc_parts.append(f"总计 / Total: {count}/{max_p}")
+            if sub_names:
+                desc_parts.append("")
+                desc_parts.append("**替补 / Substitutes:**")
+                desc_parts.append(", ".join(sub_names))
+            desc = "\n".join(desc_parts)
+            color = discord.Color.purple()
+        else:
+            main_names = []
+            sub_names = []
+            for r in rows:
+                name = resolve_name(interaction.guild, r["discord_id"])
+                if r["is_sub"]:
+                    sub_names.append(name)
+                else:
+                    main_names.append(name)
 
-        desc = "\n".join(desc_parts)
+            count = len(main_names)
+            desc_parts = []
+            if main_names:
+                desc_parts.append("\n".join(f"{i+1}. {n}" for i, n in enumerate(main_names)))
+            else:
+                desc_parts.append("暂无玩家 / No signups yet")
+            if sub_names:
+                desc_parts.append("")
+                desc_parts.append("**替补 / Substitutes:**")
+                desc_parts.append("\n".join(f"S{i+1}. {n}" for i, n in enumerate(sub_names)))
+            desc = "\n".join(desc_parts)
+            color = discord.Color.green()
+
         embed = discord.Embed(
             title=f"已报名玩家 / Signed Up ({count}/{max_p})" + (f" + {len(sub_names)} 替补" if sub_names else ""),
             description=desc,
-            color=discord.Color.green(),
+            color=color,
         )
         new_msg = await interaction.channel.send(embed=embed)
         _player_list_msgs[match_id] = new_msg.id
         # Also persist player_list_msg_id in DB
+        # 优先用 match_id 反查 panel message_id，避免非面板交互时写错记录
         conn2 = get_db(); cur2 = conn2.cursor()
+        cur2.execute("SELECT message_id FROM match_view_state WHERE match_id=?", (match_id,))
+        panel_row = cur2.fetchone()
+        panel_msg_id = panel_row["message_id"] if panel_row else str(interaction.message.id)
         cur2.execute(
             "UPDATE match_view_state SET player_list_msg_id=? WHERE message_id=?",
-            (str(new_msg.id), str(interaction.message.id)),
+            (str(new_msg.id), panel_msg_id),
         )
         conn2.commit(); conn2.close()
 
@@ -1729,6 +1831,75 @@ class MatchViewWithID(discord.ui.View):
             if cur.fetchone():
                 conn.close()
                 return await interaction.followup.send("你已经报过名了 / Already signed up.", ephemeral=True)
+
+            # 选路比赛：弹出路线选择
+            if t["role_pick"]:
+                conn.close()
+                LANES = ["Top", "JG", "Mid", "ADC", "Sup"]
+                lane_counts = {}
+                lane_conn = get_db(); lane_cur = lane_conn.cursor()
+                for lane in LANES:
+                    lane_cur.execute(
+                        "SELECT COUNT(*) as cnt FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0) AND lane=?",
+                        (mid, lane),
+                    )
+                    lane_counts[lane] = lane_cur.fetchone()["cnt"]
+                lane_conn.close()
+
+                lane_options = []
+                for lane in LANES:
+                    full = lane_counts[lane] >= 2
+                    lane_options.append(discord.SelectOption(
+                        label=lane,
+                        value=lane,
+                        description=f"{lane_counts[lane]}/2" + (" (已满)" if full else ""),
+                    ))
+
+                lane_select = discord.ui.Select(
+                    placeholder="选择你的路线 / Pick your lane...",
+                    options=lane_options,
+                )
+
+                async def lane_callback(lane_interaction: discord.Interaction):
+                    chosen_lane = lane_interaction.data["values"][0]
+                    lconn = get_db(); lcur = lconn.cursor()
+                    # 重新检查名额
+                    lcur.execute(
+                        "SELECT COUNT(*) as cnt FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0) AND lane=?",
+                        (mid, chosen_lane),
+                    )
+                    if lcur.fetchone()["cnt"] >= 2:
+                        lconn.close()
+                        return await lane_interaction.response.send_message(
+                            f"该路线已满 / Lane {chosen_lane} is full. 请重新选择 / Please pick another lane.", ephemeral=True
+                        )
+                    # 检查重复报名
+                    lcur.execute("SELECT id FROM registrations WHERE tournament_id=? AND discord_id=?", (mid, uid))
+                    if lcur.fetchone():
+                        lconn.close()
+                        return await lane_interaction.response.send_message("已报名 / Already signed up.", ephemeral=True)
+                    try:
+                        lcur.execute(
+                            "INSERT INTO registrations (tournament_id, discord_id, lane) VALUES (?,?,?)",
+                            (mid, uid, chosen_lane),
+                        )
+                        lcur.execute("INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)", (uid, lane_interaction.user.name))
+                        lconn.commit()
+                    except Exception as e:
+                        lconn.close()
+                        return await lane_interaction.response.send_message("报名失败 / Signup failed.", ephemeral=True)
+                    lconn.close()
+                    await self._refresh_list(lane_interaction, mid)
+                    await lane_interaction.response.send_message(
+                        f"✅ {lane_interaction.user.mention} 报名成功！ Signed up! ({chosen_lane})", ephemeral=True
+                    )
+
+                lane_select.callback = lane_callback
+                lane_view = discord.ui.View(timeout=60)
+                lane_view.add_item(lane_select)
+                return await interaction.followup.send(
+                    f"请选择你的路线 / Pick your lane for **{t['name']}**:", view=lane_view, ephemeral=True
+                )
 
             cur.execute("INSERT INTO registrations (tournament_id, discord_id) VALUES (?,?)", (mid, uid))
             cur.execute("INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)", (uid, interaction.user.name))
@@ -2881,6 +3052,7 @@ class DashboardView(discord.ui.View):
                 discord.SelectOption(label="开打", value="start_match", description="Close signup & start match"),
                 discord.SelectOption(label="结算", value="settle", description="Settle match & distribute coins"),
                 discord.SelectOption(label="拉入语音", value="pull_voice", description="Pull teams into voice channels"),
+                discord.SelectOption(label="创建选路比赛", value="create_role_match", description="Create a role-pick match"),
             ],
             row=0,
         )
@@ -2932,6 +3104,7 @@ class DashboardView(discord.ui.View):
             "start_match": self._start_match,
             "settle": self._settle,
             "pull_voice": self._pull_voice,
+            "create_role_match": self._create_role_match,
         }
         await dispatch[value](interaction)
 
@@ -2952,12 +3125,16 @@ class DashboardView(discord.ui.View):
         modal = CreateMatchModal(self.guild, self.session)
         await interaction.response.send_modal(modal)
 
+    async def _create_role_match(self, interaction: discord.Interaction):
+        modal = CreateRoleMatchModal(self.guild, self.session)
+        await interaction.response.send_modal(modal)
+
 
     async def _join_match(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         conn = get_db(); cur = conn.cursor()
         cur.execute(
-            "SELECT id, name, max_teams, team_size FROM tournaments "
+            "SELECT id, name, max_teams, team_size, role_pick FROM tournaments "
             "WHERE status='open' AND max_teams=2 ORDER BY id DESC LIMIT 25"
         )
         matches = cur.fetchall()
@@ -2969,10 +3146,11 @@ class DashboardView(discord.ui.View):
         options = []
         for m in matches:
             ts = m["team_size"] or 5
+            rp_tag = " [选路]" if m["role_pick"] else ""
             options.append(discord.SelectOption(
                 label=m["name"][:100],
                 value=str(m["id"]),
-                description=f"5v5 | ID: {m['id']}",
+                description=f"5v5 | ID: {m['id']}{rp_tag}",
             ))
 
         select = discord.ui.Select(
@@ -2998,6 +3176,84 @@ class DashboardView(discord.ui.View):
                 return await sel_interaction.followup.send("报名已满 / Signup full.", ephemeral=True)
 
             uid = str(sel_interaction.user.id)
+
+            # 选路比赛：弹出路线选择菜单
+            if t["role_pick"]:
+                conn2.close()
+                await sel_interaction.response.defer(ephemeral=True)
+                # 查询各路线已报名人数
+                lane_conn = get_db(); lane_cur = lane_conn.cursor()
+                LANES = ["Top", "JG", "Mid", "ADC", "Sup"]
+                lane_counts = {}
+                for lane in LANES:
+                    lane_cur.execute(
+                        "SELECT COUNT(*) as cnt FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0) AND lane=?",
+                        (mid, lane),
+                    )
+                    lane_counts[lane] = lane_cur.fetchone()["cnt"]
+                lane_conn.close()
+
+                lane_options = []
+                for lane in LANES:
+                    full = lane_counts[lane] >= 2
+                    lane_options.append(discord.SelectOption(
+                        label=lane,
+                        value=lane,
+                        description=f"{lane_counts[lane]}/2" + (" (已满)" if full else ""),
+                    ))
+
+                lane_select = discord.ui.Select(
+                    placeholder="选择你的路线 / Pick your lane...",
+                    options=lane_options,
+                )
+
+                async def lane_callback(lane_interaction: discord.Interaction):
+                    chosen_lane = lane_interaction.data["values"][0]
+                    lconn = get_db(); lcur = lconn.cursor()
+                    # 重新检查该路是否已满
+                    lcur.execute(
+                        "SELECT COUNT(*) as cnt FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0) AND lane=?",
+                        (mid, chosen_lane),
+                    )
+                    if lcur.fetchone()["cnt"] >= 2:
+                        lconn.close()
+                        return await lane_interaction.response.send_message(
+                            f"该路线已满 / Lane {chosen_lane} is full. 请重新选择 / Please pick another lane.", ephemeral=True
+                        )
+                    # 检查是否已报名
+                    lcur.execute("SELECT id FROM registrations WHERE tournament_id=? AND discord_id=?", (mid, uid))
+                    if lcur.fetchone():
+                        lconn.close()
+                        return await lane_interaction.response.send_message("已报名 / Already signed up.", ephemeral=True)
+                    try:
+                        lcur.execute(
+                            "INSERT INTO registrations (tournament_id, discord_id, lane) VALUES (?,?,?)",
+                            (mid, uid, chosen_lane),
+                        )
+                        lcur.execute("INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)", (uid, lane_interaction.user.name))
+                        lconn.commit()
+                    except Exception as e:
+                        lconn.close()
+                        return await lane_interaction.response.send_message("报名失败 / Signup failed.", ephemeral=True)
+                    lconn.close()
+
+                    # 更新比赛面板的报名列表（含路线分布）
+                    # 找到该比赛的 MatchView 实例对应的消息并刷新
+                    from cogs.dashboard import MatchViewWithID as _MV
+                    mv = _MV()
+                    await mv._refresh_list(lane_interaction, mid)
+                    await lane_interaction.response.send_message(
+                        f"✅ {lane_interaction.user.mention} 报名成功！ Signed up! ({chosen_lane})", ephemeral=True
+                    )
+
+                lane_select.callback = lane_callback
+                lane_view = discord.ui.View(timeout=60)
+                lane_view.add_item(lane_select)
+                return await sel_interaction.followup.send(
+                    f"请选择你的路线 / Pick your lane for **{t['name']}**:", view=lane_view, ephemeral=True
+                )
+
+            # 普通比赛：直接报名
             try:
                 cur2.execute("INSERT INTO registrations (tournament_id, discord_id) VALUES (?,?)", (mid, uid))
                 cur2.execute("INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)", (uid, sel_interaction.user.name))
