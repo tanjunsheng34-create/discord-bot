@@ -326,7 +326,6 @@ async def on_ready():
     await auto_restore()
     logger.info(f"Bot online: {bot.user}")
     try:
-        bot.tree.clear_commands(guild=None)
         synced = await bot.tree.sync()
         logger.info(f"Synced {len(synced)} commands")
     except Exception as e:
