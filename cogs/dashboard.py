@@ -1746,21 +1746,9 @@ class MatchViewWithID(discord.ui.View):
             )
             await self._refresh_list(interaction, mid)
 
-            # Check if match is now full → trigger Ready Check
+            # Trigger VoteView when match is full
             if cnt + 1 >= max_p:
-                conn2 = get_db(); cur2 = conn2.cursor()
-                cur2.execute("SELECT discord_id FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0) ORDER BY id ASC", (mid,))
-                player_rows = cur2.fetchall(); conn2.close()
-                player_ids = [r["discord_id"] for r in player_rows]
-                ready_check_view = ReadyCheckView(
-                    match_id=mid,
-                    match_name=t["name"],
-                    player_ids=player_ids,
-                    guild=guild,
-                    channel=interaction.channel,
-                )
-                embed = await ready_check_view._build_embed(60)
-                await interaction.channel.send(embed=embed, view=ready_check_view)
+                await VoteView.send_vote(match_id=mid, match_name=t["name"], channel=interaction.channel)
         except Exception as e:
             import traceback
             print(f"[MatchView] signup error: {e}")
@@ -2260,12 +2248,21 @@ async def _execute_settle(match_id, win_team_id, mvp_id, guild, match_name, bot=
     # ── MMR 排位更新 ──
     _update_mmr(winner_ids, loser_ids, mvp_id, conn2=None)
 
+    # ── 竞猜结算 / Vote Resolution ──
+    vote_winners = _resolve_vote_bets(match_id, win_team_id)
+    vote_text = ""
+    if vote_winners:
+        vote_text = f"\n\U0001f4ca 竞猜: {len(vote_winners)} 人猜对，各 +5 MMR"
+
     # ── 刷新实时排行榜 ──
     if bot is not None:
         await _refresh_mmr_board(bot, guild)
 
     # ── AI 赛事分析 ──
     analysis_embed = _generate_match_analysis(match_id, match_name, winner_ids, loser_ids, mvp_id, guild)
+    # Append vote results to analysis embed
+    if analysis_embed and vote_text:
+        analysis_embed.description = (analysis_embed.description or "") + vote_text
     return analysis_embed
 
 
@@ -2561,6 +2558,161 @@ def _generate_match_analysis(match_id: int, match_name: str,
     return embed
 
 
+# ══════════ 竞猜投票 / Betting VoteView ══════════
+
+class VoteView(discord.ui.View):
+    """竞猜投票面板 — 比赛开始前观众选谁会赢，猜对 +5 MMR。"""
+
+    def __init__(self, match_id: int, match_name: str, team_a_name: str, team_b_name: str, timeout=None):
+        super().__init__(timeout=None)
+        self.match_id = match_id
+        self.match_name = match_name
+        self.team_a_name = team_a_name
+        self.team_b_name = team_b_name
+        # Unique custom_ids per match
+        self.vote_a_btn.custom_id = f"vote_a_{match_id}"
+        self.vote_b_btn.custom_id = f"vote_b_{match_id}"
+        self._update_vote_labels()
+
+    def _get_vote_counts(self):
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT vote_team, COUNT(*) as cnt FROM votes WHERE tournament_id=? GROUP BY vote_team", (self.match_id,))
+        rows = cur.fetchall(); conn.close()
+        counts = {"A": 0, "B": 0}
+        for r in rows:
+            counts[r["vote_team"]] = r["cnt"]
+        return counts
+
+    def _update_vote_labels(self):
+        counts = self._get_vote_counts()
+        self.vote_a_btn.label = f"\U0001f535 {self.team_a_name} 赢 ({counts['A']})"
+        self.vote_b_btn.label = f"\U0001f534 {self.team_b_name} 赢 ({counts['B']})"
+
+    @discord.ui.button(label="A队赢", style=discord.ButtonStyle.primary, emoji="\U0001f535", row=0)
+    async def vote_a_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        uid = str(interaction.user.id)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO votes (tournament_id, discord_id, vote_team) VALUES (?,?,?) "
+            "ON CONFLICT(tournament_id, discord_id) DO UPDATE SET vote_team=?, voted_at=datetime('now')",
+            (self.match_id, uid, "A", "A"),
+        )
+        conn.commit(); conn.close()
+        self._update_vote_labels()
+        await interaction.message.edit(view=self)
+        await interaction.followup.send(
+            f"\u2705 你投给了 **{self.team_a_name}**！You voted for {self.team_a_name}!", ephemeral=True
+        )
+
+    @discord.ui.button(label="B队赢", style=discord.ButtonStyle.danger, emoji="\U0001f534", row=0)
+    async def vote_b_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        uid = str(interaction.user.id)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO votes (tournament_id, discord_id, vote_team) VALUES (?,?,?) "
+            "ON CONFLICT(tournament_id, discord_id) DO UPDATE SET vote_team=?, voted_at=datetime('now')",
+            (self.match_id, uid, "B", "B"),
+        )
+        conn.commit(); conn.close()
+        self._update_vote_labels()
+        await interaction.message.edit(view=self)
+        await interaction.followup.send(
+            f"\u2705 你投给了 **{self.team_b_name}**！You voted for {self.team_b_name}!", ephemeral=True
+        )
+
+    def build_embed(self) -> discord.Embed:
+        counts = self._get_vote_counts()
+        total = counts["A"] + counts["B"]
+        pct_a = f"{counts['A'] / total * 100:.0f}%" if total > 0 else "0%"
+        pct_b = f"{counts['B'] / total * 100:.0f}%" if total > 0 else "0%"
+        return discord.Embed(
+            title=f"\U0001f4ca 比赛竞猜 / Match Betting",
+            description=(
+                f"**{self.match_name}**\n\n"
+                f"\U0001f535 **{self.team_a_name}**: {counts['A']} 票 ({pct_a})\n"
+                f"\U0001f534 **{self.team_b_name}**: {counts['B']} 票 ({pct_b})\n"
+                f"共 {total} 人参与投票\n\n"
+                f"\u2b50 猜对可获得 **+5 MMR**！"
+            ),
+            color=discord.Color.blue(),
+        )
+
+    @staticmethod
+    async def send_vote(match_id: int, match_name: str, channel):
+        """Send a VoteView to a channel. Uses fresh DB query for team names."""
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT id, name FROM teams WHERE tournament_id=? ORDER BY id ASC", (match_id,))
+        teams = cur.fetchall(); conn.close()
+        if len(teams) < 2:
+            return None
+
+        team_a_name = teams[0]["name"]
+        team_b_name = teams[1]["name"]
+
+        # Check if votes already exist for this match (avoid duplicates)
+        conn2 = get_db(); cur2 = conn2.cursor()
+        cur2.execute("SELECT COUNT(*) as cnt FROM votes WHERE tournament_id=?", (match_id,))
+        vote_exists = cur2.fetchone()["cnt"] > 0
+        conn2.close()
+
+        # Also check if vote message already sent by scanning recent messages (best-effort)
+        # We use a simple DB-only check; if votes exist we skip.
+        try:
+            if vote_exists:
+                # Votes exist but message might be gone — update label counts on existing message if found
+                return None  # Skip re-sending; existing message handles it
+        except Exception:
+            pass
+
+        view = VoteView(match_id, match_name, team_a_name, team_b_name)
+        embed = view.build_embed()
+        try:
+            msg = await channel.send(embed=embed, view=view)
+            return msg
+        except Exception:
+            return None
+
+
+def _resolve_vote_bets(match_id: int, win_team_id: int) -> list:
+    """Resolve votes: determine winning team (A/B), give +5 MMR to correct bettors.
+    Returns list of (discord_id, name) of winners for the summary."""
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT id, name FROM teams WHERE tournament_id=? ORDER BY id ASC", (match_id,))
+    teams = cur.fetchall()
+    if len(teams) < 2:
+        conn.close()
+        return []
+
+    # Determine which slot (A=first, B=second) is the winner
+    win_slot = None
+    for i, tm in enumerate(teams):
+        if tm["id"] == win_team_id:
+            win_slot = "A" if i == 0 else "B"
+            break
+
+    if win_slot is None:
+        conn.close()
+        return []
+
+    # Find bettors who voted for the winning team
+    cur.execute("SELECT discord_id FROM votes WHERE tournament_id=? AND vote_team=?", (match_id, win_slot))
+    winners = [r["discord_id"] for r in cur.fetchall()]
+
+    # Give +5 MMR to each correct bettor
+    for wid in winners:
+        cur.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (wid,))
+        cur.execute("UPDATE mmr SET mmr=mmr+5 WHERE discord_id=?", (wid,))
+        # Ensure mmr row exists
+        cur.execute("INSERT INTO mmr (discord_id, mmr, wins, losses) VALUES (?,1005,0,0) ON CONFLICT(discord_id) DO NOTHING", (wid,))
+
+    conn.commit()
+    winner_names = winners  # discord IDs
+    conn.close()
+    return winner_names
+
+
 # ══════════ MMR 排行榜 实时面板 / MMR Board Live Panel ══════════
 
 async def _build_mmr_board_embed(guild: discord.Guild) -> discord.Embed:
@@ -2850,6 +3002,9 @@ class DashboardView(discord.ui.View):
             cur2.execute("UPDATE tournaments SET status='closed' WHERE id=?", (mid,))
             conn2.commit(); conn2.close()
 
+            # Send VoteView for betting
+            await VoteView.send_vote(match_id=mid, match_name=t["name"], channel=sel_int.channel)
+
             a_mentions = []
             for uid in ta:
                 m = self.guild.get_member(int(uid))
@@ -2978,6 +3133,14 @@ class DashboardView(discord.ui.View):
                 embed=None,
                 view=None,
             )
+
+            # Send VoteView for betting
+            conn3 = get_db(); cur3 = conn3.cursor()
+            cur3.execute("SELECT name FROM tournaments WHERE id=?", (mid,))
+            t_name_row = cur3.fetchone()
+            match_name = t_name_row["name"] if t_name_row else "Unknown"
+            conn3.close()
+            await VoteView.send_vote(match_id=mid, match_name=match_name, channel=sel_int.channel)
 
         select.callback = start_callback
         view = discord.ui.View(timeout=60)

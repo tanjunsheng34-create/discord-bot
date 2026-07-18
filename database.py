@@ -152,6 +152,15 @@ def init_db():
             region        TEXT NOT NULL DEFAULT 'kr',
             created_at    TEXT DEFAULT (datetime('now'))
         );
+
+        CREATE TABLE IF NOT EXISTS votes (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            tournament_id   INTEGER NOT NULL,
+            discord_id      TEXT NOT NULL,
+            vote_team       TEXT NOT NULL,
+            voted_at        TEXT DEFAULT (datetime('now')),
+            UNIQUE(tournament_id, discord_id)
+        );
     """)
 
     # --- 新增锦标赛字段（Swiss/Elimination Tournament System）---
