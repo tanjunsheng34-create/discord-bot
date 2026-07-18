@@ -2091,6 +2091,88 @@ class MatchViewWithID(discord.ui.View):
             ephemeral=True,
         )
 
+    @discord.ui.button(label="🔄 重新分队", style=discord.ButtonStyle.secondary, emoji="🎲", row=2, custom_id="matchv2_reshuffle")
+    async def reshuffle_btn(self, interaction: discord.Interaction, button):
+        """Re-shuffle existing registered players into new teams (in-place)."""
+        await interaction.response.defer(ephemeral=True)
+        try:
+            mid, t, guild = await self._get_context(interaction)
+            if not t:
+                return await interaction.followup.send("比赛不存在 / Match not found.", ephemeral=True)
+        except Exception:
+            return await interaction.followup.send("无法获取比赛信息 / Unable to fetch match.", ephemeral=True)
+
+        uid = str(interaction.user.id)
+
+        # Permission: must be a non-sub participant or admin
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT 1 FROM registrations WHERE tournament_id=? AND discord_id=? AND (is_sub IS NULL OR is_sub=0)",
+            (mid, uid),
+        )
+        is_participant = cur.fetchone() is not None
+        conn.close()
+        if not interaction.user.guild_permissions.administrator and not is_participant:
+            return await interaction.followup.send("仅参赛者或管理员可操作", ephemeral=True)
+
+        # Get all non-sub players
+        conn2 = get_db(); cur2 = conn2.cursor()
+        cur2.execute(
+            "SELECT discord_id FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0)",
+            (mid,),
+        )
+        players = [r["discord_id"] for r in cur2.fetchall()]
+        if len(players) < 2:
+            conn2.close()
+            return await interaction.followup.send("参赛人数不足 (至少2人) / Not enough players (min 2).", ephemeral=True)
+
+        if len(players) % 2 != 0:
+            players = players[:-1]
+
+        import random as _random
+        _random.shuffle(players)
+        split = len(players) // 2
+        ta, tb = players[:split], players[split:]
+
+        cur2.execute("DELETE FROM teams WHERE tournament_id=?", (mid,))
+        cur2.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (mid, "A 队 Team A"))
+        aid = cur2.lastrowid
+        for u in ta:
+            cur2.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (aid, mid, u))
+        cur2.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (mid, "B 队 Team B"))
+        bid = cur2.lastrowid
+        for u in tb:
+            cur2.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (bid, mid, u))
+        conn2.commit(); conn2.close()
+
+        match_name = t["name"]
+
+        a_mentions = [f"<@{uid}>" for uid in ta]
+        b_mentions = [f"<@{uid}>" for uid in tb]
+        embed = discord.Embed(
+            title=f"🔄 重新分队 — {match_name}",
+            description=(
+                f"🔵 **A 队 Team A** (ID:{aid}): {' '.join(a_mentions)}\n"
+                f"🔴 **B 队 Team B** (ID:{bid}): {' '.join(b_mentions)}\n\n"
+                f"Match ID: {mid}\n"
+                f"Settle: `/gmpt-settle {mid} <win_team_id>`"
+            ),
+            color=discord.Color.gold(),
+        )
+        await interaction.channel.send(embed=embed)
+
+        # Send voice pull view
+        try:
+            voice_view = VoicePullView(ta, tb, guild)
+            await interaction.channel.send("📢 点击按钮将玩家拉入对应语音频道：", view=voice_view)
+        except Exception:
+            pass
+
+        # Send vote view
+        await VoteView.send_vote(match_id=mid, match_name=match_name, channel=interaction.channel)
+
+        await interaction.followup.send("重新分队完成！", ephemeral=True)
+
     @discord.ui.button(label="管理员加人", style=discord.ButtonStyle.primary, emoji="➕", row=2, custom_id="matchv2_admin_add")
     async def admin_add_btn(self, interaction: discord.Interaction, button):
         """Admin-only: batch add players or substitutes via UserSelect + type dropdown."""
@@ -4087,6 +4169,73 @@ class Dashboard(commands.Cog):
             f"已重置 {affected} 名玩家的 MMR 为 1000 (Iron).",
             ephemeral=True,
         )
+
+    @app_commands.command(
+        name="gmpt-recover",
+        description="Recover a deleted match panel / 恢复被删除的比赛面板",
+    )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(
+        match_id="Match ID to recover / 要恢复的比赛ID",
+    )
+    async def gmpt_recover(self, interaction: discord.Interaction, match_id: int):
+        await interaction.response.defer(ephemeral=True)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT * FROM tournaments WHERE id=?", (match_id,))
+        t = cur.fetchone()
+        if not t:
+            conn.close()
+            return await interaction.followup.send(f"未找到比赛 #{match_id} / Match not found.")
+        conn.close()
+
+        mp = t["max_teams"] * t["team_size"]
+        embed = discord.Embed(
+            title=f"Match: {t['name']}",
+            description=f"**{mp}** 人 / Players | 每队 / Per Team: {t['team_size']}\nClick below to sign up / 点击下方按钮报名",
+            color=discord.Color.blue(),
+        ).set_footer(text=f"Match ID: {match_id}")
+        view = MatchView()
+        msg = await interaction.channel.send(embed=embed, view=view)
+        save_match_view_state(match_id, msg.id, interaction.channel_id)
+
+        conn2 = get_db(); cur2 = conn2.cursor()
+        cur2.execute(
+            "SELECT discord_id FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0) ORDER BY id ASC",
+            (match_id,),
+        )
+        main_players = [r["discord_id"] for r in cur2.fetchall()]
+        cur2.execute(
+            "SELECT discord_id FROM registrations WHERE tournament_id=? AND is_sub=1 ORDER BY id ASC",
+            (match_id,),
+        )
+        sub_players = [r["discord_id"] for r in cur2.fetchall()]
+        conn2.close()
+
+        lines = []
+        for i, uid in enumerate(main_players, 1):
+            member = interaction.guild.get_member(int(uid))
+            name = member.display_name if member else f"<@{uid}>"
+            lines.append(f"{i}. {name}")
+        desc = "\n".join(lines) if lines else "暂无玩家 / No signups yet"
+        title = f"已报名玩家 / Signed Up ({len(main_players)}/{mp})"
+        if sub_players:
+            title += f" +{len(sub_players)}替补"
+
+        list_embed = discord.Embed(
+            title=title,
+            description=desc,
+            color=discord.Color.green(),
+        )
+        list_msg = await interaction.channel.send(embed=list_embed)
+        set_player_list_msg(match_id, list_msg.id)
+        conn3 = get_db(); cur3 = conn3.cursor()
+        cur3.execute(
+            "UPDATE match_view_state SET player_list_msg_id=? WHERE message_id=?",
+            (str(list_msg.id), str(msg.id)),
+        )
+        conn3.commit(); conn3.close()
+
+        await interaction.followup.send(f"已恢复比赛面板 #{match_id} / Panel recovered.", ephemeral=True)
 
 
 async def setup(bot):
