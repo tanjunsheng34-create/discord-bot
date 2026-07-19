@@ -44,25 +44,13 @@ MATCH_WIN_COINS = 150       # coins awarded to each winner
 MATCH_PARTICIPATE_COINS = 50  # coins awarded to each loser / MVP
 
 DEFAULT_SHOP = [
-    # ⚔️ 比赛道具（影响比赛）
-    {"name": "双倍或清零 (Double or Nothing)", "desc": "使用后随机翻倍或清零当前余额 / Randomly double or zero your balance", "price": 300, "type": "gamble", "emoji": "🎲", "category": "⚔️ 比赛道具"},
-    {"name": "比赛复活卡 (Match Revive Card)", "desc": "淘汰后可复活一次继续比赛 / Revive once after elimination", "price": 3000, "type": "revive", "emoji": "💚", "category": "⚔️ 比赛道具"},
-    # 🛡️ 防御道具（保护类）
-    {"name": "隐身卡 (Invisibility Card)", "desc": "24小时内排行榜隐藏你的名字 / Hide your name on leaderboard for 24h", "price": 1200, "type": "invisibility", "emoji": "🫥", "category": "🛡️ 防御道具"},
     # 💰 加成道具（金币/MMR加成）
     {"name": "MMR保护卡 (MMR Protect)", "desc": "本场比赛输了不扣MMR / Lose without MMR penalty for this match", "price": 500, "type": "mmr_protect", "emoji": "🛡️", "category": "💰 加成道具"},
     {"name": "双倍MMR卡 (Double MMR)", "desc": "本场比赛赢了MMR翻倍 / Double MMR gain if you win", "price": 600, "type": "double_mmr", "emoji": "⚡", "category": "💰 加成道具"},
-    {"name": "双倍积分卡 (Double Points Card)", "desc": "下一场比赛积分双倍 / Next match points doubled", "price": 400, "type": "doubler", "emoji": "⬆️", "category": "💰 加成道具"},
     {"name": "偷金币卡 (Coin Steal)", "desc": "结算时偷对手 30 coins / Steal 30 coins from opponent on settle", "price": 350, "type": "steal_coins", "emoji": "🥷", "category": "💰 加成道具"},
     {"name": "经验加成卡 (XP Boost Card)", "desc": "下一场比赛经验值+50% / Next match +50% XP", "price": 800, "type": "xp_boost", "emoji": "📈", "category": "💰 加成道具"},
-    # 🎭 社交道具（整活/互动）
-    {"name": "Queue 队长通行证 (Captain Pass)", "desc": "在自定义对战中担任队长选人 / Become captain in custom matches", "price": 500, "type": "pass", "emoji": "🎫", "category": "🎭 社交道具"},
-    {"name": "个人资料头衔 (Profile Title)", "desc": "在余额页显示自定义头衔 / Display custom title on profile", "price": 1000, "type": "title", "emoji": "🏷️", "category": "🎭 社交道具"},
-    {"name": "昵称炸弹 (Nickname Bomb)", "desc": "强制修改一位选手的昵称24h / Force rename a player for 24h", "price": 1500, "type": "nickname", "emoji": "💣", "category": "🎭 社交道具"},
-    {"name": "自定义颜色角色 (Custom Color Role)", "desc": "获得自定义颜色的专属角色 / Get a custom color role", "price": 2000, "type": "role_color", "emoji": "🎨", "category": "🎭 社交道具"},
-    {"name": "改名卡 (Name Change Card)", "desc": "修改一次你的游戏昵称 / Change your in-game nickname once", "price": 2500, "type": "name_change", "emoji": "✏️", "category": "🎭 社交道具"},
-    {"name": "全服广播喇叭 (Server Broadcast)", "desc": "向全服发送一条醒目公告 / Send a server-wide announcement", "price": 5000, "type": "broadcast", "emoji": "📢", "category": "🎭 社交道具"},
-    {"name": "至尊传说称号 (Legendary Title)", "desc": "专属传说级称号，全服广播 / Legendary title with server broadcast", "price": 100000, "type": "legendary_title", "emoji": "👑", "category": "🎭 社交道具"},
+    # 🎲 随机道具
+    {"name": "双倍或清零 (Double or Nothing)", "desc": "使用后随机翻倍或清零当前余额 / Randomly double or zero your balance", "price": 300, "type": "gamble", "emoji": "🎲", "category": "🎲 随机道具"},
 ]
 
 ACHIEVEMENTS = [
@@ -1216,12 +1204,7 @@ class Economy(commands.Cog):
 
         # 执行效果
         effect_msg = ""
-        if item_type == "doubler":
-            effect_msg = (
-                "✅ **Double Points Activated! / 双倍积分已激活！**\n"
-                "Your next match will earn **2x points**. / 下一场比赛积分**翻倍**。"
-            )
-        elif item_type == "gamble":
+        if item_type == "gamble":
             bal = get_balance(uid)
             if random.random() < 0.5:
                 # 翻倍
@@ -1242,22 +1225,6 @@ class Economy(commands.Cog):
                     f"💀 **You lost! / 你输了！**\n"
                     f"Balance wiped: 🪙 {bal} → 🪙 **0** / 余额清零！"
                 )
-        elif item_type == "title":
-            effect_msg = (
-                "✅ **Title Equipped! / 头衔已装备！**\n"
-                "Your custom title will appear on your profile. / 自定义头衔将显示在你的个人资料页。"
-            )
-        elif item_type == "nickname":
-            effect_msg = (
-                "✅ **Nickname Bomb Ready! / 昵称炸弹已就绪！**\n"
-                "Use `/gmpt-nickname @player <new_name>` to rename someone. / 使用 `/gmpt-nickname @玩家 <新昵称>` 来改名。"
-            )
-        elif item_type == "legendary_title":
-            effect_msg = (
-                "👑 **LEGENDARY TITLE ACTIVATED! / 至尊传说称号已激活！**\n"
-                f"**{interaction.user.display_name}** has equipped the **Legendary Title**! / 已装备**至尊传说称号**！\n"
-                "🌟 A legendary player walks among us... / 传说级玩家降临..."
-            )
         elif item_type == "xp_boost":
             # 激活经验加成
             conn3 = get_db(); cur3 = conn3.cursor()
@@ -1290,29 +1257,6 @@ class Economy(commands.Cog):
             effect_msg = (
                 "🥷 **Coin Steal Ready! / 偷金币已就绪！**\n"
                 "Will steal 30 coins from opponent on next match settle. / 下场结算时偷对手 30 coins。"
-            )
-        elif item_type == "invisibility":
-            effect_msg = (
-                "✅ **Invisibility Activated! / 隐身已激活！**\n"
-                "Your name is hidden on leaderboard for 24h. / 24小时内排行榜上将隐藏你的名字。"
-            )
-        elif item_type == "name_change":
-            effect_msg = (
-                "✅ **Name Change Card Used! / 改名卡已使用！**\n"
-                "Use `/gmpt-rename <new_name>` to change your nickname. / 使用 `/gmpt-rename <新昵称>` 修改昵称。"
-            )
-        elif item_type == "broadcast":
-            effect_msg = (
-                "📢 **SERVER BROADCAST / 全服广播**\n"
-                f"**{interaction.user.display_name}** sends a message to everyone! / 向全服发送了一条消息！\n"
-                "━━━━━━━━━━━━━━━━━━━━\n"
-                "📣 Hear ye, hear ye! A mighty warrior speaks! / 诸位听令！一位勇士在此发声！\n"
-                "━━━━━━━━━━━━━━━━━━━━"
-            )
-        elif item_type == "revive":
-            effect_msg = (
-                "✅ **Revive Card Activated! / 复活卡已激活！**\n"
-                "You can revive once after elimination in the next match. / 下场比赛淘汰后可复活一次。"
             )
         else:
             effect_msg = (
