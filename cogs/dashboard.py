@@ -1222,7 +1222,7 @@ class ReShuffleView(discord.ui.View):
             return await interaction.response.send_message("仅参赛者或管理员可操作", ephemeral=True)
         await interaction.response.defer(ephemeral=True)
         lines = await self._do_pull(interaction, team_a_ids, 1438050912814895186, "A")
-        notify_channel = self.guild.get_channel(1462616745197043722)
+        notify_channel = self.guild.get_channel(1453208983358935121)
         if notify_channel and lines:
             try:
                 await notify_channel.send("\n".join(lines))
@@ -1243,7 +1243,7 @@ class ReShuffleView(discord.ui.View):
             return await interaction.response.send_message("仅参赛者或管理员可操作", ephemeral=True)
         await interaction.response.defer(ephemeral=True)
         lines = await self._do_pull(interaction, team_b_ids, 1437626921394372658, "B")
-        notify_channel = self.guild.get_channel(1462616745197043722)
+        notify_channel = self.guild.get_channel(1453208983358935121)
         if notify_channel and lines:
             try:
                 await notify_channel.send("\n".join(lines))
@@ -1260,7 +1260,7 @@ class VoicePullView(discord.ui.View):
 
     VA_CHANNEL_ID = 1438050912814895186
     VB_CHANNEL_ID = 1437626921394372658
-    NOTIFY_CHANNEL_ID = 1462616745197043722
+    NOTIFY_CHANNEL_ID = 1453208983358935121
 
     def __init__(self, team_a_ids: list, team_b_ids: list, guild: discord.Guild, timeout: float = 300):
         super().__init__(timeout=timeout)
