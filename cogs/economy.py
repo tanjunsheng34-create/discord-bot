@@ -382,6 +382,8 @@ class ShopCategoryView(discord.ui.View):
                 "This is not your shop. / 这不是你的商店页面。", ephemeral=True
             )
 
+        await interaction.response.defer()
+
         cat = interaction.data["values"][0]
         items = [it for it in self.all_items if it.get("category", "其他") == cat]
         color = CATEGORY_COLORS.get(cat, 0xFFD700)
@@ -397,7 +399,7 @@ class ShopCategoryView(discord.ui.View):
 
         if img_buf:
             f = discord.File(img_buf, filename="shop.png")
-            await interaction.response.edit_message(attachments=[f], view=view, embed=None)
+            await interaction.edit_original_response(attachments=[f], view=view)
         else:
             embed = discord.Embed(title=f"{cat} | GMPT COIN SHOP / 积分商店", color=color)
             embed.add_field(name="Balance / 余额", value=f"🪙 {self.bal} GMPT Coins", inline=False)
@@ -406,7 +408,7 @@ class ShopCategoryView(discord.ui.View):
                 for it in items
             ), inline=False)
             embed.set_footer(text="GMPT Bot • Economy System")
-            await interaction.response.edit_message(embed=embed, view=view, attachments=[])
+            await interaction.edit_original_response(embed=embed, view=view, attachments=[])
 
     async def on_timeout(self):
         for child in self.children:
@@ -476,6 +478,9 @@ class ShopView(discord.ui.View):
             return await interaction.response.send_message(
                 "This is not your shop. / 这不是你的商店页面。", ephemeral=True
             )
+
+        await interaction.response.defer()
+
         bal = self.bal or get_balance(str(interaction.user.id))
         img_buf = generate_shop_image(self.all_items, bal)
         view = ShopCategoryView(
@@ -486,7 +491,7 @@ class ShopView(discord.ui.View):
         )
         if img_buf:
             f = discord.File(img_buf, filename="shop.png")
-            await interaction.response.edit_message(attachments=[f], view=view, embed=None)
+            await interaction.edit_original_response(attachments=[f], view=view)
         else:
             embed = discord.Embed(title="🛒 GMPT COIN SHOP / 积分商店", color=0xFFD700)
             embed.add_field(name="Balance / 余额", value=f"🪙 {bal} GMPT Coins", inline=False)
@@ -495,12 +500,13 @@ class ShopView(discord.ui.View):
                 for it in self.all_items
             ), inline=False)
             embed.set_footer(text="GMPT Bot • Economy System")
-            await interaction.response.edit_message(embed=embed, view=view, attachments=[])
+            await interaction.edit_original_response(embed=embed, view=view, attachments=[])
 
     def make_buy_callback(self, item_id):
         async def callback(interaction: discord.Interaction):
             if str(interaction.user.id) != self.user_id:
                 return await interaction.response.send_message("This is not your shop. / 这不是你的商店页面。", ephemeral=True)
+            await interaction.response.defer()
             await buy_item(interaction, str(interaction.user.id), item_id)
         return callback
 
@@ -648,16 +654,16 @@ async def buy_item(interaction: discord.Interaction, uid: str, item_id: int, bro
 
         @discord.ui.button(label="Confirm / 确认购买", style=discord.ButtonStyle.success, emoji="✅")
         async def confirm(self, btn_i: discord.Interaction, button):
-            await interaction.response.defer(ephemeral=True)
+            await btn_i.response.defer()
             if str(btn_i.user.id) != uid:
-                return await btn_i.response.send_message(
+                return await btn_i.followup.send(
                     "This is not your order. / 这不是你的购买单。", ephemeral=True
                 )
 
             conn2 = get_db(); cur2 = conn2.cursor()
             bal2 = get_balance(uid)
             if bal2 < item["price"]:
-                conn2.close(); return await btn_i.response.send_message(
+                conn2.close(); return await btn_i.followup.send(
                     f"Insufficient balance! {bal2} coins. / 余额不足！{bal2} coins。", ephemeral=True
                 )
 
@@ -781,7 +787,7 @@ async def buy_item(interaction: discord.Interaction, uid: str, item_id: int, bro
                 conn2.commit(); conn2.close()
 
             for child in self.children: child.disabled = True
-            await btn_i.response.edit_message(content=result_msg, view=self)
+            await btn_i.edit_original_response(content=result_msg, view=self)
 
             # 成就检查
             check_achievement(uid, "在商店购买")
@@ -793,13 +799,13 @@ async def buy_item(interaction: discord.Interaction, uid: str, item_id: int, bro
 
         @discord.ui.button(label="Cancel / 取消", style=discord.ButtonStyle.secondary, emoji="❌")
         async def cancel(self, btn_i: discord.Interaction, button):
-            await interaction.response.defer(ephemeral=True)
+            await btn_i.response.defer()
             if str(btn_i.user.id) != uid:
-                return await btn_i.response.send_message(
+                return await btn_i.followup.send(
                     "This is not your order. / 这不是你的购买单。", ephemeral=True
                 )
             for child in self.children: child.disabled = True
-            await btn_i.response.edit_message(content="Cancelled. / 已取消。", view=self)
+            await btn_i.edit_original_response(content="Cancelled. / 已取消。", view=self)
 
     await interaction.followup.send(
         f"Confirm purchase / 确认购买 **{item['name']}**？\n"
