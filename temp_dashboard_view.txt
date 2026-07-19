@@ -1,0 +1,1208 @@
+
+# =============================================================================
+# DashboardView — 5-page button-based control panel / 全按钮分页控制面板
+# =============================================================================
+class DashboardView(discord.ui.View):
+    """Unified control panel with 5 pages + navigation buttons."""
+
+    PAGE_COLORS = {
+        1: discord.Color.blue(),
+        2: discord.Color.gold(),
+        3: discord.Color.green(),
+        4: discord.Color.teal(),
+        5: discord.Color.purple(),
+    }
+
+    PAGE_TITLES = {
+        1: "âš”ï¸ æ¯”èµ› Match",
+        2: "ðŸ† èµ›äº‹ Tournament",
+        3: "ðŸ‘¤ çŽ©å®¶ Player",
+        4: "ðŸ›’ ç»æµŽ Economy",
+        5: "ðŸŽ§ å·¥å…· Tools",
+    }
+
+    def __init__(self, guild, session):
+        super().__init__(timeout=None)
+        self.guild = guild
+        self.session = session
+        self.page = 1
+        self.build_page_buttons()
+
+    # ═══════════════════ Page Builder ═══════════════════
+
+    def build_page_buttons(self):
+        """Rebuild all buttons for current page."""
+        self.clear_items()
+        page = self.page
+
+        if page == 1:
+            btns = [
+                ("ðŸŽ® åˆ›å»ºæ¯”èµ›\nCreate Match", "create_match"),
+                ("ðŸ“‹ æŠ¥å\nSign Up", "signup"),
+                ("ðŸŽ² éšæœºåˆ†é˜Ÿ\nRandom Teams", "shuffle"),
+                ("ðŸ”´ðŸ”µ åˆ†ABé˜Ÿ\nTeam A/B", "assign_teams"),
+                ("âš”ï¸ å¼€å§‹æ¯”èµ›\nStart Match", "start_match"),
+                ("ðŸ ç»“ç®—\nSettle", "settle"),
+                ("ðŸ”Š æ‹‰å…¥è¯­éŸ³\nPull VC", "pull_voice"),
+                ("ðŸ‘‘ é€‰é˜Ÿé•¿\nPick Captain", "pick_captain"),
+            ]
+        elif page == 2:
+            btns = [
+                ("ðŸ† åˆ›å»ºèµ›äº‹\nCreate", "create_tournament"),
+                ("âœï¸ æŠ¥å\nSign Up", "signup_tournament"),
+                ("ðŸ‘¤ é˜Ÿé•¿é€‰ç§€\nDraft", "draft_setup"),
+                ("ðŸ“Š ä¸ŠæŠ¥æ¯”åˆ†\nReport", "report_score"),
+                ("ðŸ“ˆ èµ›äº‹æŽ’å\nStandings", "tournament_standings"),
+                ("ðŸ—ºï¸ å¯¹é˜µè¡¨\nBracket", "tournament_bracket"),
+            ]
+            # Pad to 8 slots for consistent grid
+            while len(btns) < 8:
+                btns.append(None)
+        elif page == 3:
+            btns = [
+                ("ðŸ‘¤ ä¸ªäººèµ„æ–™\nProfile", "profile"),
+                ("ðŸ“œ æ¯”èµ›åŽ†å²\nHistory", "history"),
+                ("ðŸ“… æ¯å‘¨æŒ‘æˆ˜\nWeekly", "weekly"),
+                ("ðŸ“… æŽ’ä½èµ›å­£\nSeason", "season"),
+                ("ðŸ’Ž MVPæŽ’è¡Œæ¦œ\nMVP LB", "mvp_lb"),
+            ]
+            while len(btns) < 8:
+                btns.append(None)
+        elif page == 4:
+            btns = [
+                ("ðŸ›’ ç§¯åˆ†å•†åº—\nShop", "shop"),
+                ("ðŸŽ’ æˆ‘çš„èƒŒåŒ…\nInventory", "inventory"),
+                ("ðŸ’° ä½™é¢\nBalance", "balance"),
+                ("ðŸŽ èµ é€é‡‘å¸\nGift", "gift"),
+                ("ðŸ“Š äº¤æ˜“è®°å½•\nTransactions", "transactions"),
+                ("ðŸ… å°±åˆ—è¡¨\nAchievements", "achievements"),
+                ("ðŸŽŸï¸ æŠ½å¥–\nGiveaway", "giveaway"),
+            ]
+            while len(btns) < 8:
+                btns.append(None)
+        elif page == 5:
+            btns = [
+                ("ðŸŽ¤ è¯­éŸ³æŽ’è¡Œ\nVoice LB", "voice_lb"),
+                ("ðŸ”Š æŽ’é˜ŸçŠ¶æ€\nQueue Status", "queue_status"),
+                ("ðŸ“Š å…¨éƒ¨çŽ©å®¶\nAll Players", "all_players"),
+                ("ðŸ”’ ç®¡ç†é¢æ¿\nAdmin", "admin"),
+            ]
+            while len(btns) < 8:
+                btns.append(None)
+
+        # Layout: rows of 4
+        rows = []
+        current_row = []
+        for btn in btns:
+            if btn is None:
+                continue
+            current_row.append(btn)
+            if len(current_row) == 4:
+                rows.append(current_row)
+                current_row = []
+        if current_row:
+            rows.append(current_row)
+
+        for row_idx, row_btns in enumerate(rows):
+            for col_idx, (label, cb_id) in enumerate(row_btns):
+                btn = discord.ui.Button(
+                    label=label,
+                    style=discord.ButtonStyle.secondary,
+                    row=row_idx,
+                    custom_id=cb_id,
+                )
+                btn.callback = self.make_callback(cb_id)
+                self.add_item(btn)
+
+        # Navigation row
+        self.prev_btn = discord.ui.Button(label="â—€ ä¸Šä¸€é¡µ Prev", style=discord.ButtonStyle.primary, row=3, disabled=(page == 1))
+        self.prev_btn.callback = self.prev_page
+        self.add_item(self.prev_btn)
+
+        self.page_label = discord.ui.Button(label=f"Page {page}/5", style=discord.ButtonStyle.secondary, row=3, disabled=True)
+        self.add_item(self.page_label)
+
+        self.next_btn = discord.ui.Button(label="ä¸‹ä¸€é¡µ Next â–¶", style=discord.ButtonStyle.primary, row=3, disabled=(page == 5))
+        self.next_btn.callback = self.next_page
+        self.add_item(self.next_btn)
+
+    def make_callback(self, cb_id):
+        """Factory to create lambda-free callbacks (avoids closure issues)."""
+        async def inner(interaction: discord.Interaction):
+            method = getattr(self, "_" + cb_id, None)
+            if method:
+                await method(interaction)
+        return inner
+
+    # ═══════════════════ Navigation ═══════════════════
+
+    async def prev_page(self, interaction: discord.Interaction):
+        if self.page > 1:
+            self.page -= 1
+        self.build_page_buttons()
+        embed = self._build_page_embed()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def next_page(self, interaction: discord.Interaction):
+        if self.page < 5:
+            self.page += 1
+        self.build_page_buttons()
+        embed = self._build_page_embed()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    def _build_page_embed(self):
+        title = f"ðŸŽ® GMPT æŽ§åˆ¶é¢æ¿ Control Panel | {self.PAGE_TITLES.get(self.page, '')}"
+        color = self.PAGE_COLORS.get(self.page, discord.Color.blurple())
+
+        if self.page == 1:
+            desc = "âš”ï¸ **Match System / æ¯”èµ›ç³»ç»Ÿ** â€” åˆ›å»ºã€æŠ¥åã€åˆ†é˜Ÿã€ç»“ç®—\nClick a button below / ç‚¹å‡»ä¸‹æ–¹æŒ‰é’®"
+        elif self.page == 2:
+            desc = "ðŸ† **Tournament System / èµ›äº‹ç³»ç»Ÿ** â€” åˆ›å»ºèµ›äº‹ã€æŠ¥åã€é€‰ç§€ã€ä¸ŠæŠ¥\nClick a button below / ç‚¹å‡»ä¸‹æ–¹æŒ‰é’®"
+        elif self.page == 3:
+            desc = "ðŸ‘¤ **Player / çŽ©å®¶** â€” èµ„æ–™ã€åŽ†å²ã€æŒ‘æˆ˜ã€æŽ’è¡Œ\ne.g. èµ›å­£ã€Profileã€Historyã€MVP"
+        elif self.page == 4:
+            desc = "ðŸ›’ **Economy / ç»æµŽ** â€” å•†åº—ã€èƒŒåŒ…ã€é‡‘å¸ã€æŠ½å¥–\ne.g. Shopã€Balanceã€Achievements"
+        elif self.page == 5:
+            desc = "ðŸŽ§ **Tools / å·¥å…·** â€” è¯­éŸ³æŽ’è¡Œã€æŽ’é˜Ÿã€ç®¡ç†\ne.g. Voice LBã€Queueã€Admin"
+
+        return discord.Embed(
+            title=title,
+            description=desc,
+            color=color,
+        ).set_footer(text=f"GMPT Dashboard v3.1 | Page {self.page}/5")
+
+    # ═══════════════════ Page 1 — Match ═══════════════════
+
+    async def _create_match(self, interaction: discord.Interaction):
+        modal = CreateMatchModal(self.guild)
+        await interaction.response.send_modal(modal)
+
+    async def _signup(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        await interaction.followup.send(
+            "ðŸ“‹ **Sign Up / æŠ¥å**\n"
+            "Use `/gmpt-signup` to sign up for a match.\n"
+            "è¯·ä½¿ç”¨ `/gmpt-signup` æŠ¥åå‚èµ›ã€‚",
+            ephemeral=True,
+        )
+
+    async def _shuffle(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT id, name, max_teams, team_size FROM tournaments "
+            "WHERE status='open' AND max_teams=2 ORDER BY id DESC LIMIT 25"
+        )
+        matches = cur.fetchall()
+        conn.close()
+
+        if not matches:
+            return await interaction.followup.send("å½“å‰æ²¡æœ‰å¯éšæœºåˆ†é˜Ÿçš„æ¯”èµ› / No open matches.", ephemeral=True)
+
+        options = []
+        for m in matches:
+            ts = m["team_size"] or 5
+            options.append(discord.SelectOption(
+                label=m["name"][:100],
+                value=str(m["id"]),
+                description=f"{ts}v{ts} | ID: {m['id']}",
+            ))
+
+        select = discord.ui.Select(
+            placeholder="é€‰æ‹©æ¯”èµ› / Select a match...",
+            options=options[:25],
+        )
+
+        async def shuffle_callback(sel_int: discord.Interaction):
+            mid = int(sel_int.data["values"][0])
+            conn2 = get_db(); cur2 = conn2.cursor()
+            cur2.execute("SELECT * FROM tournaments WHERE id=?", (mid,))
+            t = cur2.fetchone()
+            if not t or t["status"] != "open":
+                conn2.close()
+                return await sel_int.response.send_message("æ¯”èµ›å·²å…³é—­æˆ–ä¸å­˜åœ¨ / Match closed or not found.", ephemeral=True)
+
+            cur2.execute("SELECT discord_id FROM registrations WHERE tournament_id=? ORDER BY RANDOM()", (mid,))
+            players = [r["discord_id"] for r in cur2.fetchall()]
+            if len(players) < 2:
+                conn2.close()
+                return await sel_int.response.send_message("äººæ•°ä¸è¶³ (è‡³å°‘2äºº) / Not enough players (min 2).", ephemeral=True)
+
+            ts = t["team_size"] or 5
+            split = min(ts, len(players) // 2)
+            ta, tb = players[:split], players[split:split * 2]
+
+            cur2.execute("DELETE FROM teams WHERE tournament_id=?", (mid,))
+            cur2.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (mid, "A é˜Ÿ Team A"))
+            aid = cur2.lastrowid
+            for u in ta:
+                cur2.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (aid, mid, u))
+            cur2.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (mid, "B é˜Ÿ Team B"))
+            bid = cur2.lastrowid
+            for u in tb:
+                cur2.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (bid, mid, u))
+            cur2.execute("UPDATE tournaments SET status='closed' WHERE id=?", (mid,))
+            conn2.commit(); conn2.close()
+
+            await VoteView.send_vote(match_id=mid, match_name=t["name"], channel=sel_int.channel)
+
+            a_mentions = []
+            for uid in ta:
+                m = self.guild.get_member(int(uid))
+                a_mentions.append(m.mention if m else f"<@{uid}>")
+            b_mentions = []
+            for uid in tb:
+                m = self.guild.get_member(int(uid))
+                b_mentions.append(m.mention if m else f"<@{uid}>")
+
+            embed = discord.Embed(
+                title=f"Shuffle â€” {t['name']}",
+                description=(
+                    f"ðŸ”µ **A é˜Ÿ Team A** (ID:{aid}): {' '.join(a_mentions)}\n"
+                    f"ðŸ”´ **B é˜Ÿ Team B** (ID:{bid}): {' '.join(b_mentions)}\n\n"
+                    f"Settle: `/gmpt-settle {mid} <win_team_id>`"
+                ),
+                color=discord.Color.gold(),
+            )
+            await sel_int.response.send_message(embed=embed, ephemeral=False)
+
+        select.callback = shuffle_callback
+        view = discord.ui.View(timeout=60)
+        view.add_item(select)
+        await interaction.followup.send(view=view, ephemeral=True)
+
+    async def _assign_teams(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT id, name, max_teams, team_size FROM tournaments "
+            "WHERE status='open' AND max_teams=2 ORDER BY id DESC LIMIT 25"
+        )
+        matches = cur.fetchall()
+        conn.close()
+
+        if not matches:
+            return await interaction.followup.send("å½“å‰æ²¡æœ‰å¯åˆ†é…çš„æ¯”èµ› / No open matches.", ephemeral=True)
+
+        options = []
+        for m in matches:
+            ts = m["team_size"] or 5
+            options.append(discord.SelectOption(
+                label=m["name"][:100],
+                value=str(m["id"]),
+                description=f"{ts}v{ts} | ID: {m['id']}",
+            ))
+
+        select = discord.ui.Select(
+            placeholder="é€‰æ‹©æ¯”èµ› / Select a match...",
+            options=options[:25],
+        )
+
+        async def assign_callback(sel_int: discord.Interaction):
+            mid = int(sel_int.data["values"][0])
+            conn2 = get_db(); cur2 = conn2.cursor()
+            cur2.execute("SELECT * FROM tournaments WHERE id=?", (mid,))
+            t = cur2.fetchone()
+            cur2.execute("SELECT discord_id FROM registrations WHERE tournament_id=?", (mid,))
+            players = cur2.fetchall()
+            conn2.close()
+
+            if not t or not players:
+                return await sel_int.response.send_message("æ¯”èµ›ä¸å­˜åœ¨æˆ–æ— æŠ¥åçŽ©å®¶ / Match not found or no players.", ephemeral=True)
+
+            player_ids = [r["discord_id"] for r in players]
+            ts = t["team_size"] or 5
+            view = TeamAssignView(mid, t["name"], player_ids, self.guild, ts)
+            embed = view._build_embed()
+            await sel_int.response.send_message(embed=embed, view=view, ephemeral=False)
+
+        select.callback = assign_callback
+        view = discord.ui.View(timeout=60)
+        view.add_item(select)
+        await interaction.followup.send(view=view, ephemeral=True)
+
+    async def _start_match(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT id, name FROM tournaments WHERE status='open' AND max_teams=2 ORDER BY id DESC LIMIT 25"
+        )
+        matches = cur.fetchall()
+        conn.close()
+
+        if not matches:
+            return await interaction.followup.send("å½“å‰æ²¡æœ‰å¯å¼€å§‹çš„æ¯”èµ› / No open matches.", ephemeral=True)
+
+        options = []
+        for m in matches:
+            options.append(discord.SelectOption(
+                label=m["name"][:100],
+                value=str(m["id"]),
+                description=f"ID: {m['id']}",
+            ))
+
+        select = discord.ui.Select(
+            placeholder="é€‰æ‹©æ¯”èµ› / Select a match...",
+            options=options[:25],
+        )
+
+        async def start_callback(sel_int: discord.Interaction):
+            mid = int(sel_int.data["values"][0])
+
+            embed = discord.Embed(
+                title="ç¡®è®¤å¼€å§‹ / Confirm Start",
+                description=f"ç¡®å®šè¦å…³é—­æ¯”èµ›æŠ¥åå¹¶å¼€å§‹å—ï¼Ÿ\nClose signup and start?\nMatch ID: {mid}",
+                color=discord.Color.orange(),
+            )
+            confirm_view = ConfirmView(timeout=30)
+            await sel_int.response.send_message(embed=embed, view=confirm_view, ephemeral=True)
+            await confirm_view.wait()
+            if confirm_view.value is None or not confirm_view.value:
+                return
+
+            conn2 = get_db(); cur2 = conn2.cursor()
+            cur2.execute("UPDATE tournaments SET status='closed' WHERE id=? AND status='open'", (mid,))
+            conn2.commit(); conn2.close()
+            await sel_int.edit_original_response(
+                content=f"æ¯”èµ› / Match (ID: {mid}) å·²å¼€å§‹ï¼ Started! æŠ¥åå·²å…³é—­ / Signup closed.",
+                embed=None,
+                view=None,
+            )
+
+            conn3 = get_db(); cur3 = conn3.cursor()
+            cur3.execute("SELECT name FROM tournaments WHERE id=?", (mid,))
+            t_name_row = cur3.fetchone()
+            match_name = t_name_row["name"] if t_name_row else "Unknown"
+            conn3.close()
+            await VoteView.send_vote(match_id=mid, match_name=match_name, channel=sel_int.channel)
+
+        select.callback = start_callback
+        view = discord.ui.View(timeout=60)
+        view.add_item(select)
+        await interaction.followup.send(view=view, ephemeral=True)
+
+    async def _settle(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT id, name FROM tournaments WHERE status='closed' AND max_teams=2 ORDER BY id DESC LIMIT 25"
+        )
+        matches = cur.fetchall()
+        conn.close()
+
+        if not matches:
+            return await interaction.followup.send("å½“å‰æ²¡æœ‰å¾…ç»“ç®—çš„æ¯”èµ› / No closed matches to settle.", ephemeral=True)
+
+        options = []
+        for m in matches:
+            options.append(discord.SelectOption(
+                label=m["name"][:100],
+                value=str(m["id"]),
+                description=f"ID: {m['id']}",
+            ))
+
+        select = discord.ui.Select(
+            placeholder="é€‰æ‹©æ¯”èµ› / Select a match to settle...",
+            options=options[:25],
+        )
+
+        async def settle_match_callback(sel_int: discord.Interaction):
+            mid = int(sel_int.data["values"][0])
+            conn2 = get_db(); cur2 = conn2.cursor()
+            cur2.execute("SELECT * FROM tournaments WHERE id=?", (mid,))
+            t = cur2.fetchone()
+            if not t:
+                conn2.close()
+                return await sel_int.response.send_message(f"æ¯”èµ› #{mid} ä¸å­˜åœ¨ / Match not found.", ephemeral=True)
+            if t["status"] == "finished":
+                conn2.close()
+                return await sel_int.response.send_message("å·²ç»“ç®— / Already settled.", ephemeral=True)
+
+            cur2.execute("SELECT id, name FROM teams WHERE tournament_id=?", (mid,))
+            teams = cur2.fetchall()
+            conn2.close()
+
+            if len(teams) < 2:
+                return await sel_int.response.send_message("æœªæ‰¾åˆ°ä¸¤æ”¯é˜Ÿä¼ / Two teams not found.", ephemeral=True)
+
+            team_options = []
+            for tm in teams:
+                team_options.append(discord.SelectOption(
+                    label=tm["name"][:100],
+                    value=str(tm["id"]),
+                ))
+
+            win_select = discord.ui.Select(
+                placeholder="é€‰æ‹©èŽ·èƒœé˜Ÿä¼ / Select winning team...",
+                options=team_options,
+            )
+
+            class SettleFlowDash:
+                def __init__(self):
+                    self.win_team_id = None
+                    self.mvp_id = None
+
+            flow = SettleFlowDash()
+
+            async def win_callback_dash(inner_int: discord.Interaction):
+                flow.win_team_id = int(inner_int.data["values"][0])
+
+                conn3 = get_db(); cur3 = conn3.cursor()
+                cur3.execute(
+                    "SELECT discord_id FROM registrations WHERE tournament_id=?",
+                    (mid,),
+                )
+                players = cur3.fetchall()
+                conn3.close()
+
+                mvp_options = [discord.SelectOption(label="æ—  MVP / Skip", value="__none__")]
+                for p in players:
+                    name = resolve_name(self.guild, p["discord_id"])
+                    mvp_options.append(discord.SelectOption(label=name[:100], value=p["discord_id"]))
+
+                mvp_select = discord.ui.Select(
+                    placeholder="é€‰æ‹© MVP (å¯é€‰) / Select MVP...",
+                    options=mvp_options[:25],
+                )
+
+                async def mvp_callback_dash(mvp_int: discord.Interaction):
+                    val = mvp_int.data["values"][0]
+                    if val != "__none__":
+                        flow.mvp_id = val
+
+                    conn4 = get_db(); cur4 = conn4.cursor()
+                    win_name = cur4.execute("SELECT name FROM teams WHERE id=?", (flow.win_team_id,)).fetchone()
+                    cur4.execute("SELECT name FROM teams WHERE tournament_id=? AND id!=?", (mid, flow.win_team_id))
+                    lose_row = cur4.fetchone()
+                    conn4.close()
+                    win_name = win_name["name"] if win_name else "èƒœæ–¹"
+                    lose_name = lose_row["name"] if lose_row else "è´¥æ–¹"
+
+                    mvp_text = ""
+                    if flow.mvp_id:
+                        mvp_member = self.guild.get_member(int(flow.mvp_id))
+                        mvp_text = f"\nðŸ… MVP: {mvp_member.mention if mvp_member else flow.mvp_id}"
+
+                    embed = discord.Embed(
+                        title="ç¡®è®¤ç»“ç®— / Confirm Settle",
+                        description=(
+                            f"Match: **{t['name']}** (ID:{mid})\n"
+                            f"ðŸ† èƒœæ–¹ Winner: **{win_name}**\n"
+                            f"ðŸ’” è´¥æ–¹ Loser: **{lose_name}**"
+                            f"{mvp_text}\n\n"
+                            f"èƒœæ–¹ +150 / è´¥æ–¹ +50 / MVP +50\n"
+                            f"Click Confirm to proceed / ç‚¹å‡»ç¡®è®¤æ‰§è¡Œ"
+                        ),
+                        color=discord.Color.orange(),
+                    )
+                    confirm_view = ConfirmView(timeout=60)
+                    await mvp_int.response.send_message(embed=embed, view=confirm_view, ephemeral=True)
+                    await confirm_view.wait()
+
+                    if confirm_view.value is None or not confirm_view.value:
+                        return await mvp_int.edit_original_response(
+                            content="ç»“ç®—å·²å–æ¶ˆ / Settle cancelled.", embed=None, view=None
+                        )
+
+                    analysis_embed = await _execute_settle(
+                        match_id=mid,
+                        win_team_id=flow.win_team_id,
+                        mvp_id=flow.mvp_id,
+                        guild=self.guild,
+                        match_name=t["name"],
+                        bot=interaction.client,
+                    )
+                    await mvp_int.edit_original_response(
+                        content="âœ… ç»“ç®—å®Œæˆï¼ / Settle complete!", embed=None, view=None
+                    )
+
+                    if analysis_embed:
+                        await interaction.channel.send(embed=analysis_embed)
+
+                    reshuffle_view = ReShuffleView(match_id=mid, guild=self.guild)
+                    reshuffle_embed = reshuffle_view._build_player_list_embed()
+                    await interaction.channel.send(
+                        embed=reshuffle_embed,
+                        view=reshuffle_view,
+                    )
+
+                mvp_select.callback = mvp_callback_dash
+                mvp_view = discord.ui.View(timeout=120)
+                mvp_view.add_item(mvp_select)
+                await inner_int.response.send_message(
+                    "é€‰æ‹©æœ¬åœº MVP (å¯é€‰ / Optional):", view=mvp_view, ephemeral=True
+                )
+
+            win_select.callback = win_callback_dash
+            win_view = discord.ui.View(timeout=120)
+            win_view.add_item(win_select)
+            await sel_int.response.send_message(
+                "é€‰æ‹©èŽ·èƒœé˜Ÿä¼ / Select winning team:", view=win_view, ephemeral=True
+            )
+
+        select.callback = settle_match_callback
+        view = discord.ui.View(timeout=60)
+        view.add_item(select)
+        await interaction.followup.send(view=view, ephemeral=True)
+
+    async def _pull_voice(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT DISTINCT t.id, t.name FROM tournaments t "
+            "INNER JOIN registrations r ON r.tournament_id = t.id "
+            "WHERE t.max_teams=2 AND r.team_id IS NOT NULL AND t.status != 'finished' "
+            "ORDER BY t.id DESC LIMIT 25"
+        )
+        matches = cur.fetchall()
+        conn.close()
+
+        if not matches:
+            return await interaction.followup.send("å½“å‰æ²¡æœ‰å·²åˆ†é˜Ÿçš„æ¯”èµ› / No matches with teams assigned.", ephemeral=True)
+
+        options = []
+        for m in matches:
+            options.append(discord.SelectOption(
+                label=m["name"][:100],
+                value=str(m["id"]),
+                description=f"ID: {m['id']}",
+            ))
+
+        select = discord.ui.Select(
+            placeholder="é€‰æ‹©æ¯”èµ› / Select a match...",
+            options=options[:25],
+        )
+
+        async def pull_callback(sel_int: discord.Interaction):
+            mid = int(sel_int.data["values"][0])
+            voice_view = VoicePullView.from_match(mid, self.guild)
+            conn2 = get_db(); cur2 = conn2.cursor()
+            cur2.execute("SELECT name FROM tournaments WHERE id=?", (mid,))
+            t = cur2.fetchone()
+            conn2.close()
+
+            a_mentions = []
+            for uid in voice_view.team_a_ids:
+                m = self.guild.get_member(int(uid))
+                a_mentions.append(m.mention if m else f"<@{uid}>")
+            b_mentions = []
+            for uid in voice_view.team_b_ids:
+                m = self.guild.get_member(int(uid))
+                b_mentions.append(m.mention if m else f"<@{uid}>")
+
+            embed = discord.Embed(
+                title=f"æ‹‰å…¥è¯­éŸ³ â€” {t['name'] if t else f'Match #{mid}'}",
+                description=(
+                    f"ðŸ”µ **A é˜Ÿ**ï¼š{' '.join(a_mentions) if a_mentions else '(æ— )'}\n"
+                    f"ðŸ”´ **B é˜Ÿ**ï¼š{' '.join(b_mentions) if b_mentions else '(æ— )'}"
+                ),
+                color=discord.Color.blurple(),
+            )
+            await sel_int.response.send_message(embed=embed, view=voice_view, ephemeral=False)
+
+        select.callback = pull_callback
+        view = discord.ui.View(timeout=60)
+        view.add_item(select)
+        await interaction.followup.send(view=view, ephemeral=True)
+
+    async def _pick_captain(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT id, name FROM tournaments WHERE status='open' AND max_teams=2 ORDER BY id DESC LIMIT 25"
+        )
+        matches = cur.fetchall()
+        conn.close()
+
+        if not matches:
+            return await interaction.followup.send("å½“å‰æ²¡æœ‰å¯åˆ†é˜Ÿçš„æ¯”èµ› / No open matches.", ephemeral=True)
+
+        options = []
+        for m in matches:
+            options.append(discord.SelectOption(
+                label=m["name"][:100],
+                value=str(m["id"]),
+                description=f"ID: {m['id']}",
+            ))
+
+        select = discord.ui.Select(
+            placeholder="é€‰æ‹©æ¯”èµ› / Select a match...",
+            options=options[:25],
+        )
+
+        async def captain_select_callback(sel_int: discord.Interaction):
+            mid = int(sel_int.data["values"][0])
+            conn2 = get_db(); cur2 = conn2.cursor()
+            cur2.execute(
+                "SELECT r.discord_id, u.username FROM registrations r "
+                "LEFT JOIN users u ON u.discord_id=r.discord_id WHERE r.tournament_id=?",
+                (mid,),
+            )
+            players = cur2.fetchall()
+            conn2.close()
+
+            if len(players) < 2:
+                return await sel_int.response.send_message("éœ€è¦è‡³å°‘2åçŽ©å®¶ / Need at least 2 players.", ephemeral=True)
+
+            cap_options = []
+            for p in players:
+                name = p["username"] or p["discord_id"]
+                cap_options.append(discord.SelectOption(label=name[:100], value=p["discord_id"]))
+
+            cap_select = discord.ui.Select(
+                placeholder="é€‰æ‹©å‰¯é˜Ÿé•¿ (Captain 2) / Select Captain 2...",
+                options=cap_options[:25],
+                max_values=1,
+            )
+
+            async def final_captain_cb(inner_int: discord.Interaction):
+                cap2_id = inner_int.data["values"][0]
+                caplist = [str(sel_int.user.id), cap2_id]
+
+                a_mentions = []
+                b_mentions = []
+                for i, uid in enumerate(caplist):
+                    m = self.guild.get_member(int(uid)) if uid.isdigit() else None
+                    if i == 0:
+                        a_mentions.append(m.mention if m else f"<@{uid}> (å…ˆæ‰‹)")
+                    else:
+                        b_mentions.append(m.mention if m else f"<@{uid}> (åŽæ‰‹)")
+
+                embed = discord.Embed(
+                    title="ðŸ‘‘ é€‰å‡ºé˜Ÿé•¿ / Captains Picked!",
+                    description=(
+                        f"ðŸ”µ **A é˜Ÿ Team A**: {a_mentions[0] if a_mentions else 'N/A'}\n"
+                        f"ðŸ”´ **B é˜Ÿ Team B**: {b_mentions[0] if b_mentions else 'N/A'}\n\n"
+                        f"çŽ°åœ¨å¯ä»¥ä½¿ç”¨ `/gmpt-vote` å¼€å§‹æŠ•ç¥¨è§‚æˆ˜ï¼"
+                    ),
+                    color=discord.Color.gold(),
+                )
+                await inner_int.response.send_message(embed=embed, ephemeral=False)
+
+            cap_select.callback = final_captain_cb
+            cap_view = discord.ui.View(timeout=60)
+            cap_view.add_item(cap_select)
+            await sel_int.response.send_message("é€‰æ‹©å‰¯é˜Ÿé•¿ (Bé˜Ÿ) / Select Co-Captain (Team B):", view=cap_view, ephemeral=True)
+
+        select.callback = captain_select_callback
+        view = discord.ui.View(timeout=60)
+        view.add_item(select)
+        await interaction.followup.send(view=view, ephemeral=True)
+
+    # ═══════════════════ Page 2 — Tournament ═══════════════════
+
+    async def _create_tournament(self, interaction: discord.Interaction):
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.defer(ephemeral=True)
+            return await interaction.followup.send("ä»…ç®¡ç†å‘˜å¯åˆ›å»ºé”¦æ ‡èµ› / Admin only.", ephemeral=True)
+        modal = CreateTournamentModal(self.guild, self.session)
+        await interaction.response.send_modal(modal)
+
+    async def _signup_tournament(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT id, name, max_players FROM tournaments WHERE status='signup' ORDER BY id DESC LIMIT 25"
+        )
+        tournaments = cur.fetchall()
+        conn.close()
+
+        if not tournaments:
+            return await interaction.followup.send("å½“å‰æ²¡æœ‰å¯æŠ¥åçš„é”¦æ ‡èµ› / No open tournaments.", ephemeral=True)
+
+        options = []
+        for t in tournaments:
+            options.append(discord.SelectOption(
+                label=t["name"][:100],
+                value=str(t["id"]),
+                description=f"Max: {t['max_players']} | ID: {t['id']}",
+            ))
+
+        select = discord.ui.Select(
+            placeholder="é€‰æ‹©é”¦æ ‡èµ› / Select a tournament...",
+            options=options[:25],
+        )
+
+        async def signup_callback(sel_int: discord.Interaction):
+            tid = int(sel_int.data["values"][0])
+            conn2 = get_db(); cur2 = conn2.cursor()
+            t = get_tournament_or_none(cur2, tid)
+
+            if not t or t["status"] != "signup":
+                conn2.close()
+                reason = "èµ›äº‹ä¸å­˜åœ¨" if not t else f"çŠ¶æ€ä¸º {t['status']}"
+                return await sel_int.response.send_message(f"è¯¥é”¦æ ‡èµ›æŠ¥åå·²å…³é—­ / Signup closed ({reason}).", ephemeral=True)
+
+            uid = str(sel_int.user.id)
+            tier_restriction = t["tier_restriction"]
+            if tier_restriction:
+                allowed = set(x.strip().upper() for x in tier_restriction.split(","))
+                _, tier_name, _ = await fetch_player_tier(self.session, uid)
+                if tier_name and tier_name.upper() not in allowed:
+                    conn2.close()
+                    return await sel_int.response.send_message(
+                        f"ä½ çš„æ®µä½ **{tier_name}** ä¸ç¬¦åˆæœ¬èµ›äº‹è¦æ±‚ / Tier restricted.", ephemeral=True
+                    )
+
+            cur2.execute(
+                "SELECT id FROM tournament_players WHERE tournament_id=? AND discord_id=?",
+                (tid, uid),
+            )
+            if cur2.fetchone():
+                conn2.close()
+                return await sel_int.response.send_message("ä½ å·²ç»æŠ¥åäº† / Already signed up.", ephemeral=True)
+
+            max_p = t["max_players"] or 32
+            cur2.execute("SELECT COUNT(*) as cnt FROM tournament_players WHERE tournament_id=?", (tid,))
+            cnt = cur2.fetchone()["cnt"]
+            if cnt >= max_p:
+                conn2.close()
+                return await sel_int.response.send_message(f"æŠ¥åå·²æ»¡ / Full ({max_p}äºº).", ephemeral=True)
+
+            tier_display, tier_key, _ = await fetch_player_tier(self.session, uid)
+            if tier_display is None:
+                tier_display = "æœªå…³è”"
+                tier_key = "UNRANKED"
+
+            conn2.close()
+            conn3 = get_db(); cur3 = conn3.cursor()
+            seed_val = TIER_SEED.get(tier_key.upper() if tier_key else "UNRANKED", 10)
+            cur3.execute(
+                "SELECT MAX(seed) as max_seed FROM tournament_players WHERE tournament_id=? AND tier=?",
+                (tid, tier_key.upper()),
+            )
+            row = cur3.fetchone()
+            if row and row["max_seed"] is not None:
+                seed_val = row["max_seed"] + 1
+
+            cur3.execute(
+                "INSERT INTO tournament_players (tournament_id, discord_id, seed, tier) VALUES (?,?,?,?)",
+                (tid, uid, seed_val, tier_key.upper() if tier_key else "UNRANKED"),
+            )
+            cur3.execute(
+                "INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)",
+                (uid, sel_int.user.name),
+            )
+            conn3.commit(); conn3.close()
+
+            await sel_int.followup.send(
+                f"âœ… {sel_int.user.mention} æŠ¥åæˆåŠŸï¼ Signed up!\n"
+                f"é”¦æ ‡èµ›: **{t['name']}** | Tier: **{tier_display}** | ({cnt+1}/{max_p})",
+                ephemeral=True,
+            )
+
+        select.callback = signup_callback
+        view = discord.ui.View(timeout=60)
+        view.add_item(select)
+        await interaction.followup.send(view=view, ephemeral=True)
+
+    async def _draft_setup(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.followup.send("ä»…ç®¡ç†å‘˜å¯è®¾ç½®é˜Ÿé•¿é€‰ç§€ / Admin only.", ephemeral=True)
+
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT id, name FROM tournaments WHERE status IN ('signup','active') ORDER BY id DESC LIMIT 25"
+        )
+        tournaments = cur.fetchall()
+        conn.close()
+
+        if not tournaments:
+            return await interaction.followup.send("æ²¡æœ‰å¯ç”¨çš„é”¦æ ‡èµ› / No tournaments available.", ephemeral=True)
+
+        options = []
+        for t in tournaments:
+            options.append(discord.SelectOption(
+                label=t["name"][:100],
+                value=str(t["id"]),
+                description=f"ID: {t['id']}",
+            ))
+
+        select = discord.ui.Select(
+            placeholder="é€‰æ‹©é”¦æ ‡èµ› / Select a tournament...",
+            options=options[:25],
+        )
+
+        async def draft_callback(sel_int: discord.Interaction):
+            tid = int(sel_int.data["values"][0])
+            conn2 = get_db(); cur2 = conn2.cursor()
+            cur2.execute(
+                "SELECT tp.discord_id, tp.tier, u.username "
+                "FROM tournament_players tp "
+                "LEFT JOIN users u ON u.discord_id = tp.discord_id "
+                "WHERE tp.tournament_id=?",
+                (tid,),
+            )
+            players = cur2.fetchall()
+            conn2.close()
+
+            if len(players) < 2:
+                return await sel_int.response.send_message(f"å¯ç”¨çŽ©å®¶ä¸è¶³ (è‡³å°‘2äºº) / Need at least 2 players ({len(players)}).", ephemeral=True)
+
+            available_players = []
+            for r in players:
+                tier_key = r["tier"].upper() if r["tier"] else "UNRANKED"
+                r_score = TIER_SCORE.get(tier_key, 1)
+                display_name = r["username"] if r["username"] else r["discord_id"]
+                available_players.append((r["discord_id"], display_name, tier_key, r_score))
+
+            view = DraftSetupView(tid, available_players, self.guild)
+            embed = view.build_embed()
+            await sel_int.response.send_message(embed=embed, view=view, ephemeral=False)
+
+        select.callback = draft_callback
+        view = discord.ui.View(timeout=60)
+        view.add_item(select)
+        await interaction.followup.send(view=view, ephemeral=True)
+
+    async def _report_score(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT id, name FROM tournaments WHERE status='active' ORDER BY id DESC LIMIT 25"
+        )
+        tournaments = cur.fetchall()
+        conn.close()
+
+        if not tournaments:
+            return await interaction.followup.send("æ²¡æœ‰è¿›è¡Œä¸­çš„é”¦æ ‡èµ› / No active tournaments.", ephemeral=True)
+
+        options = []
+        for t in tournaments:
+            options.append(discord.SelectOption(
+                label=t["name"][:100],
+                value=str(t["id"]),
+                description=f"ID: {t['id']}",
+            ))
+
+        select = discord.ui.Select(
+            placeholder="é€‰æ‹©é”¦æ ‡èµ› / Select a tournament...",
+            options=options[:25],
+        )
+
+        async def report_callback(sel_int: discord.Interaction):
+            tid = int(sel_int.data["values"][0])
+            view = ReportView(tid, str(sel_int.user.id), self.guild)
+            await sel_int.response.send_message(
+                "é€‰æ‹©ä½ çš„æ¯”èµ›å¹¶ä¸ŠæŠ¥æ¯”åˆ† / Select your match and report score:",
+                view=view,
+                ephemeral=True,
+            )
+
+        select.callback = report_callback
+        view = discord.ui.View(timeout=60)
+        view.add_item(select)
+        await interaction.followup.send(view=view, ephemeral=True)
+
+    async def _tournament_standings(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT id, name FROM tournaments WHERE status IN ('active','completed') ORDER BY id DESC LIMIT 25"
+        )
+        tournaments = cur.fetchall()
+        conn.close()
+
+        if not tournaments:
+            return await interaction.followup.send("æ²¡æœ‰å¯æŸ¥çœ‹çš„é”¦æ ‡èµ› / No tournaments.", ephemeral=True)
+
+        options = []
+        for t in tournaments:
+            options.append(discord.SelectOption(
+                label=t["name"][:100],
+                value=str(t["id"]),
+                description=f"ID: {t['id']}",
+            ))
+
+        select = discord.ui.Select(
+            placeholder="é€‰æ‹©é”¦æ ‡èµ› / Select a tournament...",
+            options=options[:25],
+        )
+
+        async def standings_callback(sel_int: discord.Interaction):
+            tid = int(sel_int.data["values"][0])
+            conn2 = get_db(); cur2 = conn2.cursor()
+            t = get_tournament_or_none(cur2, tid)
+            cur2.execute(
+                "SELECT tp.discord_id, tp.wins, tp.losses, tp.draws, tp.points, tp.tier, u.username "
+                "FROM tournament_players tp "
+                "LEFT JOIN users u ON u.discord_id = tp.discord_id "
+                "WHERE tp.tournament_id=? "
+                "ORDER BY tp.points DESC, tp.wins DESC",
+                (tid,),
+            )
+            rows = cur2.fetchall()
+            conn2.close()
+
+            if not rows:
+                return await sel_int.response.send_message("æš‚æ— çŽ©å®¶æ•°æ® / No player data.", ephemeral=True)
+
+            embed = discord.Embed(
+                title=f"Standings â€” {t['name']}",
+                color=discord.Color.gold(),
+            )
+            lines = ["` #   Player             W-L    Pts`"]
+            for i, r in enumerate(rows, 1):
+                name = (r["username"] if r["username"] else r["discord_id"])[:16]
+                medal = "ðŸ¥‡" if i == 1 else "ðŸ¥ˆ" if i == 2 else "ðŸ¥‰" if i == 3 else f" #{i}"
+                lines.append(
+                    f"{medal} `{name:<16} {r['wins']}-{r['losses']}  {r['points']:>4}`"
+                )
+            embed.description = "\n".join(lines)
+            await sel_int.response.send_message(embed=embed, ephemeral=True)
+
+        select.callback = standings_callback
+        view = discord.ui.View(timeout=60)
+        view.add_item(select)
+        await interaction.followup.send(view=view, ephemeral=True)
+
+    async def _tournament_bracket(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT id, name FROM tournaments WHERE status IN ('active','completed') ORDER BY id DESC LIMIT 25"
+        )
+        tournaments = cur.fetchall()
+        conn.close()
+
+        if not tournaments:
+            return await interaction.followup.send("æ²¡æœ‰å¯æŸ¥çœ‹çš„é”¦æ ‡èµ› / No tournaments.", ephemeral=True)
+
+        options = []
+        for t in tournaments:
+            options.append(discord.SelectOption(
+                label=t["name"][:100],
+                value=str(t["id"]),
+                description=f"ID: {t['id']}",
+            ))
+
+        select = discord.ui.Select(
+            placeholder="é€‰æ‹©é”¦æ ‡èµ› / Select a tournament...",
+            options=options[:25],
+        )
+
+        async def bracket_callback(sel_int: discord.Interaction):
+            tid = int(sel_int.data["values"][0])
+            conn2 = get_db(); cur2 = conn2.cursor()
+            t = get_tournament_or_none(cur2, tid)
+            from collections import defaultdict
+            cur2.execute(
+                "SELECT * FROM tournament_matches WHERE tournament_id=? ORDER BY round, match_index",
+                (tid,),
+            )
+            matches = cur2.fetchall()
+            conn2.close()
+
+            if not matches:
+                return await sel_int.response.send_message("æš‚æ— å¯¹é˜µæ•°æ® / No bracket data.", ephemeral=True)
+
+            embed = discord.Embed(
+                title=f"Bracket â€” {t['name']}",
+                description=f"Format: {t['format'].upper()} | Status: {t['status']}",
+                color=discord.Color.purple(),
+            )
+
+            by_round = defaultdict(list)
+            for m in matches:
+                by_round[m["round"]].append(m)
+
+            for rnd in sorted(by_round.keys()):
+                lines = []
+                for m in by_round[rnd]:
+                    a_name = _display_name(self.guild, m["player_a_id"])
+                    if m["player_b_id"]:
+                        b_name = _display_name(self.guild, m["player_b_id"])
+                        if m["status"] == "reported":
+                            winner = "ðŸ‘‘" if m["winner_id"] == m["player_a_id"] else ""
+                            lines.append(
+                                f"`#{m['id']}` **{a_name}** {m['score_a']}-{m['score_b']} {b_name} {winner}"
+                            )
+                        else:
+                            lines.append(
+                                f"`#{m['id']}` {a_name} vs {b_name} (Pending)"
+                            )
+                    else:
+                        lines.append(
+                            f"`#{m['id']}` {a_name} â€” BYE"
+                        )
+                embed.add_field(
+                    name=f"Round {rnd}",
+                    value="\n".join(lines) if lines else "(ç©º)",
+                    inline=False,
+                )
+
+            await sel_int.response.send_message(embed=embed, ephemeral=True)
+
+        select.callback = bracket_callback
+        view = discord.ui.View(timeout=60)
+        view.add_item(select)
+        await interaction.followup.send(view=view, ephemeral=True)
+
+    # ═══════════════════ Page 3 — Player ═══════════════════
+
+    async def _profile(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        await interaction.followup.send(
+            "ðŸ‘¤ **Player Profile / çŽ©å®¶èµ„æ–™å¡**\nUse `/gmpt-profile` or `/gmpt-profile @user`.\nä½¿ç”¨ `/gmpt-profile` æŸ¥çœ‹çŽ©å®¶èµ„æ–™ã€‚",
+            ephemeral=True,
+        )
+
+    async def _history(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        await interaction.followup.send(
+            "ðŸ“œ **Match History / æ¯”èµ›åŽ†å²**\nUse `/gmpt-history [page]`.\nä½¿ç”¨ `/gmpt-history` æŸ¥çœ‹æ¯”èµ›è®°å½•ã€‚",
+            ephemeral=True,
+        )
+
+    async def _weekly(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        await interaction.followup.send(
+            "ðŸ“… **Weekly Challenges / æ¯å‘¨æŒ‘æˆ˜**\nUse `/gmpt-weekly`.\nä½¿ç”¨ `/gmpt-weekly` æŸ¥çœ‹æœ¬å‘¨æŒ‘æˆ˜ã€‚",
+            ephemeral=True,
+        )
+
+    async def _season(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        await interaction.followup.send(
+            "ðŸ“… **Season Standings / æŽ’ä½èµ›å­£æŽ’è¡Œ**\nUse `/gmpt-season-standings`.\nä½¿ç”¨ `/gmpt-season-standings` æŸ¥çœ‹æŽ’è¡Œã€‚",
+            ephemeral=True,
+        )
+
+    async def _mvp_lb(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("""
+            SELECT discord_id, COUNT(*) as mvp_count
+            FROM tournament_players WHERE team_result='win' AND mvp=1
+            GROUP BY discord_id ORDER BY mvp_count DESC LIMIT 10
+        """)
+        rows = cur.fetchall()
+        conn.close()
+
+        if not rows:
+            return await interaction.followup.send("æš‚æ— MVPæ•°æ® / No MVP data.", ephemeral=True)
+
+        embed = discord.Embed(title="ðŸ’Ž MVP Leaderboard / MVPæŽ’è¡Œæ¦œ", color=discord.Color.gold())
+        lines = []
+        for i, r in enumerate(rows, 1):
+            name = resolve_name(self.guild, r["discord_id"])
+            lines.append(f"{i}. **{name}** â€” {r['mvp_count']} MVPs")
+        embed.description = "\n".join(lines)
+        await interaction.followup.send(embed=embed)
+
+    # ═══════════════════ Page 4 — Economy ═══════════════════
+
+    async def _shop(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        await interaction.followup.send(
+            "ðŸ›’ **Shop / ç§¯åˆ†å•†åº—**\nUse `/gmpt-shop`.\nä½¿ç”¨ `/gmpt-shop` æ‰“å¼€å•†åº—ã€‚",
+            ephemeral=True,
+        )
+
+    async def _inventory(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        await interaction.followup.send(
+            "ðŸŽ’ **Inventory / èƒŒåŒ…**\nUse `/gmpt-inventory`.\nä½¿ç”¨ `/gmpt-inventory` æŸ¥çœ‹èƒŒåŒ…ã€‚",
+            ephemeral=True,
+        )
+
+    async def _balance(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        uid = str(interaction.user.id)
+        bal = get_balance(uid)
+        await interaction.followup.send(
+            f"ðŸ’° **Balance / ä½™é¢**\n{interaction.user.mention}: ðŸª™ **{bal}** coins",
+            ephemeral=True,
+        )
+
+    async def _gift(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        await interaction.followup.send(
+            "ðŸŽ **Gift Coins / èµ é€é‡‘å¸**\nUse `/gmpt-gift @user <amount>`.\nä½¿ç”¨ `/gmpt-gift @çŽ©å®¶ é‡‘é¢` èµ é€é‡‘å¸ã€‚",
+            ephemeral=True,
+        )
+
+    async def _transactions(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        await interaction.followup.send(
+            "ðŸ“Š **Transactions / äº¤æ˜“è®°å½•**\nUse `/gmpt-transactions`.\nä½¿ç”¨ `/gmpt-transactions` æŸ¥çœ‹äº¤æ˜“è®°å½•ã€‚",
+            ephemeral=True,
+        )
+
+    async def _achievements(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        await interaction.followup.send(
+            "ðŸ… **Achievements / æˆå°±åˆ—è¡¨**\nUse `/gmpt-achievements`.\nä½¿ç”¨ `/gmpt-achievements` æŸ¥çœ‹æˆå°±ã€‚",
+            ephemeral=True,
+        )
+
+    async def _giveaway(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT prize, ends_at, winner_count FROM giveaway WHERE status='active' ORDER BY id DESC LIMIT 1")
+        gw = cur.fetchone()
+        conn.close()
+
+        if gw:
+            await interaction.followup.send(
+                f"ðŸŽŸï¸ **Active Giveaway / æ´»åŠ¨æŠ½å¥–**\nPrize: {gw['prize']}\nWinners: {gw['winner_count']}\nEnds: {gw['ends_at']}",
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send("æš‚æ— æ´»åŠ¨æŠ½å¥– / No active giveaway.", ephemeral=True)
+
+    # ═══════════════════ Page 5 — Tools ═══════════════════
+
+    async def _voice_lb(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT user_id, total_seconds, login_days, total_joins "
+            "FROM voice_tracker ORDER BY total_seconds DESC"
+        )
+        data = cur.fetchall()
+        conn.close()
+
+        if not data:
+            return await interaction.followup.send("No voice data yet.", ephemeral=True)
+
+        from cogs.voice_tracker import VoiceLeaderboardView
+        view = VoiceLeaderboardView()
+        embed = VoiceLeaderboardView._build_embed(data, 0, interaction.guild)
+        view.prev_btn.disabled = True
+        view.next_btn.disabled = len(data) <= 10
+        await interaction.followup.send(embed=embed, view=view)
+
+    async def _queue_status(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) as cnt FROM queue WHERE status='waiting'")
+        row = cur.fetchone()
+        conn.close()
+        await interaction.followup.send(
+            f"ðŸ”Š **Queue Status / æŽ’é˜ŸçŠ¶æ€**\n{row['cnt']} players in queue / äººåœ¨æŽ’é˜Ÿã€‚\nUse `/gmpt-queue` to join.",
+            ephemeral=True,
+        )
+
+    async def _all_players(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        await interaction.followup.send(
+            "ðŸ“Š **All Players / å…¨éƒ¨çŽ©å®¶**\nUse `/gmpt-all-players` to see all registered players with MMR.",
+            ephemeral=True,
+        )
+
+    async def _admin(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.followup.send("ä»…ç®¡ç†å‘˜å¯ä½¿ç”¨ / Admin only.", ephemeral=True)
+        await interaction.followup.send(
+            "ðŸ”’ **Admin Panel / ç®¡ç†é¢æ¿**\n"
+            "`/gmpt-admin-coins` â€” Manage coins / ç®¡ç†é‡‘å¸\n"
+            "`/gmpt-season-start` â€” Start season / å¼€å¯èµ›å­£\n"
+            "`/gmpt-season-end` â€” End season / ç»“æŸèµ›å­£\n"
+            "`/gmpt-mmr-reset` â€” Reset MMR / é‡ç½®MMR",
+            ephemeral=True,
+        )
+
+
