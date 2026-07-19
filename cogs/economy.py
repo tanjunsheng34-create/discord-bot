@@ -16,6 +16,12 @@ from cogs.shared_views import ConfirmView
 import logging
 logger = logging.getLogger(__name__)
 
+# ---------- 频道 ID ----------
+SHOP_LOG_CHANNEL_ID = 1528241284177854624
+ACHIEVEMENTS_CHANNEL_ID = 1528241092640768101
+
+_bot = None  # 由 setup() 注入
+
 try:
     from PIL import Image, ImageDraw, ImageFont
     PIL_AVAILABLE = True
@@ -632,6 +638,15 @@ async def buy_item(interaction: discord.Interaction, uid: str, item_id: int):
                 check_achievement(uid, "购买 5 次")
             conn3.close()
 
+            # shop-log 购买记录推送
+            if _bot:
+                try:
+                    shop_ch = _bot.get_channel(SHOP_LOG_CHANNEL_ID)
+                    if shop_ch:
+                        await shop_ch.send(f"{btn_i.user.mention} 购买了 [{item['name']}] — 花费 {item['price']} coins")
+                except Exception:
+                    pass
+
         @discord.ui.button(label="Cancel / 取消", style=discord.ButtonStyle.secondary, emoji="❌")
         async def cancel(self, btn_i: discord.Interaction, button):
             await interaction.response.defer(ephemeral=True)
@@ -704,28 +719,42 @@ def check_achievement(user_id: str, key: str):
     conn.commit()
 
     # 检查全成就解锁
-    _check_completionist(cur, user_id, a["id"])
+    completed = _check_completionist(cur, user_id, a["id"])
 
     conn.close()
+
+    # 成就解锁通知推送到 ACHIEVEMENTS_CHANNEL
+    if _bot:
+        async def _send_ach():
+            try:
+                ach_ch = _bot.get_channel(ACHIEVEMENTS_CHANNEL_ID)
+                if ach_ch:
+                    await ach_ch.send(f"<@{user_id}> 解锁了成就 [{a['name']}] — +{a['reward']} coins")
+                    if completed:
+                        await ach_ch.send(f"<@{user_id}> 解锁了成就 [{completed['name']}] — +{completed['reward']} coins")
+            except Exception:
+                pass
+        _bot.loop.create_task(_send_ach())
+
     return {"name": a["name"], "desc": a["description"], "reward": a["reward"], "hidden": bool(a["hidden"])}
 
 
 def _check_completionist(cur, user_id: str, just_unlocked_id: int):
-    """检查是否解锁了全成就（排除隐藏成就和全成就本身）"""
+    """检查是否解锁了全成就（排除隐藏成就和全成就本身）。返回解锁信息或 None。"""
     # 先找出"全成就解锁"这个成就的 ID
-    cur.execute("SELECT id FROM achievements WHERE description LIKE '%Unlocked all non-hidden achievements%'")
+    cur.execute("SELECT id, name, reward FROM achievements WHERE description LIKE '%Unlocked all non-hidden achievements%'")
     comp_row = cur.fetchone()
     if not comp_row:
-        return
+        return None
     completionist_id = comp_row["id"]
     if just_unlocked_id == completionist_id:
-        return  # 刚解锁的就是全成就本身，跳过
+        return None  # 刚解锁的就是全成就本身，跳过
 
     # 检查是否已经拿到全成就
     cur.execute("SELECT COUNT(*) as cnt FROM user_achievements WHERE user_id=? AND achievement_id=?",
                 (user_id, completionist_id))
     if cur.fetchone()["cnt"] > 0:
-        return
+        return None
 
     # 统计所有非隐藏成就（排除全成就本身）
     cur.execute("SELECT COUNT(*) as cnt FROM achievements WHERE hidden=0 AND id!=?", (completionist_id,))
@@ -741,14 +770,13 @@ def _check_completionist(cur, user_id: str, just_unlocked_id: int):
     if unlocked_non_hidden >= total_non_hidden:
         cur.execute("INSERT INTO user_achievements (user_id, achievement_id) VALUES (?,?)",
                     (user_id, completionist_id))
-        cur.execute("SELECT reward FROM achievements WHERE id=?", (completionist_id,))
-        reward = cur.fetchone()["reward"]
+        reward = comp_row["reward"]
         if reward > 0:
             cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (reward, user_id))
             cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
                         (user_id, reward, "Achievement: Completionist / 成就: 全成就解锁"))
-        conn = cur.connection  # need to commit on the outer connection
-        # commit will be done by caller
+        return {"name": comp_row["name"], "reward": reward}
+    return None
 
 
 # ---------- Cog ----------
@@ -2032,5 +2060,7 @@ class CoinPaginationView(discord.ui.View):
 
 
 async def setup(bot):
+    global _bot
+    _bot = bot
     await bot.add_cog(Economy(bot))
 
