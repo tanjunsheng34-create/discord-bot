@@ -172,93 +172,6 @@ def _get_font(size, bold=False):
     return ImageFont.load_default()
 
 
-def generate_shop_image(items, user_balance):
-    """生成商店图片，大卡片布局"""
-    if not PIL_AVAILABLE:
-        return None
-    row_h = 110
-    header_h = 210
-    footer_h = 60
-
-    w = 800
-    h = header_h + len(items) * row_h + footer_h
-
-    img = Image.new("RGBA", (w, h), (22, 22, 32, 255))
-    draw = ImageDraw.Draw(img)
-
-    # 背景渐变装饰条
-    for i in range(w):
-        c = int(50 + 40 * (i / w))
-        draw.line([(i, 0), (i, header_h)], fill=(c, c, c + 25, 255))
-
-    # 标题
-    title_font = _get_font(30, bold=True)
-    draw.text((40, 25), "GMPT COIN SHOP  /  积分商店", fill=(255, 215, 0), font=title_font)
-
-    # 余额
-    balance_font = _get_font(16)
-    draw.text((40, 70), "YOUR BALANCE / 余额", fill=(150, 150, 160), font=balance_font)
-    coin_font = _get_font(24, bold=True)
-    draw.text((40, 93), f"🪙 {user_balance} GMPT Coins", fill=(255, 215, 0), font=coin_font)
-
-    # 提示
-    hint_font = _get_font(14)
-    draw.text((40, 140), "Click buttons below to purchase / 点击下方按钮购买", fill=(120, 120, 130), font=hint_font)
-
-    # 分隔线
-    draw.line([(40, 180), (w - 40, 180)], fill=(80, 80, 100, 255), width=1)
-
-    # 每行商品（大卡片）
-    name_font = _get_font(18, bold=True)
-    desc_font = _get_font(13)
-    price_font = _get_font(17, bold=True)
-    id_font = _get_font(11)
-
-    for idx, it in enumerate(items):
-        y = header_h + idx * row_h
-
-        # 行背景交替
-        if idx % 2 == 0:
-            draw.rectangle([(0, y), (w, y + row_h)], fill=(30, 30, 42, 60))
-
-        # 左侧色条
-        if it['price'] >= 100000:
-            bar_color = (255, 215, 0, 220)
-        elif it['price'] >= 2000:
-            bar_color = (180, 100, 255, 200)
-        else:
-            bar_color = (0, 180, 255, 200)
-        draw.rectangle([(30, y + 10), (38, y + row_h - 10)], fill=bar_color)
-
-        # ID
-        draw.text((52, y + 10), f"#{it['id']}", fill=(100, 100, 110), font=id_font)
-
-        # 名称 + emoji
-        draw.text((52, y + 28), f"{it.get('emoji','')}  {it['name']}", fill=(255, 255, 255), font=name_font)
-
-        # 描述
-        draw.text((52, y + 56), it['description'], fill=(160, 160, 170), font=desc_font)
-
-        # 价格徽章
-        price_str = f"🪙 {it['price']}"
-        pb = draw.textbbox((0, 0), price_str, font=price_font)
-        pw = pb[2] - pb[0]
-        badge_x = w - pw - 60
-        draw.rounded_rectangle([badge_x - 6, y + 20, badge_x + pw + 6, y + 52], radius=6, fill=(50, 50, 60, 220))
-        draw.text((badge_x, y + 24), price_str, fill=(255, 215, 0), font=price_font)
-
-        if idx < len(items) - 1:
-            draw.line([(40, y + row_h), (w - 40, y + row_h)], fill=(55, 55, 70, 100), width=1)
-
-    bot_font = _get_font(13)
-    draw.text((40, h - 35), "GMPT Bot  •  Economy System", fill=(100, 100, 110), font=bot_font)
-
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
-    return buf
-
-
 def generate_ach_image(achievement_rows, unlocked_count, total_count, page=None, total_pages=None):
     """生成成就图片，大卡片布局，支持分页"""
     if not PIL_AVAILABLE:
@@ -358,6 +271,52 @@ CATEGORY_COLORS = {
     "🎭 Discord道具": 0x9B59B6,
 }
 
+
+def _get_item_command(item_type, category):
+    """Determine the correct slash command for an item based on its category."""
+    if category in ("⚔️ 赛前道具", "🎮 比赛中道具", "😈 坑队友道具"):
+        return f"/gmpt-item use {item_type}"
+    elif category == "💰 加成道具":
+        return f"/gmpt-use {item_type}"
+    elif category == "🎲 随机道具":
+        return "/gmpt-use gamble"
+    elif category == "🎭 Discord道具":
+        return f"/gmpt-buy {item_type}"
+    return f"/gmpt-buy {item_type}"
+
+
+def _build_shop_embed(items, categories, bal, selected_category=None):
+    """Build the shop embed panel. If selected_category is given, show only that category."""
+    if selected_category and selected_category in categories:
+        cats_to_show = [selected_category]
+        title = f"🛒 积分商店 Item Shop — {selected_category}"
+    else:
+        cats_to_show = categories
+        title = "🛒 积分商店 Item Shop"
+
+    color = CATEGORY_COLORS.get(selected_category, 0xFFD700) if selected_category else 0xFFD700
+
+    embed = discord.Embed(title=title, color=color)
+    embed.add_field(name="💰 余额 Balance", value=f"🪙 {bal} GMPT Coins", inline=False)
+
+    for cat in cats_to_show:
+        cat_items = [it for it in items if it.get("category", "其他") == cat]
+        if not cat_items:
+            continue
+        lines = []
+        for it in cat_items:
+            emoji = it.get("emoji", "🛒")
+            name = it["name"]
+            price = it["price"]
+            item_type = it["item_type"]
+            desc = it["description"]
+            cmd = _get_item_command(item_type, cat)
+            lines.append(f"{emoji} {name} — {price}g — `{cmd}` — {desc}")
+        embed.add_field(name=cat, value="\n".join(lines), inline=False)
+
+    embed.set_footer(text="GMPT Bot • Economy System")
+    return embed
+
 class ShopCategoryView(discord.ui.View):
     """Category selection view with Select Menu / 分类选择视图"""
     def __init__(self, all_items, categories, user_id, bal, timeout=120):
@@ -386,9 +345,8 @@ class ShopCategoryView(discord.ui.View):
 
         cat = interaction.data["values"][0]
         items = [it for it in self.all_items if it.get("category", "其他") == cat]
-        color = CATEGORY_COLORS.get(cat, 0xFFD700)
 
-        img_buf = generate_shop_image(items, self.bal)
+        embed = _build_shop_embed(self.all_items, self.categories, self.bal, selected_category=cat)
         view = ShopView(
             items=items,
             all_items=self.all_items,
@@ -396,19 +354,7 @@ class ShopCategoryView(discord.ui.View):
             user_id=self.user_id,
             bal=self.bal,
         )
-
-        if img_buf:
-            f = discord.File(img_buf, filename="shop.png")
-            await interaction.edit_original_response(attachments=[f], view=view)
-        else:
-            embed = discord.Embed(title=f"{cat} | GMPT COIN SHOP / 积分商店", color=color)
-            embed.add_field(name="Balance / 余额", value=f"🪙 {self.bal} GMPT Coins", inline=False)
-            embed.add_field(name="Items / 商品", value="\n".join(
-                f"**#{it['id']}** {it.get('emoji','🛒')} {it['name']} — 🪙 {it['price']}\n_{it['description']}_"
-                for it in items
-            ), inline=False)
-            embed.set_footer(text="GMPT Bot • Economy System")
-            await interaction.edit_original_response(embed=embed, view=view, attachments=[])
+        await interaction.edit_original_response(embed=embed, view=view, attachments=[])
 
     async def on_timeout(self):
         for child in self.children:
@@ -482,25 +428,14 @@ class ShopView(discord.ui.View):
         await interaction.response.defer()
 
         bal = self.bal or get_balance(str(interaction.user.id))
-        img_buf = generate_shop_image(self.all_items, bal)
+        embed = _build_shop_embed(self.all_items, self.categories, bal)
         view = ShopCategoryView(
             all_items=self.all_items,
             categories=self.categories,
             user_id=self.user_id,
             bal=bal,
         )
-        if img_buf:
-            f = discord.File(img_buf, filename="shop.png")
-            await interaction.edit_original_response(attachments=[f], view=view)
-        else:
-            embed = discord.Embed(title="🛒 GMPT COIN SHOP / 积分商店", color=0xFFD700)
-            embed.add_field(name="Balance / 余额", value=f"🪙 {bal} GMPT Coins", inline=False)
-            embed.add_field(name="Items / 商品", value="\n".join(
-                f"**#{it['id']}** {it.get('emoji','🛒')} {it['name']} — 🪙 {it['price']}\n_{it['description']}_"
-                for it in self.all_items
-            ), inline=False)
-            embed.set_footer(text="GMPT Bot • Economy System")
-            await interaction.edit_original_response(embed=embed, view=view, attachments=[])
+        await interaction.edit_original_response(embed=embed, view=view, attachments=[])
 
     def make_buy_callback(self, item_id):
         async def callback(interaction: discord.Interaction):
@@ -1282,22 +1217,10 @@ class Economy(commands.Cog):
         # extract unique categories
         categories = list(dict.fromkeys(it.get("category", "其他") for it in all_items))
 
-        # show all items image + category selector
-        img_buf = generate_shop_image(all_items, bal)
+        # build embed panel + category selector
+        embed = _build_shop_embed(all_items, categories, bal)
         view = ShopCategoryView(all_items=all_items, categories=categories, user_id=uid, bal=bal)
-
-        if img_buf:
-            f = discord.File(img_buf, filename="shop.png")
-            await interaction.response.send_message(file=f, view=view)
-        else:
-            embed = discord.Embed(title="🛒 GMPT COIN SHOP / 积分商店", color=0xFFD700)
-            embed.add_field(name="Balance / 余额", value=f"🪙 {bal} GMPT Coins", inline=False)
-            embed.add_field(name="Items / 商品", value="\n".join(
-                f"**#{it['id']}** {it.get('emoji','🛒')} {it['name']} — 🪙 {it['price']}\n_{it['description']}_"
-                for it in all_items
-            ), inline=False)
-            embed.set_footer(text="GMPT Bot • Economy System")
-            await interaction.response.send_message(embed=embed, view=view)
+        await interaction.response.send_message(embed=embed, view=view)
 
     # ========== 购买 ==========
     @app_commands.command(name="gmpt-buy", description="Buy item from shop / 购买商店物品")
