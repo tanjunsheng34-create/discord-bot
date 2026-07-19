@@ -47,6 +47,8 @@ REGIONS = {
 
 async def riot_request(session, url):
     """返回 (status_code, data_or_None)。200 时返回数据，其他返回 None。"""
+    if not session:
+        return (0, "HTTP session 未初始化，请重启 Bot。")
     headers = {"X-Riot-Token": RIOT_API_KEY}
     try:
         async with session.get(url, headers=headers) as resp:
@@ -894,7 +896,7 @@ class GMPT(commands.Cog):
         name: str, tag: str, region: str,
     ):
         await interaction.response.defer()
-        if not RIOT_API_KEY:
+        if not RIOT_API_KEY or not self.session:
             return await interaction.followup.send("Riot API Key 未配置。")
 
         cont_region = REGIONS[region][1]
@@ -1012,7 +1014,8 @@ class GMPT(commands.Cog):
         name: str, tag: str, region: str,
     ):
         await interaction.response.defer()
-        if not RIOT_API_KEY: return await interaction.followup.send("Riot API Key 未配置。")
+        if not RIOT_API_KEY or not self.session:
+            return await interaction.followup.send("Riot API Key 未配置。")
 
         cont_region = REGIONS[region][1]
         puuid, err = await get_puuid(self.session, cont_region, name, tag)
@@ -1106,6 +1109,8 @@ class GMPT(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         if not RIOT_API_KEY:
             return await interaction.followup.send("❌ Riot API Key 未配置。请在环境变量中设置 `RIOT_API_KEY`。")
+        if not self.session:
+            return await interaction.followup.send("❌ HTTP session 未初始化，请重启 Bot。")
 
         # 用已知玩家测试 key 有效性
         url = "https://asia.api.riotgames.com/riot/account/v1/accounts/by-riot-id/Hide%20on%20bush/KR1"
@@ -1188,7 +1193,7 @@ class GMPT(commands.Cog):
             conn.close()
             return await interaction.followup.send("暂无已报名玩家 / No registered players")
 
-        if not RIOT_API_KEY:
+        if not RIOT_API_KEY or not self.session:
             conn.close()
             lines = []
             for i, row in enumerate(rows, 1):
