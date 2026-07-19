@@ -1251,13 +1251,15 @@ class Economy(commands.Cog):
         bal = get_balance(uid)
 
         conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) as cnt FROM shop_items")
-        if cur.fetchone()["cnt"] == 0:
-            for item in DEFAULT_SHOP:
-                cur.execute(
-                    "INSERT INTO shop_items (name, description, price, item_type, category) VALUES (?,?,?,?,?)",
-                    (item["name"], item["desc"], item["price"], item["type"], item.get("category", "其他")),
-                )
+        cur.execute("SELECT item_type FROM shop_items")
+        existing_types = {r["item_type"] for r in cur.fetchall()}
+        missing = [item for item in DEFAULT_SHOP if item["type"] not in existing_types]
+        for item in missing:
+            cur.execute(
+                "INSERT INTO shop_items (name, description, price, item_type, category) VALUES (?,?,?,?,?)",
+                (item["name"], item["desc"], item["price"], item["type"], item.get("category", "其他")),
+            )
+        if missing:
             conn.commit()
 
         cur.execute("SELECT id, name, description, price, item_type, category FROM shop_items ORDER BY price")
