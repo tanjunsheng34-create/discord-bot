@@ -1062,6 +1062,46 @@ class ReShuffleView(discord.ui.View):
             except Exception as e:
                 logger.error(f"[MatchView] settle_bets error: {e}")
 
+            # ── 发送结算结果到 result-room ──
+            RESULT_CHANNEL_ID = 1442412993269731452
+            try:
+                conn_r = get_db(); cur_r = conn_r.cursor()
+                cur_r.execute("SELECT name FROM teams WHERE id=?", (win_tid,))
+                win_row = cur_r.fetchone()
+                cur_r.execute("SELECT name FROM teams WHERE tournament_id=? AND id!=?", (mid, win_tid))
+                lose_row = cur_r.fetchone()
+                conn_r.close()
+                win_name = win_row["name"] if win_row else "胜方"
+                lose_name = lose_row["name"] if lose_row else "败方"
+                mvp_mention = f"<@{mvp_uid}>" if mvp_uid else "无"
+                result_embed = discord.Embed(
+                    title=f"🏆 结算结果 / Match Result — {match_name}",
+                    description=(
+                        f"**胜方 Winner:** {win_name}\n"
+                        f"**败方 Loser:** {lose_name}\n"
+                        f"🏅 **MVP:** {mvp_mention}\n\n"
+                        f"胜方 +25 MMR | 败方 -25 MMR\n"
+                        f"胜方 +150 coins | 参与 +50 coins | MVP +50 coins"
+                    ),
+                    color=discord.Color.gold(),
+                )
+                result_embed.set_footer(text=f"Match ID: {mid}")
+                result_channel = self.guild.get_channel(RESULT_CHANNEL_ID)
+                if result_channel:
+                    await result_channel.send(embed=result_embed)
+            except Exception as e:
+                logger.error(f"[MatchView] result-room send error: {e}")
+
+            # ── 赛后统一拉入按钮 ──
+            try:
+                post_match_view = PostMatchPullView(guild=self.guild)
+                await interaction.channel.send(
+                    content=f"📢 **{match_name}** 结算完成！点击下方按钮将队员拉入赛后集合频道：",
+                    view=post_match_view,
+                )
+            except Exception as e:
+                logger.error(f"[MatchView] PostMatchPullView send error: {e}")
+
             mvp_text = f"\n🏅 MVP: <@{mvp_uid}> +50" if mvp_uid else ""
             await s_int.response.send_message(
                 f"💰 结算完成 / Settled!{mvp_text}\n胜方 +150 | 参与 +50",
@@ -1363,6 +1403,61 @@ class VoicePullView(discord.ui.View):
         self._used_b = True
         await interaction.edit_original_response(view=self)
         await interaction.followup.send("B 队拉入完成！", ephemeral=True)
+
+
+class PostMatchPullView(discord.ui.View):
+    """赛后统一拉入按钮 — 将 A/B 两队语音频道中所有人拉入赛后集合频道。"""
+
+    VA_CHANNEL_ID = 1438050912814895186
+    VB_CHANNEL_ID = 1437626921394372658
+    POST_MATCH_VC_ID = 1442412877301416006
+    NOTIFY_CHANNEL_ID = 1453208983358935121
+
+    def __init__(self, guild: discord.Guild, timeout: float = 600):
+        super().__init__(timeout=timeout)
+        self.guild = guild
+
+    @discord.ui.button(label="拉入赛后频道", style=discord.ButtonStyle.success, emoji="📢", row=0)
+    async def pull_post_match(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+
+        target_vc = self.guild.get_channel(self.POST_MATCH_VC_ID)
+        if not target_vc:
+            return await interaction.followup.send("⚠️ 赛后集合频道未找到 / Post-match VC not found", ephemeral=True)
+
+        notify_channel = self.guild.get_channel(self.NOTIFY_CHANNEL_ID)
+        results = []
+
+        for vc_id, label in [(self.VA_CHANNEL_ID, "A"), (self.VB_CHANNEL_ID, "B")]:
+            vc = self.guild.get_channel(vc_id)
+            if not vc:
+                results.append(f"⚠️ {label}队语音频道未找到")
+                continue
+
+            moved = []
+            not_in = []
+            for member in vc.members:
+                try:
+                    await member.move_to(target_vc)
+                    moved.append(member)
+                except Exception:
+                    not_in.append(member.mention)
+
+            if moved:
+                results.append(f"✅ {label}队已拉入赛后频道：{' '.join(m.mention for m in moved)}")
+            if not_in:
+                results.append(f"⚠️ {label}队无法拉入：{' '.join(not_in)}")
+            if not moved and not not_in:
+                results.append(f"ℹ️ {label}队语音频道为空")
+
+        lines = "\n".join(results)
+        await interaction.followup.send(lines, ephemeral=True)
+
+        if notify_channel and results:
+            try:
+                await notify_channel.send(f"📢 赛后集合 — {interaction.user.mention} 将队员拉入赛后频道\n{lines}")
+            except Exception:
+                pass
 
 
 class ManualTeamView(discord.ui.View):
@@ -2204,6 +2299,38 @@ class MatchViewWithID(discord.ui.View):
                         embed=reshuffle_embed,
                         view=reshuffle_view,
                     )
+
+                    # ── 发送结算结果到 result-room ──
+                    RESULT_CHANNEL_ID = 1442412993269731452
+                    try:
+                        mvp_mention = f"<@{flow.mvp_id}>" if flow.mvp_id else "无"
+                        result_embed = discord.Embed(
+                            title=f"🏆 结算结果 / Match Result — {t['name']}",
+                            description=(
+                                f"**胜方 Winner:** {win_name}\n"
+                                f"**败方 Loser:** {lose_name}\n"
+                                f"🏅 **MVP:** {mvp_mention}\n\n"
+                                f"胜方 +25 MMR | 败方 -25 MMR\n"
+                                f"胜方 +150 coins | 参与 +50 coins | MVP +50 coins"
+                            ),
+                            color=discord.Color.gold(),
+                        )
+                        result_embed.set_footer(text=f"Match ID: {mid}")
+                        result_channel = guild.get_channel(RESULT_CHANNEL_ID)
+                        if result_channel:
+                            await result_channel.send(embed=result_embed)
+                    except Exception as e:
+                        logger.error(f"[MatchViewWithID] result-room send error: {e}")
+
+                    # ── 赛后统一拉入按钮 ──
+                    try:
+                        post_match_view = PostMatchPullView(guild=guild)
+                        await interaction.channel.send(
+                            content=f"📢 **{t['name']}** 结算完成！点击下方按钮将队员拉入赛后集合频道：",
+                            view=post_match_view,
+                        )
+                    except Exception as e:
+                        logger.error(f"[MatchViewWithID] PostMatchPullView send error: {e}")
 
                 mvp_select.callback = mvp_callback
                 mvp_view = discord.ui.View(timeout=120)
