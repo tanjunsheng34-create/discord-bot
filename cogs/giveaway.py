@@ -181,8 +181,8 @@ class Giveaway(commands.Cog):
         _bot_ref = bot
 
     giveaway_group = app_commands.Group(
-        name="gmpt-giveaway",
-        description="Giveaway system / 抽奖系统",
+        name="gmpt-giveaway-admin",
+        description="Giveaway admin tools / 抽奖管理工具",
     )
 
     @app_commands.default_permissions(administrator=True)

@@ -37,6 +37,7 @@ COGS = [
     "cogs.voice_tracker",
     "cogs.queue",
     "cogs.admin_backup",
+    "cogs.match",
 ]
 
 

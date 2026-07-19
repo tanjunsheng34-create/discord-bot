@@ -1996,10 +1996,15 @@ class Economy(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    # ========== 赛季系统 ==========
-    @app_commands.command(name="gmpt-season-start", description="Start a new season (Admin) / 开新赛季（管理员）")
+    # ========== 赛季系统 / Season System ==========
+    season_group = app_commands.Group(
+        name="gmpt-season",
+        description="Season management / 赛季管理"
+    )
+
+    @season_group.command(name="start", description="Start a new season (Admin) / 开新赛季（管理员）")
     @app_commands.describe(name="Season name / 赛季名称")
-    async def season_start_cmd(self, interaction: discord.Interaction, name: str):
+    async def season_start(self, interaction: discord.Interaction, name: str):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("Admin only. / 仅管理员。", ephemeral=True)
 
@@ -2019,9 +2024,6 @@ class Economy(commands.Cog):
         """)
         # 创建新赛季
         cur.execute("INSERT INTO seasons (name, start_date, active) VALUES (?, ?, 1)", (name, now_str))
-        season_id = cur.lastrowid
-        # 重置全员 MMR 为 1000
-        cur.execute("UPDATE users SET mmr=1000")
         conn.commit(); conn.close()
 
         await interaction.response.send_message(
@@ -2029,8 +2031,8 @@ class Economy(commands.Cog):
             f"All MMR reset to 1000. / 全员 MMR 已重置为 1000。"
         )
 
-    @app_commands.command(name="gmpt-season-end", description="End current season + rewards (Admin) / 结束赛季发奖励（管理员）")
-    async def season_end_cmd(self, interaction: discord.Interaction):
+    @season_group.command(name="end", description="End current season + rewards (Admin) / 结束赛季发奖励（管理员）")
+    async def season_end(self, interaction: discord.Interaction):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("Admin only. / 仅管理员。", ephemeral=True)
 
@@ -2071,8 +2073,8 @@ class Economy(commands.Cog):
             msg += f"  #{i+1} <@{row['discord_id']}> — {row['mmr']} MMR (+{rewards[i]} coins)\n"
         await interaction.response.send_message(msg)
 
-    @app_commands.command(name="gmpt-season-standings", description="View season leaderboard / 赛季排行榜")
-    async def season_standings_cmd(self, interaction: discord.Interaction):
+    @season_group.command(name="standings", description="View season leaderboard / 赛季排行榜")
+    async def season_standings(self, interaction: discord.Interaction):
         conn = get_db(); cur = conn.cursor()
         cur.execute("SELECT id, name FROM seasons WHERE active=1")
         season = cur.fetchone()

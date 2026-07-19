@@ -788,7 +788,7 @@ class GMPT(commands.Cog):
 
     # ============ 历史记录 ============
     @app_commands.command(
-        name="gmpt-history",
+        name="gmpt-match-history",
         description="Match history / 历史比赛",
     )
     async def history(self, interaction: discord.Interaction):
@@ -875,7 +875,7 @@ class GMPT(commands.Cog):
 
     # ============ 查段位 ============
     @app_commands.command(
-        name="gmpt-profile",
+        name="gmpt-profile-lol",
         description="Lookup summoner profile / 查玩家段位",
     )
     @app_commands.describe(
@@ -995,7 +995,7 @@ class GMPT(commands.Cog):
 
     # ============ 实时对局 ============
     @app_commands.command(
-        name="gmpt-live",
+        name="gmpt-live-game",
         description="Live game info / 当前对局",
     )
     @app_commands.describe(

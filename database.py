@@ -455,6 +455,24 @@ def init_db():
             completed   INTEGER DEFAULT 0,
             UNIQUE(discord_id, challenge_id)
         );
+
+        -- === 快速比赛 / Quick Match System ===
+        CREATE TABLE IF NOT EXISTS matches (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL,
+            status      TEXT DEFAULT 'pending',
+            created_by  TEXT NOT NULL,
+            channel_id  TEXT,
+            created_at  TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS match_signups (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            match_id    INTEGER NOT NULL,
+            discord_id  TEXT NOT NULL,
+            team        TEXT DEFAULT NULL,
+            UNIQUE(match_id, discord_id)
+        );
     """)
 
     # ── 性能索引 / Performance Indexes ──
@@ -463,6 +481,7 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS idx_registrations_tournament_team ON registrations(tournament_id, team_id)",
         "CREATE INDEX IF NOT EXISTS idx_giveaway_entries_giveaway ON giveaway_entries(giveaway_id)",
         "CREATE INDEX IF NOT EXISTS idx_transactions_discord_id ON transactions(discord_id)",
+        "CREATE INDEX IF NOT EXISTS idx_match_signups_match ON match_signups(match_id)",
     ]:
         try:
             cursor.execute(idx_sql)
