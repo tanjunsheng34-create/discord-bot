@@ -14,6 +14,7 @@ from cogs.match_autocomplete import match_id_autocomplete
 import aiohttp
 
 import logging
+from utils.logger import log_error
 logger = logging.getLogger(__name__)
 
 try:

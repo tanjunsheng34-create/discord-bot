@@ -15,6 +15,7 @@ from datetime import date, datetime
 from cogs.shared_views import ConfirmView
 
 import logging
+from utils.logger import log_error
 logger = logging.getLogger(__name__)
 
 # ---------- 频道 ID ----------
@@ -688,8 +689,8 @@ async def buy_item(interaction: discord.Interaction, uid: str, item_id: int, bro
                         shop_ch = _bot.get_channel(SHOP_LOG_CHANNEL_ID)
                         if shop_ch:
                             await shop_ch.send(f"{btn_i.user.mention} 购买了 [{item['name']}] — 花费 {item['price']} coins")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log_error("economy", "confirm", e)
 
             elif item_type in ADMIN_NOTIFY_TYPES:
                 conn2.commit(); conn2.close()
@@ -701,8 +702,8 @@ async def buy_item(interaction: discord.Interaction, uid: str, item_id: int, bro
                             await req_ch.send(
                                 f"{btn_i.user.mention} 兑换了 **[{item['name']}]** — 需要管理手动处理（价格 {item['price']} coins）"
                             )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log_error("economy", "confirm", e)
 
             elif item_type == "private_vc":
                 conn2.commit(); conn2.close()
@@ -719,8 +720,8 @@ async def buy_item(interaction: discord.Interaction, uid: str, item_id: int, bro
                                 await shop_ch.send(
                                     f"{btn_i.user.mention} 购买了 [Private VC] — 语音频道 **{vc.name}** 已创建（花费 {item['price']} coins）"
                                 )
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            log_error("economy", "confirm", e)
                     except Exception as e:
                         result_msg += f"\n⚠️ Failed to create voice channel: {e}"
 
@@ -732,8 +733,8 @@ async def buy_item(interaction: discord.Interaction, uid: str, item_id: int, bro
                         shop_ch = _bot.get_channel(SHOP_LOG_CHANNEL_ID)
                         if shop_ch:
                             await shop_ch.send(f"📢 {btn_i.user.mention} 全服广播：{broadcast_message}")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log_error("economy", "confirm", e)
                 result_msg += f"\n📢 Broadcast sent! / 全服广播已发送！"
 
             elif item_type == "giveaway_ticket":
@@ -752,8 +753,8 @@ async def buy_item(interaction: discord.Interaction, uid: str, item_id: int, bro
                         shop_ch = _bot.get_channel(SHOP_LOG_CHANNEL_ID)
                         if shop_ch:
                             await shop_ch.send(f"{btn_i.user.mention} 购买了 [Giveaway Ticket] x1 — 共持有 {total} 张（花费 {item['price']} coins）")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log_error("economy", "confirm", e)
 
             elif item_type == "queue_skip":
                 cur2.execute(
@@ -858,6 +859,23 @@ def check_achievement(user_id: str, key: str):
     a = cur.fetchone()
     if not a:
         conn.close(); return None
+
+    # Bug fix: "连续签到" 成就需验证实际 streak 天数
+    if key == "连续签到":
+        streak_threshold_map = {
+            "7-day": 7, "30-day": 30, "60-day": 60, "100-day": 100,
+        }
+        desc = a["description"]
+        cur.execute("SELECT streak FROM daily_checkin WHERE discord_id=?", (user_id,))
+        sr = cur.fetchone()
+        actual_streak = sr["streak"] if sr else 0
+        matched = False
+        for k, threshold in streak_threshold_map.items():
+            if k in desc and actual_streak >= threshold:
+                matched = True; break
+        if not matched:
+            conn.close(); return None
+
     cur.execute("INSERT INTO user_achievements (user_id, achievement_id) VALUES (?,?)",
                 (user_id, a["id"]))
     if a["reward"] > 0:
@@ -880,8 +898,8 @@ def check_achievement(user_id: str, key: str):
                     await ach_ch.send(f"<@{user_id}> 解锁了成就 [{a['name']}] — +{a['reward']} coins")
                     if completed:
                         await ach_ch.send(f"<@{user_id}> 解锁了成就 [{completed['name']}] — +{completed['reward']} coins")
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("economy", "_send_ach", e)
         _bot.loop.create_task(_send_ach())
 
     return {"name": a["name"], "desc": a["description"], "reward": a["reward"], "hidden": bool(a["hidden"])}
@@ -969,6 +987,58 @@ class Economy(commands.Cog):
         if earned >= 5000: check_achievement(uid, "累计获得 5000")
         if earned >= 15000: check_achievement(uid, "累计获得 15000")
 
+    # ========== 玩家资料卡 ==========
+    @app_commands.command(name="gmpt-profile", description="View player profile / 查看玩家资料卡")
+    @app_commands.describe(user="Player to view (default: yourself) / 目标玩家（默认自己）")
+    async def profile_cmd(self, interaction: discord.Interaction, user: discord.Member = None):
+        target = user or interaction.user
+        uid = str(target.id)
+
+        conn = get_db(); cur = conn.cursor()
+
+        # 金银币 + MMR
+        cur.execute("SELECT score, mmr FROM users WHERE discord_id=?", (uid,))
+        ur = cur.fetchone()
+        coins = ur["score"] if ur else 0
+        mmr = ur["mmr"] if (ur and ur["mmr"]) else 1000
+
+        # 签到连胜
+        cur.execute("SELECT streak FROM daily_checkin WHERE discord_id=?", (uid,))
+        sr = cur.fetchone()
+        streak = sr["streak"] if sr else 0
+
+        # 比赛场数 + 胜场 (tournament_players 表)
+        cur.execute("SELECT COUNT(*) as cnt FROM tournament_players WHERE discord_id=?", (uid,))
+        total_matches = cur.fetchone()["cnt"]
+        cur.execute("SELECT COUNT(*) as cnt FROM tournament_players WHERE discord_id=? AND team_result='win'", (uid,))
+        wins = cur.fetchone()["cnt"]
+        win_rate = f"{wins / total_matches * 100:.1f}%" if total_matches > 0 else "N/A"
+
+        # 成就数
+        cur.execute("SELECT COUNT(*) as cnt FROM user_achievements WHERE user_id=?", (uid,))
+        ach_ct = cur.fetchone()["cnt"]
+
+        # 背包道具数
+        cur.execute("SELECT COUNT(*) as cnt FROM user_inventory WHERE user_id=? AND quantity > 0", (uid,))
+        inv_ct = cur.fetchone()["cnt"]
+
+        conn.close()
+
+        embed = discord.Embed(
+            title=f"{target.display_name}'s Profile / 资料卡",
+            color=discord.Color.blue(),
+        )
+        embed.set_thumbnail(url=target.display_avatar.url)
+        embed.add_field(name="🪙 Coins / 金币", value=str(coins), inline=True)
+        embed.add_field(name="🎯 MMR", value=str(mmr), inline=True)
+        embed.add_field(name="🔥 Streak / 连胜", value=f"{streak} days", inline=True)
+        embed.add_field(name="🎮 Matches / 比赛", value=str(total_matches), inline=True)
+        embed.add_field(name="🏆 Win Rate / 胜率", value=win_rate, inline=True)
+        embed.add_field(name="⭐ Achievements / 成就", value=f"{ach_ct}/{len(ACHIEVEMENTS)}", inline=True)
+        embed.add_field(name="🎒 Items / 道具", value=str(inv_ct), inline=True)
+
+        await interaction.response.send_message(embed=embed)
+
     # ========== 已报名玩家 ==========
     @app_commands.command(name="gmpt-allplayers", description="List all registered players / 列出所有已报名玩家")
     async def players_cmd(self, interaction: discord.Interaction):
@@ -1027,8 +1097,8 @@ class Economy(commands.Cog):
                             (duration, uid, row["join_time"]),
                         )
                         conn.commit()
-                except Exception:
-                    pass
+                except Exception as e:
+                    log_error("economy", "on_voice_state_update", e)
             conn.close()
 
         # User switched voice channels
@@ -1052,8 +1122,8 @@ class Economy(commands.Cog):
                             "WHERE discord_id=? AND join_time=?",
                             (duration, uid, row["join_time"]),
                         )
-                except Exception:
-                    pass
+                except Exception as e:
+                    log_error("economy", "on_voice_state_update", e)
             # Start new session
             cur.execute(
                 "INSERT INTO voice_sessions (discord_id, join_time, total_seconds) VALUES (?,?,0)",
@@ -1106,8 +1176,8 @@ class Economy(commands.Cog):
                 join_dt = datetime.fromisoformat(current_row["join_time"])
                 current_secs = int((datetime.now() - join_dt).total_seconds())
                 total_secs += current_secs
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("economy", "daily_cmd", e)
 
         conn.close()
 
@@ -1139,10 +1209,42 @@ class Economy(commands.Cog):
         else:
             new_streak = 1
 
-        reward = 50
-        for days, coins in sorted(STREAK_REWARDS.items(), reverse=True):
-            if new_streak >= days:
-                reward = coins; break
+        # 基础奖励 + 里程碑加成
+        base_reward = 50
+        milestone_bonus = 0
+        milestone_msg = ""
+        extra_tomorrow = "+0"
+
+        # 里程碑检测（7/14/21/30/60/100天）
+        if new_streak == 7:
+            milestone_bonus = 100
+            milestone_msg = " 🎉 7天里程碑！/ 7-day milestone!"
+        elif new_streak == 14:
+            milestone_bonus = 200
+            milestone_msg = " 🌟 14天高级里程碑！/ 14-day advanced milestone!"
+        elif new_streak == 21:
+            milestone_bonus = 200
+            milestone_msg = " 🔥 21天里程碑！/ 21-day milestone!"
+        elif new_streak == 30:
+            milestone_bonus = 500
+            milestone_msg = " 👑 30天传奇里程碑！/ 30-day legendary milestone!"
+        elif new_streak == 60:
+            milestone_bonus = 1000
+            milestone_msg = " 💀 60天疯狂里程碑！/ 60-day insane milestone!"
+        elif new_streak == 100:
+            milestone_bonus = 3000
+            milestone_msg = " 🌿 100天 Touch Grass 里程碑！/ 100-day milestone!"
+
+        # 明天额外加成预告
+        tomorrow_streak = new_streak + 1
+        for days, coins in sorted(STREAK_REWARDS.items()):
+            if tomorrow_streak == days:
+                extra_tomorrow = f"+{coins}"
+                break
+            elif tomorrow_streak < days:
+                break
+
+        reward = base_reward + milestone_bonus
 
         cur.execute(
             "INSERT INTO daily_checkin (discord_id, last_date, streak) VALUES (?,?,?) "
@@ -1158,13 +1260,11 @@ class Economy(commands.Cog):
                      (uid, reward, f"Daily Check-in Day {new_streak} / 每日签到 Day {new_streak} (Voice: {total_minutes}min)"))
         conn.commit(); conn.close()
 
-        milestone = ""
-        if new_streak in STREAK_REWARDS and new_streak > 1:
-            milestone = f"\n🎉 Milestone bonus! / 签到里程碑！额外获得 {STREAK_REWARDS[new_streak]} coins！"
+        bonus_line = f"\n💡 明天签到额外 +{extra_tomorrow} coins / Tomorrow's bonus: +{extra_tomorrow} coins" if extra_tomorrow != "+0" else ""
 
         await interaction.response.send_message(
-            f"✅ Check-in! / 签到成功！ +{reward} coins  🔥 Streak / 连胜: **{new_streak}** days "
-            f"| Voice / 语音: **{total_minutes}** min{milestone}"
+            f"✅ 签到成功！连续签到 **{new_streak}** 天 🔥 | +{reward} coins{milestone_msg}{bonus_line}\n"
+            f"✅ Check-in! Streak: **{new_streak}** days | +{reward} coins | Voice: **{total_minutes}** min"
         )
 
         ach = check_achievement(uid, "连续签到")
@@ -1320,9 +1420,29 @@ class Economy(commands.Cog):
         lines.append("\n💡 Use `/gmpt-use <item_id>` to use an item / 使用 `/gmpt-use <物品ID>` 使用物品")
         await interaction.response.send_message("\n".join(lines))
 
-    # ========== 背包使用 ==========
+    # ========== 背包使用 (带下拉自动补全) ==========
+    async def _use_autocomplete(self, interaction: discord.Interaction, current: str):
+        """从用户背包中查询道具列表，供下拉选择"""
+        uid = str(interaction.user.id)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("""
+            SELECT inv.item_id, si.name, inv.quantity
+            FROM user_inventory inv
+            JOIN shop_items si ON si.id = inv.item_id
+            WHERE inv.user_id=? AND inv.quantity > 0
+            ORDER BY si.name
+        """, (uid,))
+        rows = cur.fetchall()
+        conn.close()
+        choices = []
+        for r in rows:
+            label = f"{r['name']} — 数量 x{r['quantity']}"
+            if current.lower() in label.lower():
+                choices.append(app_commands.Choice(name=label[:100], value=r["item_id"]))
+        return choices[:25]
+
     @app_commands.command(name="gmpt-use", description="Use an item from inventory / 使用背包物品")
-    @app_commands.describe(item_id="Item ID from /gmpt-inventory / 物品ID")
+    @app_commands.autocomplete(item_id=_use_autocomplete)
     async def use_cmd(self, interaction: discord.Interaction, item_id: int):
         uid = str(interaction.user.id)
         conn = get_db(); cur = conn.cursor()
@@ -1832,6 +1952,265 @@ class Economy(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
+    # ========== 比赛历史 /gmpt-history ==========
+    @app_commands.command(name="gmpt-history", description="View match history / 查看比赛历史")
+    @app_commands.describe(page="Page number (5 per page) / 页码（每页5场）")
+    async def history_cmd(self, interaction: discord.Interaction, page: int = 1):
+        uid = str(interaction.user.id)
+        conn = get_db(); cur = conn.cursor()
+
+        cur.execute("""
+            SELECT tp.tournament_id, t.name as match_name, t.created_at,
+                   tp.team_result, r.team_id, rt.name as team_name
+            FROM tournament_players tp
+            JOIN tournaments t ON t.id = tp.tournament_id
+            LEFT JOIN registrations r ON r.tournament_id = tp.tournament_id AND r.discord_id = tp.discord_id
+            LEFT JOIN teams rt ON rt.id = r.team_id
+            WHERE tp.discord_id=? AND t.status='finished'
+            ORDER BY t.created_at DESC
+            LIMIT 5 OFFSET ?
+        """, (uid, (page - 1) * 5))
+        rows = cur.fetchall()
+        conn.close()
+
+        if not rows:
+            return await interaction.response.send_message(
+                "No match history. / 暂无比赛记录。" if page == 1
+                else "No more records. / 没有更多记录了。"
+            )
+
+        embed = discord.Embed(
+            title=f"Match History / 比赛历史 — {interaction.user.display_name}",
+            color=discord.Color.blue(),
+        )
+        for r in rows:
+            date_str = r["created_at"][:10] if r["created_at"] else "N/A"
+            result = r["team_result"] or "?"
+            icon = "🟢" if result == "win" else ("🔴" if result == "loss" else "⚪")
+            embed.add_field(
+                name=f"#{r['tournament_id']} — {r['match_name']}",
+                value=f"{date_str} | {icon} {result.upper()} | {r['team_name'] or 'N/A'}",
+                inline=False,
+            )
+        embed.set_footer(text=f"Page {page}")
+
+        await interaction.response.send_message(embed=embed)
+
+    # ========== 赛季系统 ==========
+    @app_commands.command(name="gmpt-season-start", description="Start a new season (Admin) / 开新赛季（管理员）")
+    @app_commands.describe(name="Season name / 赛季名称")
+    async def season_start_cmd(self, interaction: discord.Interaction, name: str):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("Admin only. / 仅管理员。", ephemeral=True)
+
+        conn = get_db(); cur = conn.cursor()
+        now_str = datetime.now().strftime("%Y-%m-%d")
+
+        # 结束当前活跃赛季
+        cur.execute("UPDATE seasons SET active=0, end_date=? WHERE active=1", (now_str,))
+        # 归档当前 MMR
+        cur.execute("""
+            INSERT INTO season_standings (season_id, discord_id, mmr, wins, losses, rank)
+            SELECT (SELECT id FROM seasons WHERE active=1), discord_id, mmr,
+                   COALESCE((SELECT wins FROM mmr WHERE mmr.discord_id=users.discord_id), 0),
+                   COALESCE((SELECT losses FROM mmr WHERE mmr.discord_id=users.discord_id), 0),
+                   'Unranked'
+            FROM users WHERE mmr IS NOT NULL
+        """)
+        # 创建新赛季
+        cur.execute("INSERT INTO seasons (name, start_date, active) VALUES (?, ?, 1)", (name, now_str))
+        season_id = cur.lastrowid
+        # 重置全员 MMR 为 1000
+        cur.execute("UPDATE users SET mmr=1000")
+        conn.commit(); conn.close()
+
+        await interaction.response.send_message(
+            f"✅ Season **{name}** started! / 新赛季 **{name}** 已开启！\n"
+            f"All MMR reset to 1000. / 全员 MMR 已重置为 1000。"
+        )
+
+    @app_commands.command(name="gmpt-season-end", description="End current season + rewards (Admin) / 结束赛季发奖励（管理员）")
+    async def season_end_cmd(self, interaction: discord.Interaction):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("Admin only. / 仅管理员。", ephemeral=True)
+
+        conn = get_db(); cur = conn.cursor()
+        now_str = datetime.now().strftime("%Y-%m-%d")
+
+        cur.execute("SELECT id, name FROM seasons WHERE active=1")
+        season = cur.fetchone()
+        if not season:
+            conn.close()
+            return await interaction.response.send_message("No active season. / 没有活跃赛季。", ephemeral=True)
+
+        # 归档当前 MMR
+        cur.execute("""
+            INSERT INTO season_standings (season_id, discord_id, mmr, wins, losses, rank)
+            SELECT ?, discord_id, mmr,
+                   COALESCE((SELECT wins FROM mmr WHERE mmr.discord_id=users.discord_id), 0),
+                   COALESCE((SELECT losses FROM mmr WHERE mmr.discord_id=users.discord_id), 0),
+                   'Unranked'
+            FROM users WHERE mmr IS NOT NULL
+            ON CONFLICT(season_id, discord_id) DO UPDATE SET mmr=excluded.mmr
+        """, (season["id"],))
+        cur.execute("UPDATE seasons SET active=0, end_date=? WHERE id=?", (now_str, season["id"]))
+
+        # Top 3 奖励
+        cur.execute("SELECT discord_id, mmr FROM users ORDER BY mmr DESC LIMIT 3")
+        top3 = cur.fetchall()
+        rewards = [2000, 1000, 500]
+        for i, row in enumerate(top3):
+            cur.execute("UPDATE users SET score=score+? WHERE discord_id=?", (rewards[i], row["discord_id"]))
+            cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                       (row["discord_id"], rewards[i], f"Season {season['name']} Top {i+1}"))
+
+        conn.commit(); conn.close()
+
+        msg = f"✅ Season **{season['name']}** ended! / 赛季结束！\n"
+        for i, row in enumerate(top3):
+            msg += f"  #{i+1} <@{row['discord_id']}> — {row['mmr']} MMR (+{rewards[i]} coins)\n"
+        await interaction.response.send_message(msg)
+
+    @app_commands.command(name="gmpt-season-standings", description="View season leaderboard / 赛季排行榜")
+    async def season_standings_cmd(self, interaction: discord.Interaction):
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT id, name FROM seasons WHERE active=1")
+        season = cur.fetchone()
+
+        if season:
+            cur.execute("SELECT discord_id, mmr FROM users ORDER BY mmr DESC LIMIT 20")
+            rows = cur.fetchall()
+            season_label = f"Current: {season['name']}"
+        else:
+            cur.execute("SELECT discord_id, mmr FROM users ORDER BY mmr DESC LIMIT 20")
+            rows = cur.fetchall()
+            season_label = "No active season"
+        conn.close()
+
+        embed = discord.Embed(
+            title=f"Season Standings / 赛季排行榜 — {season_label}",
+            color=discord.Color.gold(),
+        )
+        lines = []
+        for i, row in enumerate(rows, 1):
+            medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, f"{i}.")
+            lines.append(f"{medal} <@{row['discord_id']}> — **{row['mmr']}** MMR")
+        embed.description = "\n".join(lines) if lines else "No data / 暂无数据"
+        await interaction.response.send_message(embed=embed)
+
+    # ========== 每周挑战 ==========
+    WEEKLY_CHALLENGE_POOL = [
+        {"title": "参加3场比赛 / Play 3 matches", "desc": "参加3场比赛", "reward": 150, "target": 3, "task_type": "play_match"},
+        {"title": "赢得2场比赛 / Win 2 matches", "desc": "赢得2场比赛", "reward": 200, "target": 2, "task_type": "win_match"},
+        {"title": "在频道聊天50条 / Send 50 messages", "desc": "发送50条消息", "reward": 100, "target": 50, "task_type": "send_message"},
+        {"title": "语音通话2小时 / Voice 2hrs", "desc": "语音通话120分钟", "reward": 150, "target": 120, "task_type": "voice_time"},
+        {"title": "邀请1位新朋友 / Invite 1 friend", "desc": "邀请1位新朋友", "reward": 300, "target": 1, "task_type": "invite"},
+        {"title": "使用3次道具 / Use 3 items", "desc": "使用3次道具", "reward": 100, "target": 3, "task_type": "use_item"},
+        {"title": "连续签到3天 / Check in 3 days", "desc": "连续签到3天", "reward": 120, "target": 3, "task_type": "checkin_streak"},
+        {"title": "赠送1次金币 / Gift coins once", "desc": "赠送金币1次", "reward": 80, "target": 1, "task_type": "gift_coins"},
+        {"title": "下注2场比赛 / Bet on 2 matches", "desc": "下注2场比赛", "reward": 150, "target": 2, "task_type": "place_bet"},
+        {"title": "获得MVP1次 / Get MVP once", "desc": "获得MVP1次", "reward": 200, "target": 1, "task_type": "get_mvp"},
+        {"title": "完成1次排队比赛 / Complete 1 queue match", "desc": "完成1次排队比赛", "reward": 100, "target": 1, "task_type": "queue_match"},
+        {"title": "开1次黑车组队 / Queue as 5-stack", "desc": "5黑组队1次", "reward": 200, "target": 1, "task_type": "five_stack"},
+        {"title": "发5条消息带附件 / Send 5 attachments", "desc": "发送5条带附件的消息", "reward": 80, "target": 5, "task_type": "send_attachment"},
+        {"title": "使用表情回应20次 / React 20 times", "desc": "使用表情回应20次", "reward": 80, "target": 20, "task_type": "react"},
+        {"title": "观看直播30分钟 / Watch stream 30min", "desc": "观看直播30分钟", "reward": 100, "target": 30, "task_type": "watch_stream"},
+    ]
+
+    @app_commands.command(name="gmpt-weekly", description="View this week's challenges / 查看本周挑战")
+    async def weekly_cmd(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        conn = get_db(); cur = conn.cursor()
+        now_str = datetime.now().strftime("%Y-%m-%d")
+
+        # 如果没有本周挑战或已过期，生成新挑战
+        cur.execute("SELECT id, week_start FROM weekly_challenges WHERE week_start <= ? ORDER BY week_start DESC LIMIT 1", (now_str,))
+        latest = cur.fetchone()
+        week_start = datetime.now().strftime("%Y-%m-%d")
+
+        if not latest or latest["week_start"] < week_start:
+            # 每周一刷新（简单判断：用当前周一的日期）
+            import random as _random
+            selected = _random.sample(self.WEEKLY_CHALLENGE_POOL, min(3, len(self.WEEKLY_CHALLENGE_POOL)))
+            for ch in selected:
+                cur.execute(
+                    "INSERT INTO weekly_challenges (week_start, title, description, reward, target, task_type) VALUES (?,?,?,?,?,?)",
+                    (week_start, ch["title"], ch["desc"], ch["reward"], ch["target"], ch["task_type"]),
+                )
+
+        # 查询本周挑战 + 用户进度
+        cur.execute("""
+            SELECT wc.id, wc.title, wc.description, wc.reward, wc.target, wc.task_type,
+                   COALESCE(uc.progress, 0) as progress, COALESCE(uc.completed, 0) as completed
+            FROM weekly_challenges wc
+            LEFT JOIN user_challenges uc ON uc.challenge_id = wc.id AND uc.discord_id = ?
+            WHERE wc.week_start = ?
+            ORDER BY wc.id
+        """, (uid, week_start))
+        challenges = cur.fetchall()
+        conn.commit(); conn.close()
+
+        if not challenges:
+            return await interaction.response.send_message("本周暂无挑战 / No challenges this week.")
+
+        embed = discord.Embed(
+            title="Weekly Challenges / 每周挑战",
+            description=f"Week of {week_start}",
+            color=discord.Color.purple(),
+        )
+        for ch in challenges:
+            prog = ch["progress"]
+            target = ch["target"]
+            done = "✅" if ch["completed"] else "⬜"
+            bar = "█" * min(prog, target) + "░" * max(0, target - prog)
+            embed.add_field(
+                name=f"{done} {ch['title']} (+{ch['reward']}g)",
+                value=f"Progress: {prog}/{target} [{bar}]",
+                inline=False,
+            )
+
+        await interaction.response.send_message(embed=embed)
+
+
+def update_weekly_progress(user_id: str, task_type: str, amount: int = 1):
+    """更新玩家每周挑战进度，完成后自动发放奖励"""
+    from datetime import datetime
+    conn = get_db(); cur = conn.cursor()
+    now_str = datetime.now().strftime("%Y-%m-%d")
+
+    cur.execute("""
+        SELECT wc.id, wc.reward, uc.progress, uc.completed
+        FROM weekly_challenges wc
+        LEFT JOIN user_challenges uc ON uc.challenge_id = wc.id AND uc.discord_id = ?
+        WHERE wc.week_start <= ? AND wc.task_type = ?
+        ORDER BY wc.week_start DESC LIMIT 1
+    """, (user_id, now_str, task_type))
+    row = cur.fetchone()
+    if not row:
+        conn.close(); return
+
+    if row["completed"]:
+        conn.close(); return
+
+    new_progress = (row["progress"] or 0) + amount
+    cur.execute("""
+        INSERT INTO user_challenges (discord_id, challenge_id, progress, completed)
+        VALUES (?, ?, ?, 0)
+        ON CONFLICT(discord_id, challenge_id) DO UPDATE SET progress = ?
+    """, (user_id, row["id"], new_progress, new_progress))
+
+    # 检查是否完成
+    cur.execute("SELECT target, reward, title FROM weekly_challenges WHERE id=?", (row["id"],))
+    ch = cur.fetchone()
+    if ch and new_progress >= ch["target"]:
+        cur.execute("UPDATE user_challenges SET completed=1 WHERE discord_id=? AND challenge_id=?",
+                   (user_id, row["id"]))
+        cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (ch["reward"], user_id))
+        cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                   (user_id, ch["reward"], f"Weekly Challenge: {ch['title']}"))
+
+    conn.commit(); conn.close()
+
 
 # ══════════ Betting Settlement / 下注结算 ══════════
 
@@ -1880,8 +2259,8 @@ def settle_bets(match_id: int, winning_team_id: int) -> list:
     for vb in vote_bets:
         try:
             cur.execute("UPDATE vote_bets SET settled=1, won=1 WHERE id=?", (vb["id"],))
-        except Exception:
-            pass
+        except Exception as e:
+            log_error("economy", "settle_bets", e)
         settled += 1
         won += 1
 
@@ -1967,8 +2346,8 @@ class AdminCoinsView(discord.ui.View):
         if hasattr(self, 'message') and self.message:
             try:
                 await self.message.edit(view=self)
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("economy", "on_timeout", e)
 
 
 
@@ -2223,8 +2602,8 @@ class ResetAllModal(discord.ui.Modal, title="重置全部金币 / Reset All Coin
                     ch = interaction.channel
                     if ch:
                         await ch.send(f"⏰ **{item_name}** 对 {target.mention} 的效果已结束。")
-                except Exception:
-                    pass
+                except Exception as e:
+                    log_error("economy", "end_notify", e)
             asyncio.create_task(end_notify())
 
     # ========== 抽奖系统 ==========

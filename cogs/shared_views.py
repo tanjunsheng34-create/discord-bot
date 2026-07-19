@@ -4,6 +4,7 @@ Shared Discord UI Views — imported by multiple cogs to avoid circular imports.
 import discord
 
 import logging
+from utils.logger import log_error
 logger = logging.getLogger(__name__)
 
 

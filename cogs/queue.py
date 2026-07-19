@@ -10,6 +10,7 @@ from database import get_db
 from datetime import datetime
 
 import logging
+from utils.logger import log_error
 logger = logging.getLogger(__name__)
 
 VALID_POSITIONS = ["Top", "JG", "Mid", "ADC", "Support", "Any"]
@@ -130,13 +131,34 @@ class QueueCog(commands.Cog):
 
             await interaction.response.send_message(embed=embed)
 
-    # ========== 自动创建比赛（满10人） ==========
+    # ========== 自动创建比赛（满10人，MMR蛇形平衡） ==========
     async def _create_match(self, interaction: discord.Interaction):
         player_items = list(self.queue.items())
-        random.shuffle(player_items)
 
-        team_a = player_items[:5]
-        team_b = player_items[5:10]
+        # 查询所有玩家 MMR
+        conn = get_db(); cur = conn.cursor()
+        uids = [uid for uid, _ in player_items]
+        placeholders = ",".join("?" * len(uids))
+        cur.execute(f"SELECT discord_id, mmr FROM users WHERE discord_id IN ({placeholders})", uids)
+        mmr_rows = cur.fetchall()
+        conn.close()
+        mmr_map = {r["discord_id"]: (r["mmr"] if r["mmr"] else 1000) for r in mmr_rows}
+        for uid in uids:
+            mmr_map.setdefault(uid, 1000)
+
+        # 按 MMR 降序排序后蛇形分配
+        sorted_players = sorted(player_items, key=lambda x: mmr_map.get(x[0], 1000), reverse=True)
+        team_a = []; team_b = []
+        snake = ["A", "B", "B", "A", "A", "B", "B", "A", "A", "B"]
+        for i, (uid, data) in enumerate(sorted_players):
+            if snake[i] == "A":
+                team_a.append((uid, data))
+            else:
+                team_b.append((uid, data))
+
+        # 计算两队平均 MMR
+        avg_a = sum(mmr_map[uid] for uid, _ in team_a) / 5
+        avg_b = sum(mmr_map[uid] for uid, _ in team_b) / 5
 
         conn = get_db(); cur = conn.cursor()
         match_name = f"Auto Queue Match {datetime.utcnow().strftime('%H:%M')}"
@@ -185,9 +207,11 @@ class QueueCog(commands.Cog):
         embed = discord.Embed(
             title=f"⚔️ 自动匹配完成 / Auto Match Ready! — {match_name}",
             description=(
-                f"匹配池满 10 人，已自动创建比赛！\n\n"
+                f"匹配池满 10 人，已自动创建比赛！（蛇形平衡）\n\n"
                 f"🔵 **蓝队 Blue** (ID:{aid}): {a_mentions}\n"
-                f"🔴 **红队 Red** (ID:{bid}): {b_mentions}\n\n"
+                f"   Avg MMR: **{avg_a:.0f}**\n"
+                f"🔴 **红队 Red** (ID:{bid}): {b_mentions}\n"
+                f"   Avg MMR: **{avg_b:.0f}**\n\n"
                 f"结算: `/gmpt-settle {match_id} <获胜队伍ID>`"
             ),
             color=discord.Color.gold(),

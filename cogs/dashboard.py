@@ -27,6 +27,7 @@ from cogs.tournament import (
 )
 
 import logging
+from utils.logger import log_error
 logger = logging.getLogger(__name__)
 
 class CreateMatchModal(discord.ui.Modal, title="创建比赛 / Create Match"):
@@ -379,8 +380,8 @@ class TeamAssignView(discord.ui.View):
             logger.error(f"[TeamAssignView] add_to_a error: {e}", exc_info=True)
             try:
                 await interaction.followup.send("操作失败 / Failed, please try again.", ephemeral=True)
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("dashboard", "add_to_a", e)
 
     @discord.ui.button(label="加入 B 队 / B", style=discord.ButtonStyle.danger, emoji="🔴", row=1)
     async def add_to_b(self, interaction: discord.Interaction, button):
@@ -406,8 +407,8 @@ class TeamAssignView(discord.ui.View):
             logger.error(f"[TeamAssignView] add_to_b error: {e}", exc_info=True)
             try:
                 await interaction.followup.send("操作失败 / Failed, please try again.", ephemeral=True)
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("dashboard", "add_to_b", e)
 
     @discord.ui.button(label="清空 / Clear", style=discord.ButtonStyle.secondary, emoji="🔄", row=2)
     async def clear_teams(self, interaction: discord.Interaction, button):
@@ -470,8 +471,8 @@ class TeamAssignView(discord.ui.View):
         try:
             voice_view = VoicePullView(self.team_a, self.team_b, self.guild)
             await interaction.followup.send("📢 点击按钮将玩家拉入对应语音频道：", view=voice_view)
-        except Exception:
-            pass
+        except Exception as e:
+            log_error("dashboard", "confirm_teams", e)
 
     def _build_embed(self):
         embed = discord.Embed(
@@ -781,8 +782,8 @@ class ReShuffleView(discord.ui.View):
         try:
             embed = self._build_player_list_embed()
             await interaction.message.edit(embed=embed, view=self)
-        except Exception:
-            pass
+        except Exception as e:
+            log_error("dashboard", "_refresh_embed", e)
 
     @discord.ui.button(label="完赛", style=discord.ButtonStyle.success, emoji="✅", row=0)
     async def finish_btn(self, interaction: discord.Interaction, button):
@@ -810,8 +811,8 @@ class ReShuffleView(discord.ui.View):
         await interaction.followup.send(embed=embed)
         try:
             await interaction.message.edit(view=self)
-        except Exception:
-            pass
+        except Exception as e:
+            log_error("dashboard", "finish_btn", e)
 
     @discord.ui.button(label="重新分队", style=discord.ButtonStyle.primary, emoji="🔄", row=0)
     async def reshuffle_btn(self, interaction: discord.Interaction, button):
@@ -1028,15 +1029,15 @@ class ReShuffleView(discord.ui.View):
                     child.disabled = True
             try:
                 await interaction.message.edit(view=self)
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("dashboard", "_do_settle", e)
 
             # Send AI analysis
             if analysis_embed:
                 try:
                     await interaction.channel.send(embed=analysis_embed)
-                except Exception:
-                    pass
+                except Exception as e:
+                    log_error("dashboard", "_do_settle", e)
 
             # Send MVP vote
             try:
@@ -1266,8 +1267,8 @@ class ReShuffleView(discord.ui.View):
         if notify_channel and lines:
             try:
                 await notify_channel.send("\n".join(lines))
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("dashboard", "pull_voice_a_btn", e)
         button.disabled = True
         self._voice_used_a = True
         await interaction.edit_original_response(view=self)
@@ -1287,8 +1288,8 @@ class ReShuffleView(discord.ui.View):
         if notify_channel and lines:
             try:
                 await notify_channel.send("\n".join(lines))
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("dashboard", "pull_voice_b_btn", e)
         button.disabled = True
         self._voice_used_b = True
         await interaction.edit_original_response(view=self)
@@ -1377,8 +1378,8 @@ class VoicePullView(discord.ui.View):
         if notify_channel and lines:
             try:
                 await notify_channel.send("\n".join(lines))
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("dashboard", "pull_a_btn", e)
         button.disabled = True
         self._used_a = True
         await interaction.edit_original_response(view=self)
@@ -1397,8 +1398,8 @@ class VoicePullView(discord.ui.View):
         if notify_channel and lines:
             try:
                 await notify_channel.send("\n".join(lines))
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("dashboard", "pull_b_btn", e)
         button.disabled = True
         self._used_b = True
         await interaction.edit_original_response(view=self)
@@ -1456,8 +1457,8 @@ class PostMatchPullView(discord.ui.View):
         if notify_channel and results:
             try:
                 await notify_channel.send(f"📢 赛后集合 — {interaction.user.mention} 将队员拉入赛后频道\n{lines}")
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("dashboard", "pull_post_match", e)
 
 
 class ManualTeamView(discord.ui.View):
@@ -1535,8 +1536,8 @@ class ManualTeamView(discord.ui.View):
             logger.error(f"[TeamAssignView] add_to_a error: {e}", exc_info=True)
             try:
                 await interaction.followup.send("操作失败 / Failed, please try again.", ephemeral=True)
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("dashboard", "add_to_a", e)
 
     @discord.ui.button(label="加入 B 队 / B", style=discord.ButtonStyle.danger, emoji="🔴", row=1)
     async def add_to_b(self, interaction: discord.Interaction, button):
@@ -1562,8 +1563,8 @@ class ManualTeamView(discord.ui.View):
             logger.error(f"[TeamAssignView] add_to_b error: {e}", exc_info=True)
             try:
                 await interaction.followup.send("操作失败 / Failed, please try again.", ephemeral=True)
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("dashboard", "add_to_b", e)
 
     @discord.ui.button(label="清空 / Clear", style=discord.ButtonStyle.secondary, emoji="🔄", row=2)
     async def clear_teams(self, interaction: discord.Interaction, button):
@@ -1632,8 +1633,8 @@ class ManualTeamView(discord.ui.View):
         try:
             voice_view = VoicePullView(self.team_a, self.team_b, self.guild)
             await interaction.followup.send("📢 点击按钮将玩家拉入对应语音频道：", view=voice_view)
-        except Exception:
-            pass
+        except Exception as e:
+            log_error("dashboard", "confirm_teams", e)
         await VoteView.send_vote(match_id=new_mid, match_name=self.match_name, channel=interaction.channel)
 
     def _build_embed(self):
@@ -1856,8 +1857,8 @@ class CaptainDraftView(discord.ui.View):
         try:
             voice_view = VoicePullView(self.team_a, self.team_b, self.guild)
             await interaction.followup.send("📢 点击按钮将玩家拉入对应语音频道：", view=voice_view)
-        except Exception:
-            pass
+        except Exception as e:
+            log_error("dashboard", "confirm_draft", e)
         await VoteView.send_vote(match_id=new_mid, match_name=self.match_name, channel=interaction.channel)
 
     def _build_embed(self):
@@ -2350,8 +2351,8 @@ class MatchViewWithID(discord.ui.View):
             logger.error(f"[MatchView] settle error: {e}", exc_info=True)
             try:
                 await interaction.followup.send("结算失败 / Settle failed.", ephemeral=True)
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("dashboard", "mvp_callback", e)
 
     @discord.ui.button(label="退出 Leave", style=discord.ButtonStyle.danger, emoji="🚪", row=1, custom_id="matchv2_leave")
     async def leave_btn(self, interaction: discord.Interaction, button):
@@ -2539,8 +2540,8 @@ class MatchViewWithID(discord.ui.View):
         try:
             voice_view = VoicePullView(ta, tb, guild)
             await interaction.channel.send("📢 点击按钮将玩家拉入对应语音频道：", view=voice_view)
-        except Exception:
-            pass
+        except Exception as e:
+            log_error("dashboard", "reshuffle_btn", e)
 
         # Send vote view
         await VoteView.send_vote(match_id=mid, match_name=match_name, channel=interaction.channel)
@@ -2730,8 +2731,8 @@ class MvpVoteView(discord.ui.View):
         if not tally:
             try:
                 await self._message.edit(content="⏰ MVP 投票结束 — 无人投票 / No votes cast.", view=None)
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("dashboard", "on_timeout", e)
             return
 
         max_votes = max(tally.values())
@@ -3374,8 +3375,8 @@ class VoteView(discord.ui.View):
             if vote_exists:
                 # Votes exist but message might be gone — update label counts on existing message if found
                 return None  # Skip re-sending; existing message handles it
-        except Exception:
-            pass
+        except Exception as e:
+            log_error("dashboard", "send_vote", e)
 
         view = VoteView(match_id, match_name, team_a_name, team_b_name)
         embed = view.build_embed()
@@ -3500,8 +3501,8 @@ async def _refresh_mmr_board(bot, guild: discord.Guild):
             )
             conn2.commit()
             conn2.close()
-        except Exception:
-            pass
+        except Exception as e:
+            log_error("dashboard", "_refresh_mmr_board", e)
 
 
 # =============================================================================
@@ -4686,8 +4687,8 @@ class Dashboard(commands.Cog):
                         is_panel = True
                     if is_panel:
                         await msg.delete()
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("dashboard", "dashboard_cmd", e)
 
             embed = self._build_dashboard_embed()
             view = DashboardView(guild=interaction.guild, session=self.session)
@@ -4705,8 +4706,8 @@ class Dashboard(commands.Cog):
                 await interaction.followup.send(
                     "控制面板加载失败 / Dashboard failed to load. Please try again.", ephemeral=True
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("dashboard", "dashboard_cmd", e)
 
     @app_commands.command(
         name="gmpt-stats",
@@ -4826,8 +4827,8 @@ class Dashboard(commands.Cog):
                 try:
                     old_msg = await old_channel.fetch_message(int(existing["message_id"]))
                     await old_msg.delete()
-                except Exception:
-                    pass
+                except Exception as e:
+                    log_error("dashboard", "gmpt_mmr_board", e)
 
         # Send new board
         embed = await _build_mmr_board_embed(interaction.guild)

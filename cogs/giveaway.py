@@ -10,6 +10,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from database import get_db
+from utils.logger import log_error
 
 
 # =============================================================================
@@ -170,8 +171,8 @@ class GiveawayView(discord.ui.View):
         if hasattr(self, 'message') and self.message:
             try:
                 await self.message.edit(view=self)
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("giveaway", "on_timeout", e)
 
 class Giveaway(commands.Cog):
     def __init__(self, bot):
@@ -392,8 +393,8 @@ async def end_giveaway(gid, bot):
             channel = bot.get_channel(int(g["channel_id"]))
             if channel:
                 await channel.send(embed=embed)
-        except Exception:
-            pass
+        except Exception as e:
+            log_error("giveaway", "end_giveaway", e)
 
 
 async def auto_end_giveaway(gid, duration_mins):

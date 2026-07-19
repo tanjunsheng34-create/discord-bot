@@ -233,6 +233,12 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
+    # --- 新增 users.mmr 字段（排位系统）---
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN mmr INTEGER DEFAULT 1000")
+    except sqlite3.OperationalError:
+        pass
+
     # --- 新增选路比赛字段 / Role-Pick Match Fields ---
     try:
         cursor.execute("ALTER TABLE tournaments ADD COLUMN role_pick INTEGER DEFAULT 0")
@@ -408,6 +414,46 @@ def init_db():
             placed_at   TEXT DEFAULT (datetime('now')),
             settled     INTEGER DEFAULT 0,
             won         INTEGER DEFAULT 0
+        );
+
+        -- === 赛季系统 / Season System ===
+        CREATE TABLE IF NOT EXISTS seasons (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL,
+            start_date  TEXT NOT NULL,
+            end_date    TEXT,
+            active      INTEGER DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS season_standings (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            season_id   INTEGER NOT NULL,
+            discord_id  TEXT NOT NULL,
+            mmr         INTEGER NOT NULL,
+            wins        INTEGER DEFAULT 0,
+            losses      INTEGER DEFAULT 0,
+            rank        TEXT DEFAULT 'Unranked',
+            UNIQUE(season_id, discord_id)
+        );
+
+        -- === 每周挑战 / Weekly Challenges ===
+        CREATE TABLE IF NOT EXISTS weekly_challenges (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            week_start  TEXT NOT NULL,
+            title       TEXT NOT NULL,
+            description TEXT NOT NULL,
+            reward      INTEGER NOT NULL,
+            target      INTEGER NOT NULL,
+            task_type   TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS user_challenges (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            discord_id  TEXT NOT NULL,
+            challenge_id INTEGER NOT NULL,
+            progress    INTEGER DEFAULT 0,
+            completed   INTEGER DEFAULT 0,
+            UNIQUE(discord_id, challenge_id)
         );
     """)
 

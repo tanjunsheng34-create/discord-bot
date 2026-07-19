@@ -13,6 +13,7 @@ from datetime import datetime
 from collections import defaultdict
 
 import logging
+from utils.logger import log_error
 logger = logging.getLogger(__name__)
 
 
@@ -1064,8 +1065,8 @@ class Tournament(commands.Cog):
                 await interaction.followup.send(
                     f"创建锦标赛失败 / Failed to create tournament: {e}", ephemeral=True
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("tournament", "create_cmd", e)
 
     # =====================================================================
     # cancel
@@ -1589,8 +1590,8 @@ class Tournament(commands.Cog):
                     tier_display, tier_key, tier_score = await fetch_player_tier(self.session, pid)
                     if tier_key and tier_key != "UNRANKED":
                         available_players[i] = (pid, name, tier_key.upper(), tier_score)
-                except Exception:
-                    pass
+                except Exception as e:
+                    log_error("tournament", "draft_setup_cmd", e)
         conn.close()
 
         view = DraftSetupView(tournament_id, available_players, interaction.guild)

@@ -334,6 +334,35 @@ async def on_ready():
 
 
 # =============================================================================
+# 每周挑战进度监听 — messages / attachments / reactions
+# =============================================================================
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+    uid = str(message.author.id)
+
+    try:
+        from cogs.economy import update_weekly_progress
+        update_weekly_progress(uid, "send_message")
+        if message.attachments:
+            update_weekly_progress(uid, "send_attachment", len(message.attachments))
+    except Exception:
+        pass
+
+
+@bot.event
+async def on_reaction_add(reaction, user):
+    if user.bot:
+        return
+    try:
+        from cogs.economy import update_weekly_progress
+        update_weekly_progress(str(user.id), "react")
+    except Exception:
+        pass
+
+
+# =============================================================================
 # 保活 — 内置 HTTP 服务器，每 30 秒自检，防止容器休眠
 # =============================================================================
 async def health_server():
