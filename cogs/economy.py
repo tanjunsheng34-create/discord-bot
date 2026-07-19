@@ -272,126 +272,113 @@ CATEGORY_COLORS = {
 }
 
 
-def _get_item_command(item_type, category):
-    """Determine the correct slash command for an item based on its category."""
-    if category in ("⚔️ 赛前道具", "🎮 比赛中道具", "😈 坑队友道具"):
-        return f"/gmpt-item use {item_type}"
-    elif category == "💰 加成道具":
-        return f"/gmpt-use {item_type}"
-    elif category == "🎲 随机道具":
-        return "/gmpt-use gamble"
-    elif category == "🎭 Discord道具":
-        return f"/gmpt-buy {item_type}"
-    return f"/gmpt-buy {item_type}"
+ITEM_DISPLAY = {
+    # ⚔️ 赛前道具 Pre-Game
+    "ban_flash":    "禁闪卡 Ban Flash — 禁用闪现30秒 Disable Flash 30s",
+    "freeze":       "定身卡 Freeze — 不能离开泉水30秒 Can't leave fountain 30s",
+    "silence":      "沉默卡 Silence — 不能放技能只能平A30秒 No skills AA-only 30s",
+    "blind":        "致盲卡 Blind — 不能插眼30秒 No wards 30s",
+    "slow":         "减速卡 Slow — 不能买鞋子30秒 Can't buy boots 30s",
+    "lock_pick":    "锁英雄 Lock Pick — 指定对方英雄 Forced hero pick",
+    "no_summs":     "禁召唤师 No Summs — 禁第二个召唤师技能 Second summoner disabled",
+    "downgrade":    "降级卡 Downgrade — 开局少1级 Start at level 1",
+    # 🎮 比赛中 Mid-Game
+    "timeout":      "暂停卡 Timeout — 原地不动15秒 Frozen 15s",
+    "mute":         "禁言卡 Mute — 不能打字/语音30秒 No chat/voice 30s",
+    "reveal":       "暴露卡 Reveal — 发坐标 Send location in chat",
+    "no_recall":    "回城禁 No Recall — 不能B回城30秒 Can't recall 30s",
+    "breakup":      "分手卡 Breakup — 2人保持1000码以上 Stay 1000+ units apart 30s",
+    "steal_buff":   "偷Buff Steal Buff — 下一个buff让出 Give next buff",
+    "sprint":       "加速卡 Sprint — 移速翻倍15秒 Double move speed 15s",
+    "reverse":      "反转卡 Reverse — 键鼠反向30秒 Reversed controls 30s",
+    "kamikaze":     "自爆卡 Kamikaze — 冲塔送一次 Tower dive once",
+    "surrender":    "投降卡 Surrender — 必须/ff不能拒绝 Must /ff, can't decline",
+    # 😈 坑队友 Troll
+    "int_card":     "送头卡 Int Card — 送对面一血 Feed first blood",
+    "afk_card":     "挂机卡 AFK — 原地挂机30秒 AFK 30s",
+    "no_items":     "裸奔卡 No Items — 不能买装备30秒 Can't buy items 30s",
+    "feed_buff":    "送Buff Feed Buff — buff让给对面 Give buff to enemy",
+    # 💰 加成 Boost
+    "mmr_protect":  "MMR保护卡 MMR Protect — 输了不扣MMR No MMR loss on defeat",
+    "double_mmr":   "双倍MMR卡 Double MMR — 赢了MMR翻倍 Double MMR on win",
+    "steal_coins":  "偷金币卡 Steal Coins — 偷对手30 coins Steal 30 coins",
+    "xp_boost":     "经验加成 XP Boost — 经验+50% XP +50%",
+    # 🎲 随机 Gamble
+    "gamble":       "双倍或清零 Doubler — 随机翻倍或清零 Double or nothing",
+    # 🎭 Discord
+    "color_role":       "自选颜色 Color Role — 自选颜色（通知管理） Custom color (admin)",
+    "rename":           "改名卡 Rename — 改昵称（通知管理） Nickname change (admin)",
+    "title":            "专属头衔 Title — 自定义称号（通知管理） Custom title (admin)",
+    "private_vc":       "私人语音 Private VC — 创建临时语音频道 Temp voice channel",
+    "broadcast":        "全服喇叭 Broadcast — 发全服消息 Server-wide message",
+    "giveaway_ticket":  "抽奖券 Giveaway Ticket — 增加抽奖机会 Giveaway entries",
+    "queue_skip":       "插队卡 Queue Skip — 排队优先 Priority queue",
+    "mode_pick":        "自选模式 Mode Pick — 下次比赛你选模式 Pick next mode",
+}
 
 
-def _build_shop_embed(items, categories, bal, selected_category=None):
-    """Build the shop embed panel. If selected_category is given, show only that category."""
-    if selected_category and selected_category in categories:
-        cats_to_show = [selected_category]
-        title = f"🛒 积分商店 Item Shop — {selected_category}"
-    else:
-        cats_to_show = categories
-        title = "🛒 积分商店 Item Shop"
-
-    color = CATEGORY_COLORS.get(selected_category, 0xFFD700) if selected_category else 0xFFD700
-
-    embed = discord.Embed(title=title, color=color)
+def _build_category_embed(category, items, bal):
+    """Build an embed for a single category with item descriptions and effects."""
+    color = CATEGORY_COLORS.get(category, 0xFFD700)
+    embed = discord.Embed(title=f"{category}", color=color)
     embed.add_field(name="💰 余额 Balance", value=f"🪙 {bal} GMPT Coins", inline=False)
 
-    for cat in cats_to_show:
-        cat_items = [it for it in items if it.get("category", "其他") == cat]
-        if not cat_items:
-            continue
-        lines = []
-        for it in cat_items:
-            emoji = it.get("emoji", "🛒")
-            name = it["name"]
-            price = it["price"]
-            item_type = it["item_type"]
-            desc = it["description"]
-            cmd = _get_item_command(item_type, cat)
-            lines.append(f"{emoji} {name} — {price}g — `{cmd}` — {desc}")
-        embed.add_field(name=cat, value="\n".join(lines), inline=False)
+    lines = []
+    for it in items:
+        emoji = it.get("emoji", "🛒")
+        item_type = it["item_type"]
+        price = it["price"]
+        display = ITEM_DISPLAY.get(item_type, f"{it['name']} — {it['description']}")
+        lines.append(f"{emoji} {display} — {price}g")
 
+    embed.add_field(name="道具列表 Items", value="\n".join(lines), inline=False)
     embed.set_footer(text="GMPT Bot • Economy System")
     return embed
 
-class ShopCategoryView(discord.ui.View):
-    """Category selection view with Select Menu / 分类选择视图"""
-    def __init__(self, all_items, categories, user_id, bal, timeout=120):
+class MainMenuView(discord.ui.View):
+    """Main menu with 6 category buttons + Balance/Inventory."""
+    CATEGORY_BUTTONS = [
+        ("⚔️ 赛前",    "⚔️ 赛前道具",  0),
+        ("🎮 比赛中",  "🎮 比赛中道具", 0),
+        ("😈 坑队友",  "😈 坑队友道具", 0),
+        ("💰 加成",    "💰 加成道具",   0),
+        ("🎲 随机",    "🎲 随机道具",   1),
+        ("🎭 Discord", "🎭 Discord道具", 1),
+    ]
+
+    def __init__(self, all_items, categories, user_id, bal):
         super().__init__(timeout=None)
         self.all_items = all_items
         self.categories = categories
         self.user_id = user_id
         self.bal = bal
 
-        options = [discord.SelectOption(label=cat, value=cat) for cat in categories]
-        select = discord.ui.Select(
-            placeholder="Select a category / 选择分类...",
-            options=options,
-            row=0,
-        )
-        select.callback = self.on_category_select
-        self.add_item(select)
-
-    async def on_category_select(self, interaction: discord.Interaction):
-        if str(interaction.user.id) != self.user_id:
-            return await interaction.response.send_message(
-                "This is not your shop. / 这不是你的商店页面。", ephemeral=True
-            )
-
-        await interaction.response.defer()
-
-        cat = interaction.data["values"][0]
-        items = [it for it in self.all_items if it.get("category", "其他") == cat]
-
-        embed = _build_shop_embed(self.all_items, self.categories, self.bal, selected_category=cat)
-        view = ShopView(
-            items=items,
-            all_items=self.all_items,
-            categories=self.categories,
-            user_id=self.user_id,
-            bal=self.bal,
-        )
-        await interaction.edit_original_response(embed=embed, view=view, attachments=[])
-
-    async def on_timeout(self):
-        for child in self.children:
-            child.disabled = True
-
-
-class ShopView(discord.ui.View):
-    def __init__(self, items, user_id, timeout=120,
-                 all_items=None, categories=None, bal=None):
-        super().__init__(timeout=None)
-        self.user_id = user_id
-        self.all_items = all_items
-        self.categories = categories
-        self.bal = bal
-        # buy buttons (rows 0-2, max 12 items)
-        for idx, it in enumerate(items[:12]):
-            r = idx // 4
+        for label, cat_key, row in self.CATEGORY_BUTTONS:
             btn = discord.ui.Button(
-                label=f"{it['name'][:12]}",
-                emoji=it.get("emoji", "🛒"),
-                style=discord.ButtonStyle.primary,
-                custom_id=f"shop_buy_{it['id']}",
-                row=r,
+                label=label, style=discord.ButtonStyle.primary, row=row,
+                custom_id=f"shop_main_{cat_key}",
             )
-            btn.callback = self.make_buy_callback(it['id'])
+            btn.callback = self.make_category_callback(cat_key)
             self.add_item(btn)
 
-        # back to categories button (row 3, only if viewing a filtered category)
-        if all_items is not None and categories is not None:
-            back_btn = discord.ui.Button(
-                label="Categories", emoji="📂",
-                style=discord.ButtonStyle.secondary, row=3,
-            )
-            back_btn.callback = self.back_callback
-            self.add_item(back_btn)
+    def make_category_callback(self, category):
+        async def callback(interaction: discord.Interaction):
+            if str(interaction.user.id) != self.user_id:
+                return await interaction.response.send_message(
+                    "This is not your shop. / 这不是你的商店页面。", ephemeral=True)
+            await interaction.response.defer()
 
-    @discord.ui.button(label="Balance", emoji="💰", style=discord.ButtonStyle.secondary, row=4)
+            items = [it for it in self.all_items if it.get("category", "其他") == category]
+            embed = _build_category_embed(category, items, self.bal)
+            view = ShopView(
+                items=items, category=category,
+                all_items=self.all_items, categories=self.categories,
+                user_id=self.user_id, bal=self.bal,
+            )
+            await interaction.edit_original_response(embed=embed, view=view, attachments=[])
+        return callback
+
+    @discord.ui.button(label="💰 Balance", emoji="💰", style=discord.ButtonStyle.secondary, row=2)
     async def balance_btn(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.user_id:
@@ -399,7 +386,7 @@ class ShopView(discord.ui.View):
         bal = get_balance(str(interaction.user.id))
         await interaction.followup.send(f"🪙 Balance / 余额: **{bal}** GMPT Coins", ephemeral=True)
 
-    @discord.ui.button(label="Inventory", emoji="🎒", style=discord.ButtonStyle.secondary, row=4)
+    @discord.ui.button(label="🎒 Inventory", emoji="🎒", style=discord.ButtonStyle.secondary, row=2)
     async def inv_btn(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.user_id:
@@ -418,24 +405,100 @@ class ShopView(discord.ui.View):
         lines = [f"📦 **{r['name']}** x{r['quantity']}" for r in rows]
         await interaction.followup.send("\n".join(lines), ephemeral=True)
 
-    async def back_callback(self, interaction: discord.Interaction):
-        """Return to category selection view / 返回分类选择"""
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+
+
+class ShopView(discord.ui.View):
+    """Category view with item buy buttons + Back/Categories/Balance."""
+
+    def __init__(self, items, category, user_id,
+                 all_items=None, categories=None, bal=None):
+        super().__init__(timeout=None)
+        self.user_id = user_id
+        self.all_items = all_items
+        self.categories = categories
+        self.bal = bal
+        self.category = category
+
+        # Item buy buttons (rows 0-2, max 10 items: 4+4+2)
+        for idx, it in enumerate(items[:10]):
+            r = idx // 4
+            if r > 2:
+                r = 2
+            short_name = ITEM_DISPLAY.get(it["item_type"], it["name"])
+            short_name = short_name.split(" — ")[0].split(" ")[-1] if " — " in short_name else short_name[:10]
+            # Use item_type-based short labels for emoji-only buttons
+            label_map = {
+                "ban_flash": "禁闪", "freeze": "定身", "silence": "沉默", "blind": "致盲",
+                "slow": "减速", "lock_pick": "锁英雄", "no_summs": "禁召唤", "downgrade": "降级",
+                "timeout": "暂停", "mute": "禁言", "reveal": "暴露", "no_recall": "回城禁",
+                "breakup": "分手", "steal_buff": "偷Buff", "sprint": "加速", "reverse": "反转",
+                "kamikaze": "自爆", "surrender": "投降", "int_card": "送头", "afk_card": "挂机",
+                "no_items": "裸奔", "feed_buff": "送Buff", "mmr_protect": "MMR保护",
+                "double_mmr": "双倍MMR", "steal_coins": "偷金币", "xp_boost": "经验加成",
+                "gamble": "双倍清零", "color_role": "自选颜色", "rename": "改名",
+                "title": "头衔", "private_vc": "语音", "broadcast": "广播",
+                "giveaway_ticket": "抽奖券", "queue_skip": "插队", "mode_pick": "自选模式",
+            }
+            label = label_map.get(it["item_type"], it["name"][:8])
+            btn = discord.ui.Button(
+                label=label,
+                emoji=it.get("emoji", "🛒"),
+                style=discord.ButtonStyle.primary,
+                custom_id=f"shop_buy_{it['id']}",
+                row=r,
+            )
+            btn.callback = self.make_buy_callback(it["id"])
+            self.add_item(btn)
+
+    @discord.ui.button(label="⬅ 返回", emoji="⬅️", style=discord.ButtonStyle.secondary, row=3)
+    async def back_btn(self, interaction: discord.Interaction, button):
         if str(interaction.user.id) != self.user_id:
             return await interaction.response.send_message(
-                "This is not your shop. / 这不是你的商店页面。", ephemeral=True
-            )
-
+                "This is not your shop. / 这不是你的商店页面。", ephemeral=True)
         await interaction.response.defer()
 
-        bal = self.bal or get_balance(str(interaction.user.id))
-        embed = _build_shop_embed(self.all_items, self.categories, bal)
-        view = ShopCategoryView(
-            all_items=self.all_items,
-            categories=self.categories,
-            user_id=self.user_id,
-            bal=bal,
+        embed = discord.Embed(
+            title="🛒 积分商店 Item Shop",
+            description="选择分类查看道具 Select a category to browse items",
+            color=0xFFD700,
+        )
+        embed.set_footer(text="GMPT Bot • Economy System")
+        view = MainMenuView(
+            all_items=self.all_items, categories=self.categories,
+            user_id=self.user_id, bal=self.bal,
         )
         await interaction.edit_original_response(embed=embed, view=view, attachments=[])
+
+    @discord.ui.button(label="📁 分类", emoji="📁", style=discord.ButtonStyle.secondary, row=3)
+    async def categories_btn(self, interaction: discord.Interaction, button):
+        """Return to main menu to select another category."""
+        if str(interaction.user.id) != self.user_id:
+            return await interaction.response.send_message(
+                "This is not your shop. / 这不是你的商店页面。", ephemeral=True)
+        await interaction.response.defer()
+
+        embed = discord.Embed(
+            title="🛒 积分商店 Item Shop",
+            description="选择分类查看道具 Select a category to browse items",
+            color=0xFFD700,
+        )
+        embed.set_footer(text="GMPT Bot • Economy System")
+        view = MainMenuView(
+            all_items=self.all_items, categories=self.categories,
+            user_id=self.user_id, bal=self.bal,
+        )
+        await interaction.edit_original_response(embed=embed, view=view, attachments=[])
+
+    @discord.ui.button(label="💰 Balance", emoji="💰", style=discord.ButtonStyle.secondary, row=3)
+    async def balance_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        if str(interaction.user.id) != self.user_id:
+            return await interaction.followup.send("This is not your shop. / 这不是你的商店页面。", ephemeral=True)
+        bal = get_balance(str(interaction.user.id))
+        await interaction.followup.send(f"🪙 Balance / 余额: **{bal}** GMPT Coins", ephemeral=True)
 
     def make_buy_callback(self, item_id):
         async def callback(interaction: discord.Interaction):
@@ -1217,9 +1280,14 @@ class Economy(commands.Cog):
         # extract unique categories
         categories = list(dict.fromkeys(it.get("category", "其他") for it in all_items))
 
-        # build embed panel + category selector
-        embed = _build_shop_embed(all_items, categories, bal)
-        view = ShopCategoryView(all_items=all_items, categories=categories, user_id=uid, bal=bal)
+        # main menu: welcome embed + category buttons
+        embed = discord.Embed(
+            title="🛒 积分商店 Item Shop",
+            description="选择分类查看道具 Select a category to browse items",
+            color=0xFFD700,
+        )
+        embed.set_footer(text="GMPT Bot • Economy System")
+        view = MainMenuView(all_items=all_items, categories=categories, user_id=uid, bal=bal)
         await interaction.response.send_message(embed=embed, view=view)
 
     # ========== 购买 ==========
