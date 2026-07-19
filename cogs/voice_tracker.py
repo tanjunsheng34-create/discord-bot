@@ -9,7 +9,7 @@ from discord import app_commands
 from discord.ext import commands
 from database import get_db
 from cogs.shared_views import ConfirmView
-from utils.logger import log_error
+
 
 # UTC+8 timezone
 UTC8 = timezone(timedelta(hours=8))

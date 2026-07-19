@@ -16,6 +16,11 @@ BACKUP_TABLES = [
     "giveaway",
     "giveaway_entries",
     "user_inventory",
+    "giveaways",
+    "giveaway_tickets",
+    "tournaments",
+    "match_signups",
+    "matches",
 ]
 
 # DB_PATH: env var for persistence (SparkedHost), default to local data.db

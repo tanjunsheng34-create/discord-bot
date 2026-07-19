@@ -1,9 +1,6 @@
 """
 GMPT Bot — Dashboard / 统一控制面板
 """
-import asyncio
-import datetime
-import random
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -2406,6 +2403,8 @@ class MatchViewWithID(discord.ui.View):
         if t["status"] != "open":
             return await interaction.response.send_message("报名已关闭 / Signup closed.", ephemeral=True)
 
+        await interaction.response.defer(ephemeral=True)
+
         # Get all registrations
         conn = get_db(); cur = conn.cursor()
         cur.execute("SELECT discord_id, is_sub FROM registrations WHERE tournament_id=? ORDER BY id ASC", (mid,))
@@ -2413,7 +2412,7 @@ class MatchViewWithID(discord.ui.View):
         conn.close()
 
         if not rows:
-            return await interaction.response.send_message("无人可踢 / No one to kick.", ephemeral=True)
+            return await interaction.followup.send("无人可踢 / No one to kick.", ephemeral=True)
 
         # Build UserSelect
         user_select = discord.ui.UserSelect(
@@ -2423,6 +2422,7 @@ class MatchViewWithID(discord.ui.View):
         )
 
         async def kick_select_callback(sel_int: discord.Interaction):
+            await sel_int.response.defer(ephemeral=True)
             member = user_select.values[0]
             uid = str(member.id)
 
@@ -2431,13 +2431,13 @@ class MatchViewWithID(discord.ui.View):
             cur2.execute("SELECT id FROM registrations WHERE tournament_id=? AND discord_id=?", (mid, uid))
             if not cur2.fetchone():
                 conn2.close()
-                return await sel_int.response.send_message(
+                return await sel_int.followup.send(
                     f"{member.display_name} 未报名 / Not signed up.", ephemeral=True
                 )
 
             # Confirmation
             confirm_view = ConfirmView(timeout=60)
-            await sel_int.response.send_message(
+            await sel_int.followup.send(
                 f"确认踢出 {member.mention}? / Confirm kick?",
                 view=confirm_view,
                 ephemeral=True,
@@ -2460,7 +2460,7 @@ class MatchViewWithID(discord.ui.View):
         user_select.callback = kick_select_callback
         kview = discord.ui.View(timeout=60)
         kview.add_item(user_select)
-        await interaction.response.send_message(
+        await interaction.followup.send(
             "选择要踢出的玩家 / Select player to kick:",
             view=kview,
             ephemeral=True,
@@ -2560,6 +2560,8 @@ class MatchViewWithID(discord.ui.View):
         if t["status"] != "open":
             return await interaction.response.send_message("报名已关闭 / Signup closed.", ephemeral=True)
 
+        await interaction.response.defer(ephemeral=True)
+
         # Step 1: UserSelect for multi-select
         user_select = discord.ui.UserSelect(
             placeholder="选择要添加的用户 / Select users to add...",
@@ -2568,6 +2570,7 @@ class MatchViewWithID(discord.ui.View):
         )
 
         async def user_select_callback(sel_int: discord.Interaction):
+            await sel_int.response.defer(ephemeral=True)
             selected_members = list(user_select.values)
 
             # Step 2: dropdown for player/sub choice
@@ -2582,6 +2585,7 @@ class MatchViewWithID(discord.ui.View):
             )
 
             async def type_select_callback(type_int: discord.Interaction):
+                await type_int.response.defer(ephemeral=True)
                 is_sub = type_int.data["values"][0] == "sub"
                 added = []
                 skipped = []
@@ -2594,7 +2598,7 @@ class MatchViewWithID(discord.ui.View):
                 t2 = cur.fetchone()
                 if not t2 or t2["status"] != "open":
                     conn.close()
-                    return await type_int.response.send_message("报名已关闭 / Signup closed.", ephemeral=True)
+                    return await type_int.followup.send("报名已关闭 / Signup closed.", ephemeral=True)
 
                 max_p = t2["max_teams"] * t2["team_size"]
 
@@ -2632,14 +2636,14 @@ class MatchViewWithID(discord.ui.View):
                     msg.append(f"⏭️ 已跳过 (重复): {', '.join(skipped)}")
                 if full_skipped:
                     msg.append(f"🚫 已跳过 (名额已满): {', '.join(full_skipped)}")
-                await type_int.response.send_message("\n".join(msg) or "无操作", ephemeral=True)
+                await type_int.followup.send("\n".join(msg) or "无操作", ephemeral=True)
 
                 await self._refresh_list(type_int, mid)
 
             type_select.callback = type_select_callback
             tview = discord.ui.View(timeout=60)
             tview.add_item(type_select)
-            await sel_int.response.send_message(
+            await sel_int.followup.send(
                 f"已选择 {len(selected_members)} 人。请选择添加类型 / Select type:",
                 view=tview,
                 ephemeral=True,
@@ -2648,7 +2652,7 @@ class MatchViewWithID(discord.ui.View):
         user_select.callback = user_select_callback
         view = discord.ui.View(timeout=120)
         view.add_item(user_select)
-        await interaction.response.send_message("选择要添加的用户 / Select users to add:", view=view, ephemeral=True)
+        await interaction.followup.send("选择要添加的用户 / Select users to add:", view=view, ephemeral=True)
 
 # ══════════ 向后兼容别名══════════
 MatchView = MatchViewWithID

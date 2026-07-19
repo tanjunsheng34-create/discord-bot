@@ -7,7 +7,6 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from database import get_db
-from utils.logger import log_error
 
 
 class AdminBackup(commands.Cog):
@@ -34,6 +33,11 @@ class AdminBackup(commands.Cog):
             "giveaway",
             "giveaway_entries",
             "user_inventory",
+            "giveaways",
+            "giveaway_tickets",
+            "tournaments",
+            "match_signups",
+            "matches",
         ]
 
         data = {}
@@ -162,6 +166,70 @@ class AdminBackup(commands.Cog):
                     (inv.get("user_id"), inv.get("item_id"), inv.get("quantity", 1)),
                 )
             restored["user_inventory"] = len(data["user_inventory"])
+
+        # Restore giveaways (economy.py)
+        if "giveaways" in data and data["giveaways"]:
+            cur.execute("DELETE FROM giveaways")
+            for g in data["giveaways"]:
+                cur.execute(
+                    "INSERT INTO giveaways "
+                    "(id, channel_id, prize, created_by, drawn, winner_id, created_at, draw_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (g.get("id"), g.get("channel_id"), g.get("prize"), g.get("created_by"),
+                     g.get("drawn", 0), g.get("winner_id"), g.get("created_at"), g.get("draw_at")),
+                )
+            restored["giveaways"] = len(data["giveaways"])
+
+        # Restore giveaway_tickets
+        if "giveaway_tickets" in data and data["giveaway_tickets"]:
+            cur.execute("DELETE FROM giveaway_tickets")
+            for t in data["giveaway_tickets"]:
+                cur.execute(
+                    "INSERT INTO giveaway_tickets (discord_id, tickets) "
+                    "VALUES (?, ?)",
+                    (t.get("discord_id"), t.get("tickets", 0)),
+                )
+            restored["giveaway_tickets"] = len(data["giveaway_tickets"])
+
+        # Restore tournaments
+        if "tournaments" in data and data["tournaments"]:
+            cur.execute("DELETE FROM tournaments")
+            for t in data["tournaments"]:
+                cur.execute(
+                    "INSERT INTO tournaments "
+                    "(id, name, max_teams, team_size, status, created_by, created_at, "
+                    "format, max_players, rounds, tier_restriction, role_pick) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (t.get("id"), t.get("name"), t.get("max_teams"), t.get("team_size"),
+                     t.get("status", "open"), t.get("created_by"), t.get("created_at"),
+                     t.get("format", "swiss"), t.get("max_players", 32), t.get("rounds", 3),
+                     t.get("tier_restriction"), t.get("role_pick", 0)),
+                )
+            restored["tournaments"] = len(data["tournaments"])
+
+        # Restore match_signups
+        if "match_signups" in data and data["match_signups"]:
+            cur.execute("DELETE FROM match_signups")
+            for s in data["match_signups"]:
+                cur.execute(
+                    "INSERT INTO match_signups (id, match_id, discord_id, team) "
+                    "VALUES (?, ?, ?, ?)",
+                    (s.get("id"), s.get("match_id"), s.get("discord_id"), s.get("team")),
+                )
+            restored["match_signups"] = len(data["match_signups"])
+
+        # Restore matches
+        if "matches" in data and data["matches"]:
+            cur.execute("DELETE FROM matches")
+            for m in data["matches"]:
+                cur.execute(
+                    "INSERT INTO matches "
+                    "(id, name, status, created_by, channel_id, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (m.get("id"), m.get("name"), m.get("status", "pending"),
+                     m.get("created_by"), m.get("channel_id"), m.get("created_at")),
+                )
+            restored["matches"] = len(data["matches"])
 
         conn.commit()
         conn.close()

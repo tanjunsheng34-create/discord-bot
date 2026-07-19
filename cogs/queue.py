@@ -10,7 +10,6 @@ from database import get_db
 from datetime import datetime
 
 import logging
-from utils.logger import log_error
 logger = logging.getLogger(__name__)
 
 VALID_POSITIONS = ["Top", "JG", "Mid", "ADC", "Support", "Any"]

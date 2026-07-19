@@ -5,7 +5,6 @@ GMPT Bot — 公告系统 / Announcement System
 import discord
 from discord import app_commands
 from discord.ext import commands
-from utils.logger import log_error
 
 
 class Announce(commands.Cog):

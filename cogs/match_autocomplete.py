@@ -9,7 +9,7 @@ Usage:
 from discord import app_commands
 import discord
 from database import get_db
-from utils.logger import log_error
+
 
 
 async def match_id_autocomplete(

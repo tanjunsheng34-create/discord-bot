@@ -1,7 +1,12 @@
 """
-GMPT Bot — Giveaway 抽奖系统
-/gmpt-giveaway create / end / reroll / list
+GMPT Bot — Giveaway 抽奖系统 (DEPRECATED)
+/gmpt-giveaway-admin create / end / reroll / list
 带按钮交互：参加/退出/查看参与名单
+
+⚠️ 此模块已废弃，请使用 economy.py 中的 /gmpt-giveaway 新抽奖系统。
+   旧系统使用 `giveaway` + `giveaway_entries` 表，
+   新系统使用 `giveaways` + `giveaway_tickets` 表。
+   此模块将保留用于向后兼容，可能在未来版本中移除。
 """
 import asyncio
 import random

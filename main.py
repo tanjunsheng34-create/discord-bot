@@ -308,6 +308,65 @@ async def auto_restore():
                 )
             restored["user_inventory"] = len(data["user_inventory"])
 
+        # giveaways (economy.py new system)
+        if "giveaways" in data and data["giveaways"]:
+            for g in data["giveaways"]:
+                cur.execute(
+                    "INSERT OR REPLACE INTO giveaways "
+                    "(id, channel_id, prize, created_by, drawn, winner_id, created_at, draw_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (g.get("id"), g.get("channel_id"), g.get("prize"), g.get("created_by"),
+                     g.get("drawn", 0), g.get("winner_id"), g.get("created_at"), g.get("draw_at")),
+                )
+            restored["giveaways"] = len(data["giveaways"])
+
+        # giveaway_tickets
+        if "giveaway_tickets" in data and data["giveaway_tickets"]:
+            for t in data["giveaway_tickets"]:
+                cur.execute(
+                    "INSERT OR REPLACE INTO giveaway_tickets (discord_id, tickets) "
+                    "VALUES (?, ?)",
+                    (t.get("discord_id"), t.get("tickets", 0)),
+                )
+            restored["giveaway_tickets"] = len(data["giveaway_tickets"])
+
+        # tournaments
+        if "tournaments" in data and data["tournaments"]:
+            for t in data["tournaments"]:
+                cur.execute(
+                    "INSERT OR REPLACE INTO tournaments "
+                    "(id, name, max_teams, team_size, status, created_by, created_at, "
+                    "format, max_players, rounds, tier_restriction, role_pick) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (t.get("id"), t.get("name"), t.get("max_teams"), t.get("team_size"),
+                     t.get("status", "open"), t.get("created_by"), t.get("created_at"),
+                     t.get("format", "swiss"), t.get("max_players", 32), t.get("rounds", 3),
+                     t.get("tier_restriction"), t.get("role_pick", 0)),
+                )
+            restored["tournaments"] = len(data["tournaments"])
+
+        # match_signups
+        if "match_signups" in data and data["match_signups"]:
+            for s in data["match_signups"]:
+                cur.execute(
+                    "INSERT OR REPLACE INTO match_signups (id, match_id, discord_id, team) "
+                    "VALUES (?, ?, ?, ?)",
+                    (s.get("id"), s.get("match_id"), s.get("discord_id"), s.get("team")),
+                )
+            restored["match_signups"] = len(data["match_signups"])
+
+        # matches
+        if "matches" in data and data["matches"]:
+            for m in data["matches"]:
+                cur.execute(
+                    "INSERT OR REPLACE INTO matches "
+                    "(id, name, status, created_by, channel_id, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (m.get("id"), m.get("name"), m.get("status", "pending"),
+                     m.get("created_by"), m.get("channel_id"), m.get("created_at")),
+                )
+            restored["matches"] = len(data["matches"])
+
         conn.commit()
 
         summary = ", ".join(f"{k}: {v}" for k, v in restored.items())

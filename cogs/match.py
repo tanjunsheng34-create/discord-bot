@@ -10,7 +10,6 @@ from cogs.economy import check_achievement, MATCH_WIN_COINS, MATCH_PARTICIPATE_C
 from cogs.dashboard import _execute_settle, _update_mmr, VoicePullView
 
 import logging
-from utils.logger import log_error
 logger = logging.getLogger(__name__)
 
 
