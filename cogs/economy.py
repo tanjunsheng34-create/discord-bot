@@ -4,6 +4,7 @@ GMPT Bot — 经济系统 (Economy) v3
 图片+按钮式商店 / 分页成就 / 签到 / 赠送 / 交易 / 背包使用 / 价格管理
 中英文双语支持
 """
+import asyncio
 import io
 import random
 import discord
@@ -2093,6 +2094,139 @@ class ResetAllModal(discord.ui.Modal, title="重置全部金币 / Reset All Coin
             content=f"✅ 已重置 **{len(all_users)}** 名用户的金币为 **{amt}** / reset all **{len(all_users)}** users to **{amt}**.",
             embed=None, view=None
         )
+
+    # ========== 比赛道具使用 ==========
+    # 效果描述 + 持续秒数：None=全局不发结束 / 0=即时不发结束 / >0=定时发结束通知
+    ITEM_EFFECTS = {
+        "ban_flash":    ("禁用闪现", 30),
+        "freeze":       ("不能离开泉水", 30),
+        "silence":      ("不能放技能，只能平A", 30),
+        "blind":        ("不能插眼", 30),
+        "slow":         ("不能买鞋子", 30),
+        "lock_pick":    ("只能用指定英雄", None),
+        "no_summs":     ("第二个召唤师技能禁用", None),
+        "downgrade":    ("开局少1级", None),
+        "timeout":      ("原地不动不能操作", 15),
+        "mute":         ("不能打字/语音", 30),
+        "reveal":       ("必须在聊天发坐标", 0),
+        "no_recall":    ("不能按B回城", 30),
+        "breakup":      ("指定2人不能靠近1000码", 30),
+        "steal_buff":   ("下一个buff让给你", 0),
+        "sprint":       ("自己移速翻倍", 15),
+        "reverse":      ("鼠标键盘反着用", 30),
+        "kamikaze":     ("听到信号必须冲塔送", 0),
+        "surrender":    ("必须打/ff不能拒绝", 0),
+        "int_card":     ("必须送对面一血", 0),
+        "afk_card":     ("原地挂机不能动", 30),
+        "no_items":     ("不能买装备", 30),
+        "feed_buff":    ("下一个buff让给对面", 0),
+    }
+
+    item_group = app_commands.Group(
+        name="gmpt-item",
+        description="Use match items from inventory / 使用比赛道具"
+    )
+
+    @item_group.command(name="use", description="Use a match item on a target / 对目标使用比赛道具")
+    @app_commands.describe(
+        item_type="Item type (e.g. ban_flash, silence, timeout...) / 道具类型",
+        target="Target Discord member / 目标成员"
+    )
+    @app_commands.choices(item_type=[
+        app_commands.Choice(name="Ban Flash / 禁用闪现 (30s)", value="ban_flash"),
+        app_commands.Choice(name="Freeze / 泉水冻结 (30s)", value="freeze"),
+        app_commands.Choice(name="Silence / 沉默 (30s)", value="silence"),
+        app_commands.Choice(name="Blind / 致盲 (30s)", value="blind"),
+        app_commands.Choice(name="Slow / 减速 (30s)", value="slow"),
+        app_commands.Choice(name="Lock Pick / 锁定英雄 (全局)", value="lock_pick"),
+        app_commands.Choice(name="No Summs / 禁用召唤师技能 (全局)", value="no_summs"),
+        app_commands.Choice(name="Downgrade / 降级 (全局)", value="downgrade"),
+        app_commands.Choice(name="Timeout / 暂停 (15s)", value="timeout"),
+        app_commands.Choice(name="Mute / 闭麦 (30s)", value="mute"),
+        app_commands.Choice(name="Reveal / 透视 (即时)", value="reveal"),
+        app_commands.Choice(name="No Recall / 禁止回城 (30s)", value="no_recall"),
+        app_commands.Choice(name="Breakup / 打散 (30s)", value="breakup"),
+        app_commands.Choice(name="Steal Buff / 偷Buff (即时)", value="steal_buff"),
+        app_commands.Choice(name="Sprint / 加速 (15s)", value="sprint"),
+        app_commands.Choice(name="Reverse / 反转 (30s)", value="reverse"),
+        app_commands.Choice(name="Kamikaze / 自爆 (即时)", value="kamikaze"),
+        app_commands.Choice(name="Surrender / 强制投降 (即时)", value="surrender"),
+        app_commands.Choice(name="Int Card / 送一血 (即时)", value="int_card"),
+        app_commands.Choice(name="AFK Card / 挂机 (30s)", value="afk_card"),
+        app_commands.Choice(name="No Items / 禁止装备 (30s)", value="no_items"),
+        app_commands.Choice(name="Feed Buff / 送Buff (即时)", value="feed_buff"),
+    ])
+    async def item_use(self, interaction: discord.Interaction, item_type: str, target: discord.Member):
+        uid = str(interaction.user.id)
+        effect_info = self.ITEM_EFFECTS.get(item_type)
+        if not effect_info:
+            return await interaction.response.send_message(
+                f"Unknown item type: `{item_type}`. / 未知道具类型。", ephemeral=True
+            )
+
+        effect_desc, duration = effect_info
+
+        # 目标必须仍在服务器
+        if target not in interaction.guild.members:
+            return await interaction.response.send_message(
+                "Target is not in the server. / 目标成员不在服务器中。", ephemeral=True
+            )
+
+        conn = get_db(); cur = conn.cursor()
+
+        # 查找背包中该道具
+        cur.execute("""
+            SELECT inv.item_id, inv.quantity, si.name
+            FROM user_inventory inv
+            JOIN shop_items si ON si.id = inv.item_id
+            WHERE inv.user_id=? AND si.item_type=?
+        """, (uid, item_type))
+        row = cur.fetchone()
+
+        if not row:
+            conn.close()
+            return await interaction.response.send_message(
+                f"You don't have `{item_type}` in your backpack. / 背包没有该道具。", ephemeral=True
+            )
+
+        item_id = row["item_id"]
+        item_name = row["name"]
+        qty = row["quantity"]
+
+        # 扣减1件
+        if qty <= 1:
+            cur.execute("DELETE FROM user_inventory WHERE user_id=? AND item_id=?", (uid, item_id))
+        else:
+            cur.execute("UPDATE user_inventory SET quantity = quantity - 1 WHERE user_id=? AND item_id=?",
+                        (uid, item_id))
+        cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                     (uid, 0, f"Used item on {target.display_name}: {item_name} / 对 {target.display_name} 使用: {item_name}"))
+        conn.commit(); conn.close()
+
+        # 构建 embed 公告
+        dur_str = f"{duration}秒" if duration else ("全局" if duration is None else "即时")
+        embed = discord.Embed(
+            title=f"⚡ 道具使用 / Item Used",
+            description=(
+                f"**{interaction.user.mention}** 对 **{target.mention}** 使用了 **{item_name}**\n\n"
+                f"📋 **效果 / Effect:** {effect_desc}\n"
+                f"⏱️ **持续 / Duration:** {dur_str}"
+            ),
+            color=discord.Color.orange(),
+        )
+        await interaction.response.send_message(embed=embed)
+
+        # 定时全局效果结束通知（duration > 0 且为秒数）
+        if isinstance(duration, int) and duration > 0 and _bot:
+            async def end_notify():
+                await asyncio.sleep(duration)
+                try:
+                    ch = interaction.channel
+                    if ch:
+                        await ch.send(f"⏰ **{item_name}** 对 {target.mention} 的效果已结束。")
+                except Exception:
+                    pass
+            asyncio.create_task(end_notify())
 
     # ========== 抽奖系统 ==========
     giveaway_group = app_commands.Group(
