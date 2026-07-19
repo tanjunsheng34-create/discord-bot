@@ -179,6 +179,40 @@ def init_db():
             voted_at        TEXT DEFAULT (datetime('now')),
             UNIQUE(tournament_id, discord_id)
         );
+
+        -- === 抽奖系统 ===
+
+        CREATE TABLE IF NOT EXISTS giveaway_tickets (
+            discord_id TEXT PRIMARY KEY,
+            tickets INTEGER DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS giveaways (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            channel_id TEXT,
+            prize TEXT,
+            created_by TEXT,
+            drawn INTEGER DEFAULT 0,
+            winner_id TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            draw_at TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS giveaway_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            giveaway_id INTEGER,
+            discord_id TEXT,
+            tickets_used INTEGER DEFAULT 1,
+            FOREIGN KEY (giveaway_id) REFERENCES giveaways(id)
+        );
+
+        -- === Discord 道具状态 ===
+
+        CREATE TABLE IF NOT EXISTS user_flags (
+            discord_id TEXT PRIMARY KEY,
+            queue_skip INTEGER DEFAULT 0,
+            mode_pick TEXT
+        );
     """)
 
     # --- 新增锦标赛字段（Swiss/Elimination Tournament System）---

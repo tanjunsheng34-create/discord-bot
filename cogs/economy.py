@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 # ---------- 频道 ID ----------
 SHOP_LOG_CHANNEL_ID = 1528241284177854624
 ACHIEVEMENTS_CHANNEL_ID = 1528241092640768101
+ITEM_REQUESTS_CHANNEL_ID = 1528249993914220625
 
 _bot = None  # 由 setup() 注入
 
@@ -44,6 +45,34 @@ MATCH_WIN_COINS = 150       # coins awarded to each winner
 MATCH_PARTICIPATE_COINS = 50  # coins awarded to each loser / MVP
 
 DEFAULT_SHOP = [
+    # ⚔️ 赛前道具（Pre-match）
+    {"name": "Ban闪现卡 (Ban Flash)", "desc": "禁止对面上单带闪现 / Ban the enemy top laner's Flash", "price": 200, "type": "ban_flash", "emoji": "🚫", "category": "⚔️ 赛前道具"},
+    {"name": "冻结卡 (Freeze)", "desc": "冻结对面上单，不允许换英雄 / Freeze enemy top laner from swapping champion", "price": 300, "type": "freeze", "emoji": "❄️", "category": "⚔️ 赛前道具"},
+    {"name": "沉默卡 (Silence)", "desc": "对面无法在比赛频道发言 / Silence enemy from chat during match", "price": 250, "type": "silence", "emoji": "🤫", "category": "⚔️ 赛前道具"},
+    {"name": "致盲卡 (Blind)", "desc": "对方无法看到你的选人 / Enemy cannot see your champion pick", "price": 200, "type": "blind", "emoji": "👁️‍🗨️", "category": "⚔️ 赛前道具"},
+    {"name": "减速卡 (Slow)", "desc": "对方加载时间+30秒 / Enemy loading time +30s (psychological)", "price": 150, "type": "slow", "emoji": "🐌", "category": "⚔️ 赛前道具"},
+    {"name": "万能钥匙 (Lock Pick)", "desc": "无视对方Ban人 / Bypass one enemy ban", "price": 500, "type": "lock_pick", "emoji": "🔑", "category": "⚔️ 赛前道具"},
+    {"name": "禁止双招 (No Summs)", "desc": "对方不能带召唤师技能 / Enemy cannot take summoner spells", "price": 350, "type": "no_summs", "emoji": "🚷", "category": "⚔️ 赛前道具"},
+    {"name": "降级卡 (Downgrade)", "desc": "对方本场比赛MMR-10% / Enemy MMR -10% for this match", "price": 400, "type": "downgrade", "emoji": "📉", "category": "⚔️ 赛前道具"},
+
+    # 🎮 比赛中道具（In-match）
+    {"name": "暂停卡 (Timeout)", "desc": "强制暂停比赛 1 分钟 / Force a 1-minute timeout", "price": 400, "type": "timeout", "emoji": "⏸️", "category": "🎮 比赛中道具"},
+    {"name": "闭麦卡 (Mute)", "desc": "对面上单全程闭麦 / Mute enemy top laner for the match", "price": 200, "type": "mute", "emoji": "🔇", "category": "🎮 比赛中道具"},
+    {"name": "透视卡 (Reveal)", "desc": "比赛中可看到对面位置 / Reveal enemy positions on minimap", "price": 300, "type": "reveal", "emoji": "👁️", "category": "🎮 比赛中道具"},
+    {"name": "禁止召回 (No Recall)", "desc": "对面上单不能回城 / Enemy top laner cannot recall", "price": 300, "type": "no_recall", "emoji": "🚫", "category": "🎮 比赛中道具"},
+    {"name": "打散卡 (Breakup)", "desc": "解散对方当前队伍 / Disband enemy current team", "price": 250, "type": "breakup", "emoji": "💔", "category": "🎮 比赛中道具"},
+    {"name": "偷Buff卡 (Steal Buff)", "desc": "开局偷对面一个Buff / Steal one buff from enemy at start", "price": 600, "type": "steal_buff", "emoji": "💨", "category": "🎮 比赛中道具"},
+    {"name": "加速卡 (Sprint)", "desc": "本场比赛移速+15% / +15% movement speed for this match", "price": 250, "type": "sprint", "emoji": "💨", "category": "🎮 比赛中道具"},
+    {"name": "反转卡 (Reverse)", "desc": "比赛结果反转（败→胜）/ Reverse match result (Loss→Win)", "price": 400, "type": "reverse", "emoji": "🔄", "category": "🎮 比赛中道具"},
+    {"name": "自爆卡 (Kamikaze)", "desc": "自己双倍伤害但被打也双倍 / Double damage dealt & taken", "price": 350, "type": "kamikaze", "emoji": "💣", "category": "🎮 比赛中道具"},
+    {"name": "投降卡 (Surrender)", "desc": "对面自动投降 / Enemy auto-surrenders at 15", "price": 800, "type": "surrender", "emoji": "🏳️", "category": "🎮 比赛中道具"},
+
+    # 😈 坑队友道具（Troll Teammates）
+    {"name": "送头卡 (Int Card)", "desc": "指定队友本场比赛送10个人头 / Teammate ints 10 kills this match", "price": 350, "type": "int_card", "emoji": "🤡", "category": "😈 坑队友道具"},
+    {"name": "挂机卡 (AFK Card)", "desc": "指定队友前5分钟挂机 / Teammate AFKs for first 5 min", "price": 400, "type": "afk_card", "emoji": "💤", "category": "😈 坑队友道具"},
+    {"name": "禁用装备 (No Items)", "desc": "指定队友不能买装备 / Teammate cannot buy items", "price": 300, "type": "no_items", "emoji": "🚫", "category": "😈 坑队友道具"},
+    {"name": "喂养Buff (Feed Buff)", "desc": "指定队友给你送Buff / Teammate delivers buffs to you", "price": 350, "type": "feed_buff", "emoji": "🍽️", "category": "😈 坑队友道具"},
+
     # 💰 加成道具（金币/MMR加成）
     {"name": "MMR保护卡 (MMR Protect)", "desc": "本场比赛输了不扣MMR / Lose without MMR penalty for this match", "price": 500, "type": "mmr_protect", "emoji": "🛡️", "category": "💰 加成道具"},
     {"name": "双倍MMR卡 (Double MMR)", "desc": "本场比赛赢了MMR翻倍 / Double MMR gain if you win", "price": 600, "type": "double_mmr", "emoji": "⚡", "category": "💰 加成道具"},
@@ -51,6 +80,16 @@ DEFAULT_SHOP = [
     {"name": "经验加成卡 (XP Boost Card)", "desc": "下一场比赛经验值+50% / Next match +50% XP", "price": 800, "type": "xp_boost", "emoji": "📈", "category": "💰 加成道具"},
     # 🎲 随机道具
     {"name": "双倍或清零 (Double or Nothing)", "desc": "使用后随机翻倍或清零当前余额 / Randomly double or zero your balance", "price": 300, "type": "gamble", "emoji": "🎲", "category": "🎲 随机道具"},
+
+    # 🎭 Discord道具
+    {"name": "自定义身份组 (Color Role)", "desc": "兑换自定义颜色身份组 — 通知管理手动设置 / Request custom color role — admin handles manually", "price": 1000, "type": "color_role", "emoji": "🎨", "category": "🎭 Discord道具"},
+    {"name": "改名卡 (Rename)", "desc": "兑换改名机会 — 通知管理手动改名 / Request nickname change — admin handles manually", "price": 800, "type": "rename", "emoji": "✏️", "category": "🎭 Discord道具"},
+    {"name": "专属称号 (Title)", "desc": "兑换专属称号 — 通知管理手动授予 / Request custom title — admin handles manually", "price": 1500, "type": "title", "emoji": "🏷️", "category": "🎭 Discord道具"},
+    {"name": "私人语音 (Private VC)", "desc": "Bot为你创建临时语音频道 / Bot creates a temporary voice channel for you", "price": 2000, "type": "private_vc", "emoji": "🎙️", "category": "🎭 Discord道具"},
+    {"name": "全服广播 (Broadcast)", "desc": "发送消息到 @everyone / Broadcast a message to everyone", "price": 1200, "type": "broadcast", "emoji": "📢", "category": "🎭 Discord道具"},
+    {"name": "抽奖券 (Giveaway Ticket)", "desc": "获得一张抽奖券参与抽奖 / Get a ticket for the giveaway", "price": 500, "type": "giveaway_ticket", "emoji": "🎟️", "category": "🎭 Discord道具"},
+    {"name": "插队卡 (Queue Skip)", "desc": "下次排队时直接插到最前面 / Skip to front of queue next time", "price": 600, "type": "queue_skip", "emoji": "⏩", "category": "🎭 Discord道具"},
+    {"name": "自选模式 (Mode Pick)", "desc": "自选下一场比赛模式 / Pick the game mode for next match", "price": 800, "type": "mode_pick", "emoji": "🎯", "category": "🎭 Discord道具"},
 ]
 
 ACHIEVEMENTS = [
@@ -310,11 +349,12 @@ def generate_ach_image(achievement_rows, unlocked_count, total_count, page=None,
 # ---------- 交互 View ----------
 
 CATEGORY_COLORS = {
-    "⚔️ 比赛道具": 0xE74C3C,
-    "🛡️ 防御道具": 0x3498DB,
+    "⚔️ 赛前道具": 0xE74C3C,
+    "🎮 比赛中道具": 0x3498DB,
+    "😈 坑队友道具": 0xE67E22,
     "💰 加成道具": 0x2ECC71,
-    "🎭 社交道具": 0x9B59B6,
-    "🔥 限时商品": 0xE67E22,
+    "🎲 随机道具": 0xF1C40F,
+    "🎭 Discord道具": 0x9B59B6,
 }
 
 class ShopCategoryView(discord.ui.View):
@@ -568,7 +608,7 @@ class AchFilter(discord.ui.View):
 
 
 # ---------- 购买逻辑 ----------
-async def buy_item(interaction: discord.Interaction, uid: str, item_id: int):
+async def buy_item(interaction: discord.Interaction, uid: str, item_id: int, broadcast_message: str = None):
     conn = get_db(); cur = conn.cursor()
     cur.execute("SELECT * FROM shop_items WHERE id=?", (item_id,))
     item = cur.fetchone()
@@ -584,6 +624,22 @@ async def buy_item(interaction: discord.Interaction, uid: str, item_id: int):
             ephemeral=True,
         )
     conn.close()
+
+    # broadcast 必须有消息内容
+    if item["item_type"] == "broadcast" and not broadcast_message:
+        return await interaction.followup.send(
+            "Broadcast requires a message! Usage: `/gmpt-buy broadcast message:你的消息`",
+            ephemeral=True,
+        )
+
+    # GAME_ITEMS = 放入背包的类型
+    GAME_ITEMS = {
+        "mmr_protect", "double_mmr", "steal_coins", "xp_boost", "gamble",
+        "ban_flash", "freeze", "silence", "blind", "slow", "lock_pick", "no_summs", "downgrade",
+        "timeout", "mute", "reveal", "no_recall", "breakup", "steal_buff", "sprint", "reverse", "kamikaze", "surrender",
+        "int_card", "afk_card", "no_items", "feed_buff",
+    }
+    ADMIN_NOTIFY_TYPES = {"color_role", "rename", "title"}
 
     class ConfirmBuy(discord.ui.View):
         def __init__(self):
@@ -604,36 +660,135 @@ async def buy_item(interaction: discord.Interaction, uid: str, item_id: int):
                     f"Insufficient balance! {bal2} coins. / 余额不足！{bal2} coins。", ephemeral=True
                 )
 
+            # 扣钱 + 记录交易
             cur2.execute("UPDATE users SET score = score - ? WHERE discord_id = ?", (item["price"], uid))
             cur2.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
                          (uid, -item["price"], f"Purchase: {item['name']} / 购买: {item['name']}"))
-            cur2.execute(
-                "INSERT INTO user_inventory (user_id, item_id, quantity) VALUES (?,?,1) "
-                "ON CONFLICT(user_id, item_id) DO UPDATE SET quantity = quantity + 1",
-                (uid, item_id),
-            )
-            conn2.commit(); conn2.close()
+
+            item_type = item["item_type"]
+            result_msg = f"✅ Purchased! / 购买成功！**{item['name']}**  -{item['price']} coins"
+
+            if item_type in GAME_ITEMS:
+                # 存入背包
+                cur2.execute(
+                    "INSERT INTO user_inventory (user_id, item_id, quantity) VALUES (?,?,1) "
+                    "ON CONFLICT(user_id, item_id) DO UPDATE SET quantity = quantity + 1",
+                    (uid, item_id),
+                )
+                conn2.commit(); conn2.close()
+
+                # shop-log 通知
+                if _bot:
+                    try:
+                        shop_ch = _bot.get_channel(SHOP_LOG_CHANNEL_ID)
+                        if shop_ch:
+                            await shop_ch.send(f"{btn_i.user.mention} 购买了 [{item['name']}] — 花费 {item['price']} coins")
+                    except Exception:
+                        pass
+
+            elif item_type in ADMIN_NOTIFY_TYPES:
+                conn2.commit(); conn2.close()
+                # 通知管理手动处理
+                if _bot:
+                    try:
+                        req_ch = _bot.get_channel(ITEM_REQUESTS_CHANNEL_ID)
+                        if req_ch:
+                            await req_ch.send(
+                                f"{btn_i.user.mention} 兑换了 **[{item['name']}]** — 需要管理手动处理（价格 {item['price']} coins）"
+                            )
+                    except Exception:
+                        pass
+
+            elif item_type == "private_vc":
+                conn2.commit(); conn2.close()
+                # Bot 创建语音频道
+                if _bot and interaction.guild:
+                    try:
+                        username = btn_i.user.display_name or btn_i.user.name
+                        vc = await interaction.guild.create_voice_channel(name=f"{username}的房间")
+                        result_msg += f"\n🎙️ Voice channel **{vc.name}** created! / 语音频道已创建！"
+                        # shop-log 通知
+                        try:
+                            shop_ch = _bot.get_channel(SHOP_LOG_CHANNEL_ID)
+                            if shop_ch:
+                                await shop_ch.send(
+                                    f"{btn_i.user.mention} 购买了 [Private VC] — 语音频道 **{vc.name}** 已创建（花费 {item['price']} coins）"
+                                )
+                        except Exception:
+                            pass
+                    except Exception as e:
+                        result_msg += f"\n⚠️ Failed to create voice channel: {e}"
+
+            elif item_type == "broadcast":
+                conn2.commit(); conn2.close()
+                # 广播到 economy-info 频道
+                if _bot and broadcast_message:
+                    try:
+                        shop_ch = _bot.get_channel(SHOP_LOG_CHANNEL_ID)
+                        if shop_ch:
+                            await shop_ch.send(f"📢 {btn_i.user.mention} 全服广播：{broadcast_message}")
+                    except Exception:
+                        pass
+                result_msg += f"\n📢 Broadcast sent! / 全服广播已发送！"
+
+            elif item_type == "giveaway_ticket":
+                cur2.execute(
+                    "INSERT INTO giveaway_tickets (discord_id, tickets) VALUES (?,1) "
+                    "ON CONFLICT(discord_id) DO UPDATE SET tickets = tickets + 1",
+                    (uid,),
+                )
+                cur2.execute("SELECT tickets FROM giveaway_tickets WHERE discord_id=?", (uid,))
+                total = cur2.fetchone()["tickets"]
+                conn2.commit(); conn2.close()
+                result_msg += f"\n🎟️ You now have **{total}** giveaway ticket(s)! / 你现在有 **{total}** 张抽奖券！"
+                # shop-log
+                if _bot:
+                    try:
+                        shop_ch = _bot.get_channel(SHOP_LOG_CHANNEL_ID)
+                        if shop_ch:
+                            await shop_ch.send(f"{btn_i.user.mention} 购买了 [Giveaway Ticket] x1 — 共持有 {total} 张（花费 {item['price']} coins）")
+                    except Exception:
+                        pass
+
+            elif item_type == "queue_skip":
+                cur2.execute(
+                    "INSERT INTO user_flags (discord_id, queue_skip) VALUES (?,1) "
+                    "ON CONFLICT(discord_id) DO UPDATE SET queue_skip = queue_skip + 1",
+                    (uid,),
+                )
+                cur2.execute("SELECT queue_skip FROM user_flags WHERE discord_id=?", (uid,))
+                skips = cur2.fetchone()["queue_skip"]
+                conn2.commit(); conn2.close()
+                result_msg += f"\n⏩ You have **{skips}** queue skip(s) available! / 你有 **{skips}** 次插队资格！"
+
+            elif item_type == "mode_pick":
+                cur2.execute(
+                    "INSERT INTO user_flags (discord_id, mode_pick) VALUES (?, 'pending') "
+                    "ON CONFLICT(discord_id) DO UPDATE SET mode_pick = 'pending'",
+                    (uid,),
+                )
+                conn2.commit(); conn2.close()
+                result_msg += f"\n🎯 Mode pick activated! Next match you can choose the game mode. / 自选模式已激活！下场比赛可选择模式。"
+
+            else:
+                # 兜底：存入背包
+                cur2.execute(
+                    "INSERT INTO user_inventory (user_id, item_id, quantity) VALUES (?,?,1) "
+                    "ON CONFLICT(user_id, item_id) DO UPDATE SET quantity = quantity + 1",
+                    (uid, item_id),
+                )
+                conn2.commit(); conn2.close()
 
             for child in self.children: child.disabled = True
-            await btn_i.response.edit_message(
-                content=f"✅ Purchased! / 购买成功！**{item['name']}**  -{item['price']} coins", view=self
-            )
+            await btn_i.response.edit_message(content=result_msg, view=self)
 
+            # 成就检查
             check_achievement(uid, "在商店购买")
             conn3 = get_db(); cur3 = conn3.cursor()
             cur3.execute("SELECT COUNT(*) as cnt FROM transactions WHERE discord_id=? AND (reason LIKE '%Purchase%' OR reason LIKE '%购买%')", (uid,))
             if cur3.fetchone()["cnt"] >= 5:
                 check_achievement(uid, "购买 5 次")
             conn3.close()
-
-            # shop-log 购买记录推送
-            if _bot:
-                try:
-                    shop_ch = _bot.get_channel(SHOP_LOG_CHANNEL_ID)
-                    if shop_ch:
-                        await shop_ch.send(f"{btn_i.user.mention} 购买了 [{item['name']}] — 花费 {item['price']} coins")
-                except Exception:
-                    pass
 
         @discord.ui.button(label="Cancel / 取消", style=discord.ButtonStyle.secondary, emoji="❌")
         async def cancel(self, btn_i: discord.Interaction, button):
@@ -1137,9 +1292,9 @@ class Economy(commands.Cog):
 
     # ========== 购买 ==========
     @app_commands.command(name="gmpt-buy", description="Buy item from shop / 购买商店物品")
-    @app_commands.describe(item_id="Item ID from /gmpt-shop")
-    async def buy_cmd(self, interaction: discord.Interaction, item_id: int):
-        await buy_item(interaction, str(interaction.user.id), item_id)
+    @app_commands.describe(item_id="Item ID from /gmpt-shop", message="Message content (required for Broadcast)")
+    async def buy_cmd(self, interaction: discord.Interaction, item_id: int, message: str = None):
+        await buy_item(interaction, str(interaction.user.id), item_id, broadcast_message=message)
 
     # ========== 背包 ==========
     @app_commands.command(name="gmpt-inventory", description="View your inventory / 查看背包")
@@ -1937,6 +2092,153 @@ class ResetAllModal(discord.ui.Modal, title="重置全部金币 / Reset All Coin
         await interaction.edit_original_response(
             content=f"✅ 已重置 **{len(all_users)}** 名用户的金币为 **{amt}** / reset all **{len(all_users)}** users to **{amt}**.",
             embed=None, view=None
+        )
+
+    # ========== 抽奖系统 ==========
+    giveaway_group = app_commands.Group(
+        name="gmpt-giveaway",
+        description="Giveaway system with tickets / 抽奖券抽奖系统"
+    )
+
+    @giveaway_group.command(name="create", description="Create a giveaway (Admin) / 创建抽奖（管理员）")
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(prize="Prize name / 奖品名称", draw_at="Draw time (YYYY-MM-DD HH:MM format, KST) / 开奖时间")
+    async def giveaway_create(self, interaction: discord.Interaction, prize: str, draw_at: str):
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO giveaways (channel_id, prize, created_by, draw_at) VALUES (?,?,?,?)",
+            (str(interaction.channel_id), prize, str(interaction.user.id), draw_at),
+        )
+        gid = cur.lastrowid
+        conn.commit(); conn.close()
+
+        await interaction.response.send_message(
+            f"🎉 **Giveaway #{gid} Created! / 抽奖已创建！**\n"
+            f"Prize / 奖品: **{prize}**\n"
+            f"Draw time / 开奖时间: **{draw_at}**\n"
+            f"Use `/gmpt-giveaway enter {gid}` to enter! / 使用 `/gmpt-giveaway enter {gid}` 参与！"
+        )
+
+    @giveaway_group.command(name="enter", description="Enter a giveaway using tickets / 用抽奖券参与抽奖")
+    @app_commands.describe(giveaway_id="Giveaway ID / 抽奖编号")
+    async def giveaway_enter(self, interaction: discord.Interaction, giveaway_id: int):
+        uid = str(interaction.user.id)
+        conn = get_db(); cur = conn.cursor()
+
+        cur.execute("SELECT * FROM giveaways WHERE id=? AND drawn=0", (giveaway_id,))
+        ga = cur.fetchone()
+        if not ga:
+            conn.close()
+            return await interaction.response.send_message("Giveaway not found or already drawn. / 抽奖不存在或已开奖。", ephemeral=True)
+
+        cur.execute("SELECT tickets FROM giveaway_tickets WHERE discord_id=?", (uid,))
+        row = cur.fetchone()
+        if not row or row["tickets"] <= 0:
+            conn.close()
+            return await interaction.response.send_message(
+                "You have no giveaway tickets! Buy them from `/gmpt-shop`. / 你没有抽奖券！去商店购买吧。",
+                ephemeral=True,
+            )
+
+        tickets = row["tickets"]
+
+        class EnterConfirm(discord.ui.View):
+            def __init__(self):
+                super().__init__(timeout=None)
+
+            @discord.ui.button(label="Use 1 Ticket / 使用1张券", style=discord.ButtonStyle.success, emoji="🎟️")
+            async def use_one(self, btn_i: discord.Interaction, button):
+                await interaction.response.defer(ephemeral=True)
+                if str(btn_i.user.id) != uid:
+                    return await btn_i.response.send_message("Not your entry. / 不是你的参与。", ephemeral=True)
+                conn2 = get_db(); cur2 = conn2.cursor()
+                cur2.execute("UPDATE giveaway_tickets SET tickets = tickets - 1 WHERE discord_id=?", (uid,))
+                cur2.execute("INSERT INTO giveaway_entries (giveaway_id, discord_id, tickets_used) VALUES (?,?,1)", (giveaway_id, uid))
+                conn2.commit(); conn2.close()
+                for child in self.children: child.disabled = True
+                await btn_i.response.edit_message(
+                    content=f"✅ Entered giveaway #{giveaway_id} with 1 ticket! / 已用1张券参与抽奖 #{giveaway_id}！",
+                    view=self,
+                )
+
+            @discord.ui.button(label="Use ALL Tickets / 全部投入", style=discord.ButtonStyle.primary, emoji="🎰")
+            async def use_all(self, btn_i: discord.Interaction, button):
+                await interaction.response.defer(ephemeral=True)
+                if str(btn_i.user.id) != uid:
+                    return await btn_i.response.send_message("Not your entry. / 不是你的参与。", ephemeral=True)
+                conn2 = get_db(); cur2 = conn2.cursor()
+                cur2.execute("SELECT tickets FROM giveaway_tickets WHERE discord_id=?", (uid,))
+                r = cur2.fetchone()
+                tix = r["tickets"] if r else 0
+                if tix <= 0:
+                    conn2.close()
+                    return await btn_i.response.send_message("No tickets! / 没有券了！", ephemeral=True)
+                cur2.execute("UPDATE giveaway_tickets SET tickets = 0 WHERE discord_id=?", (uid,))
+                cur2.execute("INSERT INTO giveaway_entries (giveaway_id, discord_id, tickets_used) VALUES (?,?,?)",
+                            (giveaway_id, uid, tix))
+                conn2.commit(); conn2.close()
+                for child in self.children: child.disabled = True
+                await btn_i.response.edit_message(
+                    content=f"✅ Entered giveaway #{giveaway_id} with ALL **{tix}** tickets! / 已投入全部 **{tix}** 张券参与抽奖 #{giveaway_id}！",
+                    view=self,
+                )
+
+            @discord.ui.button(label="Cancel / 取消", style=discord.ButtonStyle.secondary, emoji="❌")
+            async def cancel(self, btn_i: discord.Interaction, button):
+                await interaction.response.defer(ephemeral=True)
+                if str(btn_i.user.id) != uid:
+                    return await btn_i.response.send_message("Not your entry. / 不是你的参与。", ephemeral=True)
+                for child in self.children: child.disabled = True
+                await btn_i.response.edit_message(content="Cancelled. / 已取消。", view=self)
+
+        conn.close()
+        await interaction.response.send_message(
+            f"🎟️ **Enter Giveaway #{giveaway_id}**\nPrize: **{ga['prize']}**\nYou have **{tickets}** ticket(s).\nHow many to use? / 使用几张券？",
+            view=EnterConfirm(),
+            ephemeral=True,
+        )
+
+    @giveaway_group.command(name="draw", description="Draw a winner (Admin) / 开奖（管理员）")
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(giveaway_id="Giveaway ID / 抽奖编号")
+    async def giveaway_draw(self, interaction: discord.Interaction, giveaway_id: int):
+        conn = get_db(); cur = conn.cursor()
+
+        cur.execute("SELECT * FROM giveaways WHERE id=? AND drawn=0", (giveaway_id,))
+        ga = cur.fetchone()
+        if not ga:
+            conn.close()
+            return await interaction.response.send_message("Giveaway not found or already drawn. / 抽奖不存在或已开奖。", ephemeral=True)
+
+        cur.execute("SELECT discord_id FROM giveaway_entries WHERE giveaway_id=?", (giveaway_id,))
+        entries = cur.fetchall()
+        if not entries:
+            conn.close()
+            return await interaction.response.send_message("No entries for this giveaway! / 没有人参与这个抽奖！", ephemeral=True)
+
+        # 多券 = 多条目（每张券在 entries 表中独立一条），实现加权随机
+        all_entries = [e["discord_id"] for e in entries]
+        winner = random.choice(all_entries)
+
+        cur.execute("UPDATE giveaways SET drawn=1, winner_id=? WHERE id=?", (winner, giveaway_id))
+        conn.commit(); conn.close()
+
+        await interaction.response.send_message(
+            f"🎉 **Giveaway #{giveaway_id} Winner! / 抽奖 #{giveaway_id} 开奖！**\n"
+            f"Prize / 奖品: **{ga['prize']}**\n"
+            f"Winner / 中奖者: <@{winner}> 🎊\n"
+            f"Total entries / 总参与条目: **{len(entries)}**"
+        )
+
+    @giveaway_group.command(name="tickets", description="Check your giveaway tickets / 查看抽奖券数量")
+    async def giveaway_tickets_cmd(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT tickets FROM giveaway_tickets WHERE discord_id=?", (uid,))
+        row = cur.fetchone(); conn.close()
+        tix = row["tickets"] if row else 0
+        await interaction.response.send_message(
+            f"🎟️ You have **{tix}** giveaway ticket(s). / 你有 **{tix}** 张抽奖券。", ephemeral=True
         )
 
 
