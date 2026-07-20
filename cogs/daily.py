@@ -12,6 +12,8 @@ from datetime import datetime, date, timezone, timedelta
 from database import get_db
 
 import logging
+import sqlite3
+import time as time_mod
 from utils.logger import log_error
 
 logger = logging.getLogger(__name__)
@@ -94,7 +96,7 @@ class Daily(commands.Cog):
             self._join_times[uid] = now
 
     async def _commit_minutes(self, uid: str, today_str: str):
-        """Flush in-memory join time to daily_rewards table."""
+        """Flush in-memory join time to daily_rewards table, with retry on DB lock."""
         join_time = self._join_times.pop(uid, None)
         if not join_time:
             return
@@ -102,16 +104,28 @@ class Daily(commands.Cog):
         elapsed = max(1, int((datetime.now(UTC8) - join_time).total_seconds()))
         minutes = max(1, elapsed // 60)
 
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute(
-            """INSERT INTO daily_rewards (discord_id, date, voice_minutes, claimed)
-            VALUES (?, ?, ?, 0)
-            ON CONFLICT(discord_id, date) DO UPDATE SET voice_minutes = voice_minutes + ?""",
-            (uid, today_str, minutes, minutes),
-        )
-        conn.commit()
-        conn.close()
+        last_error = None
+        for attempt in range(3):
+            conn = get_db()
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    """INSERT INTO daily_rewards (discord_id, date, voice_minutes, claimed)
+                    VALUES (?, ?, ?, 0)
+                    ON CONFLICT(discord_id, date) DO UPDATE SET voice_minutes = voice_minutes + ?""",
+                    (uid, today_str, minutes, minutes),
+                )
+                conn.commit()
+                return  # success
+            except sqlite3.OperationalError as e:
+                last_error = e
+                if "locked" in str(e).lower() and attempt < 2:
+                    time_mod.sleep(0.2 * (attempt + 1))
+                    continue
+                raise
+            finally:
+                conn.close()
+        raise last_error
 
     # ═══════════════════════════════════════
     #  /gmpt-daily status

@@ -1681,6 +1681,11 @@ class PostMatchPullView(discord.ui.View):
 
     @discord.ui.button(label="拉入赛后频道", style=discord.ButtonStyle.success, emoji="📢", row=0)
     async def pull_post_match(self, interaction: discord.Interaction, button):
+        # Permission check: admins only (no match context available for participant check)
+        if not interaction.user.guild_permissions.manage_channels:
+            return await interaction.response.send_message(
+                "❌ 只有管理员才能使用此功能", ephemeral=True
+            )
         await interaction.response.defer(ephemeral=True)
 
         target_vc = self.guild.get_channel(self.POST_MATCH_VC_ID)
@@ -4477,6 +4482,22 @@ class DashboardView(discord.ui.View):
 
         async def pull_callback(sel_int: discord.Interaction):
             mid = int(sel_int.data["values"][0])
+
+            # Permission check: participant or admin only
+            conn0 = get_db(); cur0 = conn0.cursor()
+            cur0.execute(
+                "SELECT r.discord_id FROM registrations r WHERE r.tournament_id=?",
+                (mid,),
+            )
+            player_ids = [row["discord_id"] for row in cur0.fetchall()]
+            conn0.close()
+            is_participant = str(sel_int.user.id) in player_ids
+            is_admin = sel_int.user.guild_permissions.manage_channels
+            if not is_participant and not is_admin:
+                return await sel_int.response.send_message(
+                    "❌ 只有参赛者和管理员才能使用此功能", ephemeral=True
+                )
+
             voice_view = VoicePullView.from_match(mid, self.guild)
             conn2 = get_db(); cur2 = conn2.cursor()
             cur2.execute("SELECT name FROM tournaments WHERE id=?", (mid,))
