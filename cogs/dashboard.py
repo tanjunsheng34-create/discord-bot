@@ -27,6 +27,8 @@ import logging
 from utils.logger import log_error
 from datetime import datetime, timezone
 from cogs.economy import get_balance, add_coins, MainMenuView
+import random
+import sqlite3
 logger = logging.getLogger(__name__)
 
 class CreateMatchModal(discord.ui.Modal, title="创建比赛 / Create Match"):
@@ -874,34 +876,48 @@ class ReShuffleView(discord.ui.View):
         team_size = len(players) // 2
         match_name = f"{src['name']} (续战 #{self.match_id})"
 
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO tournaments (name, max_teams, team_size, created_by, status) VALUES (?, 2, ?, ?, 'open')",
-            (match_name, team_size, str(interaction.user.id)),
-        )
-        conn.commit()
-        new_mid = cur.lastrowid
+        # Retry on database locked with exponential backoff
+        import time
+        for attempt in range(3):
+            try:
+                conn = get_db(); cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO tournaments (name, max_teams, team_size, created_by, status) VALUES (?, 2, ?, ?, 'open')",
+                    (match_name, team_size, str(interaction.user.id)),
+                )
+                conn.commit()
+                new_mid = cur.lastrowid
 
-        for pid in players:
-            cur.execute("INSERT INTO registrations (tournament_id, discord_id) VALUES (?,?)", (new_mid, pid))
-            cur.execute("INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)", (pid, "unknown"))
+                for pid in players:
+                    cur.execute("INSERT INTO registrations (tournament_id, discord_id) VALUES (?,?)", (new_mid, pid))
+                    cur.execute("INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)", (pid, "unknown"))
 
-        random.shuffle(players)
-        split = len(players) // 2
-        ta, tb = players[:split], players[split:]
+                random.shuffle(players)
+                split = len(players) // 2
+                ta, tb = players[:split], players[split:]
 
-        cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (new_mid, "A 队 Team A"))
-        aid = cur.lastrowid
-        for u in ta:
-            cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (aid, new_mid, u))
+                cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (new_mid, "A 队 Team A"))
+                aid = cur.lastrowid
+                for u in ta:
+                    cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (aid, new_mid, u))
 
-        cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (new_mid, "B 队 Team B"))
-        bid = cur.lastrowid
-        for u in tb:
-            cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (bid, new_mid, u))
+                cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (new_mid, "B 队 Team B"))
+                bid = cur.lastrowid
+                for u in tb:
+                    cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (bid, new_mid, u))
 
-        cur.execute("UPDATE tournaments SET status='closed' WHERE id=?", (new_mid,))
-        conn.commit(); conn.close()
+                cur.execute("UPDATE tournaments SET status='closed' WHERE id=?", (new_mid,))
+                conn.commit(); conn.close()
+                break  # success
+            except sqlite3.OperationalError as e:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                if "locked" in str(e).lower() and attempt < 2:
+                    time.sleep(0.3 * (attempt + 1))
+                    continue
+                raise
 
         a_mentions = [f"<@{uid}>" for uid in ta]
         b_mentions = [f"<@{uid}>" for uid in tb]
@@ -3839,6 +3855,7 @@ class DashboardView(discord.ui.View):
                 ("📈 赛事排名\nStandings", "tournament_standings"),
                 ("🗺️ 对阵表\nBracket", "tournament_bracket"),
                 ("📋 赛事记录\nHistory", "tournament_history"),
+                ("📅 定时赛事\nScheduled", "scheduled_event"),
             ]
             # Pad to 8 slots for consistent grid
             while len(btns) < 8:
@@ -3852,6 +3869,7 @@ class DashboardView(discord.ui.View):
                 ("💎 MVP排行榜\nMVP LB", "mvp_lb"),
                 ("📊 数据总览\nStats", "stats"),
                 ("🎖️ 段位列表\nRanks", "ranks"),
+                ("🔥 连胜王\nWin Streak", "win_streak"),
             ]
             while len(btns) < 8:
                 btns.append(None)
@@ -3876,6 +3894,9 @@ class DashboardView(discord.ui.View):
                 ("🔒 管理面板\nAdmin", "admin"),
                 ("🏅 MMR排行\nMMR LB", "mmr_lb"),
                 ("📢 发送公告\nAnnounce", "announce"),
+                ("🔄 赛季重置\nSeason Reset", "season_reset"),
+                ("🎬 比赛回放\nReplay", "replay"),
+                ("🎙️ 赛后拉入\nPost-Match VC", "post_match_pull"),
             ]
             while len(btns) < 8:
                 btns.append(None)
@@ -5614,6 +5635,81 @@ class DashboardView(discord.ui.View):
             ephemeral=True,
         )
 
+    # ── Page 2 补位: 定时赛事 ──
+    async def _scheduled_event(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.followup.send("管理员专用 / Admin only.", ephemeral=True)
+        await interaction.followup.send(
+            "📅 **定时赛事 / Scheduled Event**\n"
+            "该功能开发中，敬请期待。\n"
+            "Use `/gmpt-schedule` to create a scheduled tournament (coming soon).",
+            ephemeral=True,
+        )
+
+    # ── Page 3 补位: 连胜王 ──
+    async def _win_streak(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT discord_id, username, win_streak FROM users "
+            "WHERE win_streak IS NOT NULL AND win_streak > 0 "
+            "ORDER BY win_streak DESC LIMIT 10"
+        )
+        rows = cur.fetchall(); conn.close()
+
+        if not rows:
+            return await interaction.followup.send(
+                "暂无连胜记录 / No win streak data yet.", ephemeral=True
+            )
+
+        embed = discord.Embed(
+            title="🔥 连胜王 / Win Streak Leaderboard",
+            color=discord.Color.orange(),
+        )
+        lines = []
+        for i, r in enumerate(rows, 1):
+            name = r["username"] or r["discord_id"]
+            streaks = r["win_streak"] or 0
+            lines.append(f"{i}. **{name}** — {streaks} 连胜 / Win Streak")
+        embed.description = "\n".join(lines)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # ── Page 5 补位: 赛季重置 ──
+    async def _season_reset(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.followup.send("管理员专用 / Admin only.", ephemeral=True)
+        await interaction.followup.send(
+            "🔄 **赛季重置 / Season Reset**\n"
+            "该功能将重置所有玩家的 MMR 和段位数据。\n"
+            "开发中，敬请期待。 / Coming soon.",
+            ephemeral=True,
+        )
+
+    # ── Page 5 补位: 比赛回放 ──
+    async def _replay(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        await interaction.followup.send(
+            "🎬 **比赛回放 / Match Replay**\n"
+            "该功能将展示最近的比赛回放记录。\n"
+            "开发中，敬请期待。 / Coming soon.\n\n"
+            "目前可使用 `/gmpt-history` 查看历史比赛数据。",
+            ephemeral=True,
+        )
+
+    # ── Page 5 补位: 赛后拉入语音 ──
+    async def _post_match_pull(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        # Reuse VoicePullView / PostMatchPullView from the match flow
+        view = PostMatchPullView(self.guild)
+        await interaction.followup.send(
+            "🎙️ **赛后拉入语音 / Post-Match Voice Pull**\n"
+            "选择要将队员拉入的频道：",
+            view=view,
+            ephemeral=True,
+        )
+
 
 
 class Dashboard(commands.Cog):
@@ -5654,7 +5750,7 @@ class Dashboard(commands.Cog):
 
             target = channel or interaction.channel
 
-            # Dedup: delete old dashboard panels (bot messages with embed title OR components)
+            # Dedup: delete old dashboard panels (bot messages with "GMPT 控制面板" in embed title)
             try:
                 async for msg in target.history(limit=50):
                     if msg.author != self.bot.user:
@@ -5665,8 +5761,6 @@ class Dashboard(commands.Cog):
                             if emb.title and "GMPT 控制面板" in emb.title:
                                 is_panel = True
                                 break
-                    if not is_panel and msg.components:
-                        is_panel = True
                     if is_panel:
                         await msg.delete()
             except Exception as e:
