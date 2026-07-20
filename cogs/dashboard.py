@@ -3108,7 +3108,7 @@ async def _execute_settle(match_id, win_team_id, mvp_id, guild, match_name, bot=
     if all_ids:
         cur.executemany("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING",
                         [(uid,) for uid in all_ids])
-        cur.executemany("UPDATE users SET score=score+? WHERE discord_id=?", all_coin_ops)
+        cur.executemany("UPDATE users SET score=score+? WHERE discord_id=?", [(op[0], op[1]) for op in all_coin_ops])
         cur.executemany("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)", all_coin_ops)
 
     cur.execute("INSERT INTO results (tournament_id,team_id,rank,score_awarded) VALUES (?,?,1,?)", (match_id, win_team_id, MATCH_WIN_COINS))
@@ -4292,7 +4292,7 @@ class DashboardView(discord.ui.View):
                 players = cur3.fetchall()
                 conn3.close()
 
-                mvp_options = [discord.SelectOption(label="æ—  MVP / Skip", value="__none__")]
+                mvp_options = [discord.SelectOption(label="不选 MVP / Skip", value="__none__")]
                 for p in players:
                     name = resolve_name(self.guild, p["discord_id"])
                     mvp_options.append(discord.SelectOption(label=name[:100], value=p["discord_id"]))
