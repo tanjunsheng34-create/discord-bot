@@ -57,38 +57,48 @@ class CreateMatchModal(discord.ui.Modal, title="创建比赛 / Create Match"):
         if mp < 2 or mp % 2 != 0:
             return await interaction.response.send_message("人数必须为大于2的偶数 / Must be an even number > 2.", ephemeral=True)
 
-        team_size = mp // 2
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO tournaments (name, max_teams, team_size, created_by, status) VALUES (?, 2, ?, ?, 'open')",
-            (self.match_name.value, team_size, str(interaction.user.id)),
-        )
-        conn.commit(); tid = cur.lastrowid; conn.close()
+        try:
+            team_size = mp // 2
+            conn = get_db(); cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO tournaments (name, max_teams, team_size, created_by, status) VALUES (?, 2, ?, ?, 'open')",
+                (self.match_name.value, team_size, str(interaction.user.id)),
+            )
+            conn.commit(); tid = cur.lastrowid; conn.close()
 
-        embed = discord.Embed(
-            title=f"Match: {self.match_name.value}",
-            description=f"**{mp}** 人 / Players | 每队 / Per Team: {team_size}\nClick below to sign up / 点击下方按钮报名",
-            color=discord.Color.blue(),
-        ).set_footer(text=f"Match ID: {tid}")
-        view = MatchView()
-        await interaction.response.send_message(embed=embed, view=view)
-        # 持久化:保存 message → match_id 映射,Bot 重启后按钮仍可用
-        save_match_view_state(tid, (await interaction.original_response()).id, interaction.channel_id)
-        # 发送初始报名列表
-        list_embed = discord.Embed(
-            title="已报名玩家 / Signed Up (0/" + str(mp) + ")",
-            description="暂无玩家 / No signups yet",
-            color=discord.Color.green(),
-        )
-        list_msg = await interaction.followup.send(embed=list_embed)
-        set_player_list_msg(tid, list_msg.id)
-        # 同步更新 DB 中的 player_list_msg_id
-        conn2 = get_db(); cur2 = conn2.cursor()
-        cur2.execute(
-            "UPDATE match_view_state SET player_list_msg_id=? WHERE message_id=?",
-            (str(list_msg.id), str((await interaction.original_response()).id)),
-        )
-        conn2.commit(); conn2.close()
+            embed = discord.Embed(
+                title=f"Match: {self.match_name.value}",
+                description=f"**{mp}** 人 / Players | 每队 / Per Team: {team_size}\nClick below to sign up / 点击下方按钮报名",
+                color=discord.Color.blue(),
+            ).set_footer(text=f"Match ID: {tid}")
+            view = MatchView()
+            await interaction.response.send_message(embed=embed, view=view)
+            # 持久化:保存 message → match_id 映射,Bot 重启后按钮仍可用
+            save_match_view_state(tid, (await interaction.original_response()).id, interaction.channel_id)
+            # 发送初始报名列表
+            list_embed = discord.Embed(
+                title="已报名玩家 / Signed Up (0/" + str(mp) + ")",
+                description="暂无玩家 / No signups yet",
+                color=discord.Color.green(),
+            )
+            list_msg = await interaction.followup.send(embed=list_embed)
+            set_player_list_msg(tid, list_msg.id)
+            # 同步更新 DB 中的 player_list_msg_id
+            conn2 = get_db(); cur2 = conn2.cursor()
+            cur2.execute(
+                "UPDATE match_view_state SET player_list_msg_id=? WHERE message_id=?",
+                (str(list_msg.id), str((await interaction.original_response()).id)),
+            )
+            conn2.commit(); conn2.close()
+        except Exception as e:
+            logger.error(f"CreateMatchModal.on_submit failed: {e}", exc_info=True)
+            try:
+                await interaction.response.send_message(
+                    "创建比赛失败，请稍后再试 / Failed to create match, please try again later.",
+                    ephemeral=True,
+                )
+            except Exception:
+                pass
 
 
 class CreateRoleMatchModal(discord.ui.Modal, title="创建选路比赛 / Create Role-Pick Match"):
@@ -120,38 +130,48 @@ class CreateRoleMatchModal(discord.ui.Modal, title="创建选路比赛 / Create 
         if mp < 2 or mp % 2 != 0:
             return await interaction.response.send_message("人数必须为大于2的偶数 / Must be an even number > 2.", ephemeral=True)
 
-        team_size = mp // 2
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO tournaments (name, max_teams, team_size, created_by, status, role_pick) VALUES (?, 2, ?, ?, 'open', 1)",
-            (self.match_name.value, team_size, str(interaction.user.id)),
-        )
-        conn.commit(); tid = cur.lastrowid; conn.close()
+        try:
+            team_size = mp // 2
+            conn = get_db(); cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO tournaments (name, max_teams, team_size, created_by, status, role_pick) VALUES (?, 2, ?, ?, 'open', 1)",
+                (self.match_name.value, team_size, str(interaction.user.id)),
+            )
+            conn.commit(); tid = cur.lastrowid; conn.close()
 
-        embed = discord.Embed(
-            title=f"Match (选路): {self.match_name.value}",
-            description=f"**{mp}** 人 / Players | 每队 / Per Team: {team_size}\n选路比赛 — 报名时需选择路线 / Role-pick match, select lane on signup",
-            color=discord.Color.purple(),
-        ).set_footer(text=f"Match ID: {tid}")
-        view = MatchView()
-        await interaction.response.send_message(embed=embed, view=view)
-        save_match_view_state(tid, (await interaction.original_response()).id, interaction.channel_id)
-        # 发送初始报名列表(含路线分布)
-        list_embed = discord.Embed(
-            title="已报名玩家 / Signed Up (0/" + str(mp) + ")",
-            description="暂无玩家 / No signups yet\n\n🎯 路线分配 / Lane Distribution\n"
-                        "Top:    - (0/2)\nJG:     - (0/2)\nMid:    - (0/2)\n"
-                        "ADC:    - (0/2)\nSup:    - (0/2)",
-            color=discord.Color.purple(),
-        )
-        list_msg = await interaction.followup.send(embed=list_embed)
-        set_player_list_msg(tid, list_msg.id)
-        conn2 = get_db(); cur2 = conn2.cursor()
-        cur2.execute(
-            "UPDATE match_view_state SET player_list_msg_id=? WHERE message_id=?",
-            (str(list_msg.id), str((await interaction.original_response()).id)),
-        )
-        conn2.commit(); conn2.close()
+            embed = discord.Embed(
+                title=f"Match (选路): {self.match_name.value}",
+                description=f"**{mp}** 人 / Players | 每队 / Per Team: {team_size}\n选路比赛 — 报名时需选择路线 / Role-pick match, select lane on signup",
+                color=discord.Color.purple(),
+            ).set_footer(text=f"Match ID: {tid}")
+            view = MatchView()
+            await interaction.response.send_message(embed=embed, view=view)
+            save_match_view_state(tid, (await interaction.original_response()).id, interaction.channel_id)
+            # 发送初始报名列表(含路线分布)
+            list_embed = discord.Embed(
+                title="已报名玩家 / Signed Up (0/" + str(mp) + ")",
+                description="暂无玩家 / No signups yet\n\n🎯 路线分配 / Lane Distribution\n"
+                            "Top:    - (0/2)\nJG:     - (0/2)\nMid:    - (0/2)\n"
+                            "ADC:    - (0/2)\nSup:    - (0/2)",
+                color=discord.Color.purple(),
+            )
+            list_msg = await interaction.followup.send(embed=list_embed)
+            set_player_list_msg(tid, list_msg.id)
+            conn2 = get_db(); cur2 = conn2.cursor()
+            cur2.execute(
+                "UPDATE match_view_state SET player_list_msg_id=? WHERE message_id=?",
+                (str(list_msg.id), str((await interaction.original_response()).id)),
+            )
+            conn2.commit(); conn2.close()
+        except Exception as e:
+            logger.error(f"CreateRoleMatchModal.on_submit failed: {e}", exc_info=True)
+            try:
+                await interaction.response.send_message(
+                    "创建比赛失败，请稍后再试 / Failed to create match, please try again later.",
+                    ephemeral=True,
+                )
+            except Exception:
+                pass
 
 
 class LaneSelectView(discord.ui.View):
@@ -3648,7 +3668,10 @@ class DashboardView(discord.ui.View):
         async def inner(interaction: discord.Interaction):
             method = getattr(self, "_" + cb_id, None)
             if method:
-                await method(interaction)
+                try:
+                    await method(interaction)
+                except Exception as e:
+                    logger.error(f"Dashboard callback '{cb_id}' failed: {e}", exc_info=True)
         return inner
 
     # ═══════════════════ Navigation ═══════════════════
@@ -3691,7 +3714,7 @@ class DashboardView(discord.ui.View):
     # ═══════════════════ Page 1 — Match ═══════════════════
 
     async def _create_match(self, interaction: discord.Interaction):
-        modal = CreateMatchModal(self.guild)
+        modal = CreateMatchModal(self.guild, self.session)
         await interaction.response.send_modal(modal)
 
     async def _signup(self, interaction: discord.Interaction):
@@ -4676,7 +4699,28 @@ class DashboardView(discord.ui.View):
         cur.execute("SELECT id, week_start FROM weekly_challenges WHERE week_start <= ? ORDER BY week_start DESC LIMIT 1", (now_str,))
         latest = cur.fetchone()
         week_start = now_str
-        if latest:
+        if not latest or latest["week_start"] < week_start:
+            # Auto-generate weekly challenges — seed from a curated pool
+            import random as _random
+            seed_challenges = [
+                {"title": "参加3场比赛 / Play 3 matches", "desc": "参加3场比赛", "reward": 150, "target": 3, "task_type": "play_match"},
+                {"title": "赢得2场比赛 / Win 2 matches", "desc": "赢得2场比赛", "reward": 200, "target": 2, "task_type": "win_match"},
+                {"title": "在频道聊天50条 / Send 50 messages", "desc": "发送50条消息", "reward": 100, "target": 50, "task_type": "send_message"},
+                {"title": "语音通话2小时 / Voice 2hrs", "desc": "语音通话120分钟", "reward": 150, "target": 120, "task_type": "voice_time"},
+                {"title": "邀请1位新朋友 / Invite 1 friend", "desc": "邀请1位新朋友", "reward": 300, "target": 1, "task_type": "invite"},
+                {"title": "使用3次道具 / Use 3 items", "desc": "使用3次道具", "reward": 100, "target": 3, "task_type": "use_item"},
+                {"title": "连续签到3天 / Check in 3 days", "desc": "连续签到3天", "reward": 120, "target": 3, "task_type": "checkin_streak"},
+                {"title": "赠送1次金币 / Gift coins once", "desc": "赠送金币1次", "reward": 80, "target": 1, "task_type": "gift_coins"},
+                {"title": "下注2场比赛 / Bet on 2 matches", "desc": "下注2场比赛", "reward": 150, "target": 2, "task_type": "place_bet"},
+            ]
+            selected = _random.sample(seed_challenges, min(3, len(seed_challenges)))
+            for ch in selected:
+                cur.execute(
+                    "INSERT INTO weekly_challenges (week_start, title, description, reward, target, task_type) VALUES (?,?,?,?,?,?)",
+                    (week_start, ch["title"], ch["desc"], ch["reward"], ch["target"], ch["task_type"]),
+                )
+            conn.commit()
+        else:
             week_start = latest["week_start"]
 
         cur.execute("""
@@ -4714,8 +4758,8 @@ class DashboardView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
         conn = get_db(); cur = conn.cursor()
         cur.execute("""
-            SELECT discord_id, score, mmr, wins, losses
-            FROM season_standings ORDER BY score DESC LIMIT 10
+            SELECT discord_id, mmr, wins, losses
+            FROM season_standings ORDER BY mmr DESC LIMIT 10
         """)
         rows = cur.fetchall(); conn.close()
 
@@ -4725,8 +4769,8 @@ class DashboardView(discord.ui.View):
         embed = discord.Embed(title="Season Standings / 赛季排行", color=discord.Color.gold())
         lines = []
         for i, r in enumerate(rows, 1):
-            name = await resolve_name(r["discord_id"], interaction.guild) or r["discord_id"]
-            lines.append(f"{i}. {name} — {r['score']} pts | W:{r['wins']} L:{r['losses']} | MMR:{r['mmr']}")
+            name = resolve_name(interaction.guild, r["discord_id"]) or str(r["discord_id"])
+            lines.append(f"{i}. {name} — MMR:{r['mmr']} | W:{r['wins']} L:{r['losses']}")
         embed.description = "\n".join(lines)
         await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -4734,21 +4778,21 @@ class DashboardView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
         conn = get_db(); cur = conn.cursor()
         cur.execute("""
-            SELECT discord_id, COUNT(*) as mvp_count
-            FROM tournament_players WHERE team_result='win' AND mvp=1
-            GROUP BY discord_id ORDER BY mvp_count DESC LIMIT 10
+            SELECT discord_id, SUM(wins) as total_wins, SUM(points) as total_points
+            FROM tournament_players
+            GROUP BY discord_id ORDER BY total_wins DESC LIMIT 10
         """)
         rows = cur.fetchall()
         conn.close()
 
         if not rows:
-            return await interaction.followup.send("暂无MVP数据 / No MVP data.", ephemeral=True)
+            return await interaction.followup.send("暂无数据 / No data yet.", ephemeral=True)
 
-        embed = discord.Embed(title="💎 MVP Leaderboard / MVP排行榜", color=discord.Color.gold())
+        embed = discord.Embed(title="Wins Leaderboard / 胜场排行榜", color=discord.Color.gold())
         lines = []
         for i, r in enumerate(rows, 1):
             name = resolve_name(self.guild, r["discord_id"])
-            lines.append(f"{i}. **{name}** — {r['mvp_count']} MVPs")
+            lines.append(f"{i}. **{name}** — {r['total_wins']} Wins | {r['total_points']} Pts")
         embed.description = "\n".join(lines)
         await interaction.followup.send(embed=embed)
 
@@ -4769,7 +4813,7 @@ class DashboardView(discord.ui.View):
 
         categories = list(dict.fromkeys(it.get("category", "Other") for it in all_items))
         embed = discord.Embed(title="Item Shop", description=f"Your balance: {bal} coins\nSelect a category:", color=0xFFD700)
-        await interaction.followup.send(embed=embed, view=MainMenuView(all_items, categories, uid), ephemeral=True)
+        await interaction.followup.send(embed=embed, view=MainMenuView(all_items, categories, uid, bal), ephemeral=True)
 
     async def _inventory(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -4916,18 +4960,38 @@ class DashboardView(discord.ui.View):
 
     async def _giveaway(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
+        uid = str(interaction.user.id)
         conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT prize, ends_at, winner_count FROM giveaway WHERE status='active' ORDER BY id DESC LIMIT 1")
+        cur.execute("SELECT id, prize, draw_at FROM giveaways WHERE drawn=0 ORDER BY id DESC LIMIT 1")
         gw = cur.fetchone()
-        conn.close()
 
         if gw:
+            cur.execute("SELECT COUNT(*) as cnt FROM giveaway_entries WHERE giveaway_id=?", (gw["id"],))
+            entry_count = cur.fetchone()["cnt"]
+            cur.execute("SELECT tickets FROM giveaway_tickets WHERE discord_id=?", (uid,))
+            tix_row = cur.fetchone()
+            user_tickets = tix_row["tickets"] if tix_row else 0
+            conn.close()
+
+            embed = discord.Embed(
+                title="🎟️ Active Giveaway / 活动抽奖",
+                description=(
+                    f"**Prize / 奖品:** {gw['prize']}\n"
+                    f"**Draw Time / 开奖时间:** {gw['draw_at']}\n"
+                    f"**Entries / 参与条目:** {entry_count}\n"
+                    f"**Your Tickets / 你的抽奖券:** {user_tickets}"
+                ),
+                color=0xFFD700,
+            )
+            embed.set_footer(text=f"Giveaway #{gw['id']} | Use /gmpt-giveaway enter {gw['id']} to enter with tickets")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        else:
+            conn.close()
             await interaction.followup.send(
-                f"🎟️ **Active Giveaway / 活动抽奖**\nPrize: {gw['prize']}\nWinners: {gw['winner_count']}\nEnds: {gw['ends_at']}",
+                "No active giveaway. / 暂无活动抽奖。\n"
+                "Get tickets from `/gmpt-shop` / 去商店购买抽奖券: `/gmpt-shop`",
                 ephemeral=True,
             )
-        else:
-            await interaction.followup.send("暂无活动抽奖 / No active giveaway.", ephemeral=True)
 
     # ═══════════════════ Page 5 — Tools ═══════════════════
 

@@ -38,6 +38,7 @@ COGS = [
     "cogs.queue",
     "cogs.admin_backup",
     "cogs.match",
+    "cogs.daily",
 ]
 
 

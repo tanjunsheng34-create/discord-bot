@@ -473,6 +473,23 @@ def init_db():
             team        TEXT DEFAULT NULL,
             UNIQUE(match_id, discord_id)
         );
+
+        -- === 每日语音签到奖励 / Daily Voice Reward ===
+        CREATE TABLE IF NOT EXISTS daily_rewards (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            discord_id      TEXT NOT NULL,
+            date            TEXT NOT NULL,
+            voice_minutes   INTEGER DEFAULT 0,
+            claimed         INTEGER DEFAULT 0,
+            claimed_at      TEXT,
+            reward_amount   INTEGER DEFAULT 0,
+            UNIQUE(discord_id, date)
+        );
+
+        CREATE TABLE IF NOT EXISTS daily_config (
+            key             TEXT PRIMARY KEY,
+            value           TEXT NOT NULL
+        );
     """)
 
     # ── 性能索引 / Performance Indexes ──
