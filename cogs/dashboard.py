@@ -25,6 +25,8 @@ from cogs.tournament import (
 
 import logging
 from utils.logger import log_error
+from datetime import datetime
+from cogs.economy import get_balance, add_coins, MainMenuView
 logger = logging.getLogger(__name__)
 
 class CreateMatchModal(discord.ui.Modal, title="创建比赛 / Create Match"):
@@ -3694,12 +3696,43 @@ class DashboardView(discord.ui.View):
 
     async def _signup(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        await interaction.followup.send(
-            "📋 **Sign Up / 报名**\n"
-            "Use `/gmpt-signup` to sign up for a match.\n"
-            "请使用 `/gmpt-signup` 报名参赛。",
-            ephemeral=True,
-        )
+        uid = str(interaction.user.id)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT id, name, status FROM matches WHERE status='pending' ORDER BY id DESC LIMIT 5")
+        matches = cur.fetchall()
+        conn.close()
+
+        if not matches:
+            return await interaction.followup.send("No open matches. Create one first.", ephemeral=True)
+
+        class SignupSelect(discord.ui.Select):
+            def __init__(self):
+                options = [
+                    discord.SelectOption(label=f"#{m['id']} - {m['name']}", value=str(m["id"]))
+                    for m in matches
+                ]
+                super().__init__(placeholder="Select a match to join", options=options)
+            async def callback(self, sel_int: discord.Interaction):
+                await sel_int.response.defer(ephemeral=True)
+                mid = int(self.values[0])
+                suid = str(sel_int.user.id)
+                conn2 = get_db(); cur2 = conn2.cursor()
+                cur2.execute("SELECT id, name, status FROM matches WHERE id=?", (mid,))
+                mr = cur2.fetchone()
+                if not mr or mr["status"] != "pending":
+                    conn2.close()
+                    return await sel_int.followup.send("Match not available.", ephemeral=True)
+                cur2.execute("SELECT id FROM match_signups WHERE match_id=? AND discord_id=?", (mid, suid))
+                if cur2.fetchone():
+                    conn2.close()
+                    return await sel_int.followup.send(f"Already signed up for #{mid}.", ephemeral=True)
+                cur2.execute("INSERT INTO match_signups (match_id, discord_id) VALUES (?,?)", (mid, suid))
+                conn2.commit(); conn2.close()
+                await sel_int.followup.send(f"Signed up for match **{mr['name']}** (#{mid})!", ephemeral=True)
+
+        view = discord.ui.View(timeout=60)
+        view.add_item(SignupSelect())
+        await interaction.followup.send("Select a match to sign up:", view=view, ephemeral=True)
 
     async def _shuffle(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -4558,31 +4591,144 @@ class DashboardView(discord.ui.View):
 
     async def _profile(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        await interaction.followup.send(
-            "👤 **Player Profile / 玩家资料卡**\nUse `/gmpt-profile` or `/gmpt-profile @user`.\n使用 `/gmpt-profile` 查看玩家资料。",
-            ephemeral=True,
+        uid = str(interaction.user.id)
+        target = interaction.user
+
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT score, mmr FROM users WHERE discord_id=?", (uid,))
+        ur = cur.fetchone()
+        coins = ur["score"] if ur else 0
+        mmr = ur["mmr"] if (ur and ur["mmr"]) else 1000
+
+        cur.execute("SELECT streak FROM daily_checkin WHERE discord_id=?", (uid,))
+        sr = cur.fetchone()
+        streak = sr["streak"] if sr else 0
+
+        cur.execute("SELECT COUNT(*) as cnt FROM tournament_players WHERE discord_id=?", (uid,))
+        total_matches = cur.fetchone()["cnt"]
+        cur.execute("SELECT COUNT(*) as cnt FROM tournament_players WHERE discord_id=? AND team_result='win'", (uid,))
+        wins = cur.fetchone()["cnt"]
+        win_rate = f"{wins / total_matches * 100:.1f}%" if total_matches > 0 else "N/A"
+
+        cur.execute("SELECT COUNT(*) as cnt FROM user_achievements WHERE user_id=?", (uid,))
+        ach_ct = cur.fetchone()["cnt"]
+        cur.execute("SELECT COUNT(*) as cnt FROM user_inventory WHERE user_id=? AND quantity > 0", (uid,))
+        inv_ct = cur.fetchone()["cnt"]
+        conn.close()
+
+        embed = discord.Embed(
+            title=f"{target.display_name}'s Profile / 资料卡",
+            color=discord.Color.blue(),
         )
+        embed.set_thumbnail(url=target.display_avatar.url)
+        embed.add_field(name="Coins / 金币", value=str(coins), inline=True)
+        embed.add_field(name="MMR", value=str(mmr), inline=True)
+        embed.add_field(name="Streak / 签到连胜", value=f"{streak} days", inline=True)
+        embed.add_field(name="Matches / 比赛数", value=str(total_matches), inline=True)
+        embed.add_field(name="Win Rate / 胜率", value=win_rate, inline=True)
+        embed.add_field(name="Achievements / 成就", value=f"{ach_ct}", inline=True)
+        embed.add_field(name="Items / 道具", value=str(inv_ct), inline=True)
+        embed.set_footer(text="View others: /gmpt-profile @user")
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     async def _history(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        await interaction.followup.send(
-            "📜 **Match History / 比赛历史**\nUse `/gmpt-history [page]`.\n使用 `/gmpt-history` 查看比赛记录。",
-            ephemeral=True,
+        uid = str(interaction.user.id)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("""
+            SELECT tp.tournament_id, t.name as match_name, t.created_at,
+                   tp.team_result, r.team_id, rt.name as team_name
+            FROM tournament_players tp
+            JOIN tournaments t ON t.id = tp.tournament_id
+            LEFT JOIN registrations r ON r.tournament_id = tp.tournament_id AND r.discord_id = tp.discord_id
+            LEFT JOIN teams rt ON rt.id = r.team_id
+            WHERE tp.discord_id=? AND t.status='finished'
+            ORDER BY t.created_at DESC LIMIT 5
+        """, (uid,))
+        rows = cur.fetchall()
+        conn.close()
+
+        if not rows:
+            return await interaction.followup.send("No match history. / 暂无比赛记录。", ephemeral=True)
+
+        embed = discord.Embed(
+            title=f"Match History / 比赛历史 — {interaction.user.display_name}",
+            color=discord.Color.blue(),
         )
+        for r in rows:
+            date_str = r["created_at"][:10] if r["created_at"] else "N/A"
+            result = r["team_result"] or "?"
+            icon = "🟢" if result == "win" else ("🔴" if result == "loss" else "⚪")
+            embed.add_field(
+                name=f"#{r['tournament_id']} — {r['match_name']}",
+                value=f"{date_str} | {icon} {result.upper()} | {r['team_name'] or 'N/A'}",
+                inline=False,
+            )
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     async def _weekly(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        await interaction.followup.send(
-            "📅 **Weekly Challenges / 每周挑战**\nUse `/gmpt-weekly`.\n使用 `/gmpt-weekly` 查看本周挑战。",
-            ephemeral=True,
+        uid = str(interaction.user.id)
+        conn = get_db(); cur = conn.cursor()
+        now_str = datetime.now().strftime("%Y-%m-%d")
+
+        cur.execute("SELECT id, week_start FROM weekly_challenges WHERE week_start <= ? ORDER BY week_start DESC LIMIT 1", (now_str,))
+        latest = cur.fetchone()
+        week_start = now_str
+        if latest:
+            week_start = latest["week_start"]
+
+        cur.execute("""
+            SELECT wc.id, wc.title, wc.description, wc.reward, wc.target, wc.task_type,
+                   COALESCE(uc.progress, 0) as progress, COALESCE(uc.completed, 0) as completed
+            FROM weekly_challenges wc
+            LEFT JOIN user_challenges uc ON uc.challenge_id = wc.id AND uc.discord_id = ?
+            WHERE wc.week_start = ?
+            ORDER BY wc.id
+        """, (uid, week_start))
+        challenges = cur.fetchall()
+        conn.commit(); conn.close()
+
+        if not challenges:
+            return await interaction.followup.send("No challenges this week. / 本周暂无挑战。", ephemeral=True)
+
+        embed = discord.Embed(
+            title="Weekly Challenges / 每周挑战",
+            description=f"Week of {week_start}",
+            color=discord.Color.purple(),
         )
+        for ch in challenges:
+            prog = ch["progress"]
+            target = ch["target"]
+            done = "✅" if ch["completed"] else "⬜"
+            bar = "█" * min(prog, target) + "░" * max(0, target - prog)
+            embed.add_field(
+                name=f"{done} {ch['title']} (+{ch['reward']}g)",
+                value=f"Progress: {prog}/{target} [{bar}]",
+                inline=False,
+            )
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     async def _season(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        await interaction.followup.send(
-            "📅 **Season Standings / 排位赛季排行**\nUse `/gmpt-season-standings`.\n使用 `/gmpt-season-standings` 查看排行。",
-            ephemeral=True,
-        )
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("""
+            SELECT discord_id, score, mmr, wins, losses
+            FROM season_standings ORDER BY score DESC LIMIT 10
+        """)
+        rows = cur.fetchall(); conn.close()
+
+        if not rows:
+            return await interaction.followup.send("No season data yet. / 暂无赛季数据。", ephemeral=True)
+
+        embed = discord.Embed(title="Season Standings / 赛季排行", color=discord.Color.gold())
+        lines = []
+        for i, r in enumerate(rows, 1):
+            name = await resolve_name(r["discord_id"], interaction.guild) or r["discord_id"]
+            lines.append(f"{i}. {name} — {r['score']} pts | W:{r['wins']} L:{r['losses']} | MMR:{r['mmr']}")
+        embed.description = "\n".join(lines)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     async def _mvp_lb(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -4610,17 +4756,42 @@ class DashboardView(discord.ui.View):
 
     async def _shop(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        await interaction.followup.send(
-            "🛒 **Shop / 积分商店**\nUse `/gmpt-shop`.\n使用 `/gmpt-shop` 打开商店。",
-            ephemeral=True,
-        )
+        uid = str(interaction.user.id)
+        bal = get_balance(uid)
+
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT id, name, description, price, item_type, category FROM shop_items ORDER BY price")
+        all_items = [dict(r) for r in cur.fetchall()]
+        conn.close()
+
+        if not all_items:
+            return await interaction.followup.send("Shop is empty.", ephemeral=True)
+
+        categories = list(dict.fromkeys(it.get("category", "Other") for it in all_items))
+        embed = discord.Embed(title="Item Shop", description=f"Your balance: {bal} coins\nSelect a category:", color=0xFFD700)
+        await interaction.followup.send(embed=embed, view=MainMenuView(all_items, categories, uid), ephemeral=True)
 
     async def _inventory(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        await interaction.followup.send(
-            "🎒 **Inventory / 背包**\nUse `/gmpt-inventory`.\n使用 `/gmpt-inventory` 查看背包。",
-            ephemeral=True,
-        )
+        uid = str(interaction.user.id)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("""
+            SELECT inv.item_id, si.name, si.description, inv.quantity
+            FROM user_inventory inv
+            JOIN shop_items si ON si.id = inv.item_id
+            WHERE inv.user_id=? AND inv.quantity > 0
+        """, (uid,))
+        rows = cur.fetchall(); conn.close()
+
+        if not rows:
+            return await interaction.followup.send(
+                "Backpack is empty. / 背包是空的。", ephemeral=True
+            )
+
+        lines = ["**Backpack / 背包**\n"]
+        for r in rows:
+            lines.append(f"`#{r['item_id']}` **{r['name']}** x{r['quantity']} — {r['description']}")
+        await interaction.followup.send("\n".join(lines), ephemeral=True)
 
     async def _balance(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -4633,24 +4804,115 @@ class DashboardView(discord.ui.View):
 
     async def _gift(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        await interaction.followup.send(
-            "🎁 **Gift Coins / èµ é€é‡‘å¸**\nUse `/gmpt-gift @user <amount>`.\n使用 `/gmpt-gift @玩家 金额` èµ é€é‡‘å¸ã€‚",
-            ephemeral=True,
-        )
+
+        class GiftAmountModal(discord.ui.Modal, title="Gift Coins"):
+            amount = discord.ui.TextInput(
+                label="Amount",
+                placeholder="Enter amount",
+                max_length=6,
+                required=True,
+            )
+            def __init__(self, target_member):
+                super().__init__()
+                self.target_member = target_member
+            async def on_submit(self, modal_int: discord.Interaction):
+                try:
+                    amt = int(self.amount.value)
+                except ValueError:
+                    return await modal_int.response.send_message("Invalid amount.", ephemeral=True)
+                if amt <= 0:
+                    return await modal_int.response.send_message("Amount must be positive.", ephemeral=True)
+                sender = str(modal_int.user.id)
+                receiver = str(self.target_member.id)
+                sbal = get_balance(sender)
+                if sbal < amt:
+                    return await modal_int.response.send_message(
+                        f"Insufficient balance! You have {sbal} coins.", ephemeral=True
+                    )
+                add_coins(sender, -amt, f"Gift to {self.target_member.display_name}")
+                add_coins(receiver, amt, f"Gift from {modal_int.user.display_name}")
+                new_bal = get_balance(sender)
+                await modal_int.response.send_message(
+                    f"Sent {amt} coins to {self.target_member.mention}. Balance: {new_bal}",
+                    ephemeral=True,
+                )
+
+        class GiftUserSelect(discord.ui.UserSelect):
+            def __init__(self):
+                super().__init__(placeholder="Select recipient", min_values=1, max_values=1)
+            async def callback(self, sel_int: discord.Interaction):
+                await sel_int.response.defer(ephemeral=True)
+                target = self.values[0]
+                if target.bot:
+                    return await sel_int.followup.send("Cannot gift to a bot.", ephemeral=True)
+                if target.id == sel_int.user.id:
+                    return await sel_int.followup.send("Cannot gift to yourself.", ephemeral=True)
+                await sel_int.followup.send_modal(GiftAmountModal(target))
+
+        view = discord.ui.View(timeout=60)
+        view.add_item(GiftUserSelect())
+        await interaction.followup.send("Select recipient to gift coins:", view=view, ephemeral=True)
 
     async def _transactions(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        await interaction.followup.send(
-            "📊 **Transactions / 交易记录**\nUse `/gmpt-transactions`.\n使用 `/gmpt-transactions` 查看交易记录。",
-            ephemeral=True,
+        uid = str(interaction.user.id)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT amount, reason, created_at FROM transactions WHERE discord_id=? ORDER BY id DESC LIMIT 10",
+            (uid,),
         )
+        rows = cur.fetchall(); conn.close()
+
+        if not rows:
+            return await interaction.followup.send("No transactions yet.", ephemeral=True)
+
+        embed = discord.Embed(title="Transactions", color=discord.Color.blue())
+        lines = []
+        for r in rows:
+            sign = "+" if r["amount"] >= 0 else ""
+            lines.append(f"`{r['created_at'][:16]}` {sign}{r['amount']} - {r['reason']}")
+        embed.description = "\n".join(lines)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     async def _achievements(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        await interaction.followup.send(
-            "🅠**Achievements / 成就列表**\nUse `/gmpt-achievements`.\n使用 `/gmpt-achievements` 查看成就。",
-            ephemeral=True,
-        )
+        uid = str(interaction.user.id)
+        conn = get_db(); cur = conn.cursor()
+
+        # seed if needed
+        cur.execute("SELECT COUNT(*) as cnt FROM achievements")
+        if cur.fetchone()["cnt"] == 0:
+            from cogs.economy import ACHIEVEMENTS as _ACH
+            for a in _ACH:
+                cur.execute("INSERT INTO achievements (name, description, reward, hidden) VALUES (?,?,?,?)",
+                            (a[0], a[1], a[2], a[3]))
+            conn.commit()
+
+        cur.execute("""
+            SELECT a.id, a.name, a.description, a.reward,
+                   CASE WHEN ua.user_id IS NOT NULL THEN 1 ELSE 0 END as unlocked
+            FROM achievements a
+            LEFT JOIN user_achievements ua ON ua.achievement_id = a.id AND ua.user_id=?
+            ORDER BY a.id
+        """, (uid,))
+        rows = [dict(r) for r in cur.fetchall()]
+        conn.close()
+
+        unlocked_ct = sum(1 for r in rows if r["unlocked"])
+        total_ct = len(rows)
+
+        embed = discord.Embed(title="Achievements", color=0x00DC82)
+        embed.add_field(name="Progress", value=f"{unlocked_ct} / {total_ct} Unlocked", inline=False)
+        parts = []
+        for r in rows:
+            if r["unlocked"]:
+                parts.append(f":white_check_mark: **{r['name']}** - {r['description']} (+{r['reward']}g)")
+            else:
+                parts.append(f":black_large_square: {r['name']} - {r['description']} (+{r['reward']}g)")
+        embed.add_field(name="", value="\n".join(parts[:20]), inline=False)
+        if total_ct > 20:
+            embed.set_footer(text=f"Showing first 20 of {total_ct}. Use /gmpt-achievements for full list.")
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     async def _giveaway(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -4702,10 +4964,21 @@ class DashboardView(discord.ui.View):
 
     async def _all_players(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        await interaction.followup.send(
-            "📊 **All Players / 全部玩家**\nUse `/gmpt-all-players` to see all registered players with MMR.",
-            ephemeral=True,
-        )
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT DISTINCT r.discord_id, u.username, u.mmr FROM registrations r LEFT JOIN users u ON u.discord_id = r.discord_id ORDER BY u.mmr DESC LIMIT 20")
+        rows = cur.fetchall(); conn.close()
+
+        if not rows:
+            return await interaction.followup.send("No registered players.", ephemeral=True)
+
+        embed = discord.Embed(title="All Players", color=discord.Color.blue())
+        lines = []
+        for i, row in enumerate(rows, 1):
+            name = row["username"] if row["username"] else row["discord_id"]
+            mmr = row["mmr"] or 1000
+            lines.append(f"{i}. {name} - MMR {mmr}")
+        embed.description = "\n".join(lines)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     async def _admin(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
