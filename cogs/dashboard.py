@@ -25,7 +25,7 @@ from cogs.tournament import (
 
 import logging
 from utils.logger import log_error
-from datetime import datetime
+from datetime import datetime, timezone
 from cogs.economy import get_balance, add_coins, MainMenuView
 logger = logging.getLogger(__name__)
 
@@ -1050,10 +1050,74 @@ class ReShuffleView(discord.ui.View):
             w_ids = [r["discord_id"] for r in all_regs if r["team_id"] == win_tid]
             l_ids = [r["discord_id"] for r in all_regs if r["team_id"] != win_tid]
             cur3.close()
-            _update_mmr(w_ids, l_ids, mvp_uid, conn2=None)
+
+            # ── 道具效果处理 / Active Item Effects ──
+            effect_msgs = []
+            conn_eff = get_db(); cur_eff = conn_eff.cursor()
+            all_pids = w_ids + l_ids
+            placeholders = ",".join("?" * len(all_pids)) if all_pids else "?"
+            cur_eff.execute(
+                f"SELECT id, user_id, effect_type FROM active_effects WHERE user_id IN ({placeholders}) AND consumed=0",
+                all_pids,
+            )
+            active_map = {}
+            for row in cur_eff.fetchall():
+                active_map.setdefault(row["user_id"], set()).add(row["effect_type"])
+
+            double_mmr_ids = set()
+            for wid in w_ids:
+                if "double_mmr" in active_map.get(wid, set()):
+                    double_mmr_ids.add(wid)
+                    cur_eff.execute("UPDATE active_effects SET consumed=1 WHERE user_id=? AND effect_type='double_mmr' AND consumed=0", (wid,))
+                    effect_msgs.append(f"⚡ <@{wid}> 双倍MMR生效! / Double MMR active!")
+
+            protect_ids = set()
+            for lid in l_ids:
+                if "mmr_protect" in active_map.get(lid, set()):
+                    protect_ids.add(lid)
+                    cur_eff.execute("UPDATE active_effects SET consumed=1 WHERE user_id=? AND effect_type='mmr_protect' AND consumed=0", (lid,))
+                    effect_msgs.append(f"🛡️ <@{lid}> MMR保护生效! / MMR protected!")
+
+            for wid in w_ids:
+                if "steal_coins" in active_map.get(wid, set()):
+                    cur_eff.execute("UPDATE active_effects SET consumed=1 WHERE user_id=? AND effect_type='steal_coins' AND consumed=0", (wid,))
+                    stolen_total = 0
+                    for lid in l_ids:
+                        cur_eff.execute("UPDATE users SET score=MAX(0, score-30) WHERE discord_id=?", (lid,))
+                        stolen_total += 30
+                        cur_eff.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                                        (lid, -30, f"Coin stolen by <@{wid}> in match #{mid}"))
+                    cur_eff.execute("UPDATE users SET score=score+? WHERE discord_id=?", (stolen_total, wid))
+                    cur_eff.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                                    (wid, stolen_total, f"Stole coins in match #{mid}"))
+                    effect_msgs.append(f"🥷 <@{wid}> 偷了 {stolen_total} coins! / Stole {stolen_total} coins!")
+
+            for pid in all_pids:
+                if "xp_boost" in active_map.get(pid, set()):
+                    cur_eff.execute("UPDATE active_effects SET consumed=1 WHERE user_id=? AND effect_type='xp_boost' AND consumed=0", (pid,))
+                    bonus = 75 if pid in w_ids else 25
+                    cur_eff.execute("UPDATE users SET score=score+? WHERE discord_id=?", (bonus, pid))
+                    cur_eff.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                                    (pid, bonus, f"XP Boost bonus in match #{mid}"))
+                    effect_msgs.append(f"📈 <@{pid}> 经验加成 +{bonus} coins! / XP Boost +{bonus} coins!")
+
+            conn_eff.commit(); conn_eff.close()
+
+            _update_mmr(w_ids, l_ids, mvp_uid, conn2=None, double_mmr_ids=double_mmr_ids, protect_ids=protect_ids)
+
+            # ── 竞猜结算 / Vote Resolution ──
+            try:
+                vote_winners = _resolve_vote_bets(mid, win_tid)
+                if vote_winners:
+                    effect_msgs.append(f"\U0001f4ca 竞猜: {len(vote_winners)} 人猜对,各 +5 MMR")
+            except Exception as e:
+                logger.error(f"[_do_settle] _resolve_vote_bets error: {e}", exc_info=True)
 
             # ── 刷新实时排行榜 ──
-            await _refresh_mmr_board(interaction.client, self.guild)
+            try:
+                await _refresh_mmr_board(interaction.client, self.guild)
+            except Exception as e:
+                logger.error(f"[_do_settle] _refresh_mmr_board failed: {e}", exc_info=True)
 
             conn3 = get_db(); cur3 = conn3.cursor()
             cur3.execute("SELECT name FROM tournaments WHERE id=?", (mid,))
@@ -1131,6 +1195,17 @@ class ReShuffleView(discord.ui.View):
             except Exception as e:
                 logger.error(f"[MatchView] result-room send error: {e}")
 
+            # ── 重新分队按钮 ──
+            try:
+                reshuffle_view = ReShuffleView(match_id=mid, guild=self.guild)
+                reshuffle_embed = reshuffle_view._build_player_list_embed()
+                await interaction.channel.send(
+                    embed=reshuffle_embed,
+                    view=reshuffle_view,
+                )
+            except Exception as e:
+                logger.error(f"[MatchView] ReShuffleView send error: {e}")
+
             # ── 赛后统一拉入按钮 ──
             try:
                 post_match_view = PostMatchPullView(guild=self.guild)
@@ -1140,6 +1215,16 @@ class ReShuffleView(discord.ui.View):
                 )
             except Exception as e:
                 logger.error(f"[MatchView] PostMatchPullView send error: {e}")
+
+            # ── 重赛 / 结束按钮 ──
+            try:
+                rematch_view = RematchView(match_id=mid, guild=self.guild, match_name=match_name)
+                await interaction.channel.send(
+                    content="比赛已结束！是否再来一局？ / Match finished! Rematch?",
+                    view=rematch_view,
+                )
+            except Exception as e:
+                logger.error(f"[MatchView] RematchView send error: {e}")
 
             mvp_text = f"\n🏅 MVP: <@{mvp_uid}> +50" if mvp_uid else ""
             await s_int.response.send_message(
@@ -1334,11 +1419,110 @@ class ReShuffleView(discord.ui.View):
         await interaction.followup.send("B 队拉入完成!", ephemeral=True)
 
 
-class VoicePullView(discord.ui.View):
-    """双按钮独立拉入 A/B 队语音频道。"""
+class RematchView(discord.ui.View):
+    """赛后重赛/结束按钮。"""
 
-    VA_CHANNEL_ID = 1438050912814895186
-    VB_CHANNEL_ID = 1437626921394372658
+    def __init__(self, match_id: int, guild: discord.Guild, match_name: str, timeout: float = 300):
+        super().__init__(timeout=timeout)
+        self.match_id = match_id
+        self.guild = guild
+        self.match_name = match_name
+
+    @discord.ui.button(label="🔄 重赛 Rematch", style=discord.ButtonStyle.primary, row=0)
+    async def rematch_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer()
+        try:
+            conn = get_db(); cur = conn.cursor()
+            # Reset status to open, clear team assignments
+            cur.execute("UPDATE tournaments SET status='open' WHERE id=?", (self.match_id,))
+            cur.execute("UPDATE registrations SET team_id=NULL WHERE tournament_id=?", (self.match_id,))
+            cur.execute("DELETE FROM teams WHERE tournament_id=?", (self.match_id,))
+            conn.commit(); conn.close()
+
+            for child in self.children:
+                child.disabled = True
+            await interaction.edit_original_response(view=self)
+            await interaction.channel.send(
+                f"🔄 **{self.match_name}** 重赛已开启！/ Rematch started!\n使用 `/gmpt-register {self.match_id}` 重新报名 / Use `/gmpt-register {self.match_id}` to re-register."
+            )
+        except Exception as e:
+            logger.error(f"RematchView.rematch_btn failed: {e}", exc_info=True)
+            await interaction.followup.send("❌ 重赛失败，请重试 / Rematch failed, please try again.", ephemeral=True)
+
+    @discord.ui.button(label="📊 查看战绩 View Stats", style=discord.ButtonStyle.secondary, row=0)
+    async def stats_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            conn = get_db(); cur = conn.cursor()
+
+            # Match info
+            cur.execute("SELECT name, status FROM tournaments WHERE id=?", (self.match_id,))
+            match = cur.fetchone()
+            if not match:
+                conn.close()
+                return await interaction.followup.send("比赛不存在 / Match not found.", ephemeral=True)
+
+            # Teams and results
+            cur.execute(
+                "SELECT t.id, t.name, r.rank, r.score_awarded FROM teams t "
+                "LEFT JOIN results r ON r.team_id=t.id AND r.tournament_id=? "
+                "WHERE t.tournament_id=? ORDER BY t.id",
+                (self.match_id, self.match_id),
+            )
+            teams = cur.fetchall()
+
+            # Build embed
+            embed = discord.Embed(
+                title=f"📊 {match['name']} 战绩 / Match Stats",
+                color=discord.Color.gold(),
+            )
+            embed.add_field(name="状态 / Status", value=match["status"], inline=False)
+
+            total_players = 0
+            for t in teams:
+                cur.execute(
+                    "SELECT discord_id FROM registrations WHERE team_id=? AND tournament_id=?",
+                    (t["id"], self.match_id),
+                )
+                players = cur.fetchall()
+                total_players += len(players)
+                player_mentions = "\n".join(f"<@{p['discord_id']}>" for p in players) if players else "（无人 / Empty）"
+                rank_str = {1: "🥇 胜方 Winner", 2: "🥈 负方 Loser"}.get(t["rank"], f"Rank {t['rank']}") if t["rank"] else "未记录 / No result"
+                score_str = f" (+{t['score_awarded']} coin)" if t["score_awarded"] else ""
+                embed.add_field(
+                    name=f"{t['name']} — {rank_str}{score_str}",
+                    value=player_mentions,
+                    inline=False,
+                )
+            conn.close()
+
+            embed.set_footer(text=f"比赛 ID: {self.match_id} | 总参赛: {total_players} 人")
+            button.disabled = True
+            await interaction.edit_original_response(view=self)
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        except Exception as e:
+            logger.error(f"RematchView.stats_btn failed: {e}", exc_info=True)
+            await interaction.followup.send("❌ 查询失败，请重试 / Query failed, please try again.", ephemeral=True)
+
+    @discord.ui.button(label="❌ 结束 End", style=discord.ButtonStyle.secondary, row=0)
+    async def end_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer()
+        try:
+            for child in self.children:
+                child.disabled = True
+            await interaction.edit_original_response(view=self)
+            await interaction.channel.send(f"GG! **{self.match_name}** 比赛结束 / Match ended. Well played!")
+        except Exception as e:
+            logger.error(f"RematchView.end_btn failed: {e}", exc_info=True)
+            await interaction.followup.send("❌ 操作失败，请重试 / Failed, please try again.", ephemeral=True)
+
+
+class VoicePullView(discord.ui.View):
+    """赛前/赛后语音频道管理。从 A/B 队语音频道拉人。"""
+
+    TEAM_A_VC_ID = 1438050912814895186
+    TEAM_B_VC_ID = 1437626921394372658
+    LIVE_ROOM_ID = 1442412877301416006
     NOTIFY_CHANNEL_ID = 1453208983358935121
 
     def __init__(self, team_a_ids: list, team_b_ids: list, guild: discord.Guild, timeout: float = 300):
@@ -1348,6 +1532,7 @@ class VoicePullView(discord.ui.View):
         self.guild = guild
         self._used_a = False
         self._used_b = False
+        self._used_live = False
 
     @classmethod
     def from_match(cls, match_id: int, guild: discord.Guild, timeout: float = 300):
@@ -1377,31 +1562,45 @@ class VoicePullView(discord.ui.View):
         conn.close()
         return cls(team_a_ids, team_b_ids, guild, timeout)
 
-    async def _do_pull(self, interaction, uids, channel_id, team_label):
-        """将 uid 列表的成员拉入指定频道,返回通知行列表。"""
-        channel = self.guild.get_channel(channel_id)
-        if not channel:
-            return [f"⚠️ 语音频道未找到 ({team_label}队)"]
+    async def _do_pull_from_vc(self, interaction, source_vc_id, target_vc_id, label):
+        """从 source_vc_id 语音频道拉所有在线成员到 target_vc_id,返回通知行。"""
+        source_channel = self.guild.get_channel(source_vc_id)
+        if not source_channel:
+            return [f"⚠️ {label}队语音频道未找到 (ID:{source_vc_id})"]
+
+        target_channel = self.guild.get_channel(target_vc_id)
+        if not target_channel:
+            return [f"⚠️ 目标语音频道未找到 ({label}队, ID:{target_vc_id})"]
 
         moved = []
         not_in = []
-        for uid in uids:
-            member = self.guild.get_member(int(uid))
-            if member and member.voice and member.voice.channel:
+        for member in source_channel.members:
+            if member.voice and member.voice.channel:
                 try:
-                    await member.move_to(channel)
+                    await member.move_to(target_channel)
                     moved.append(member)
                 except Exception:
-                    not_in.append(member.mention if member else f"<@{uid}>")
+                    not_in.append(member.mention)
             else:
-                not_in.append(member.mention if member else f"<@{uid}>")
+                not_in.append(member.mention)
 
         lines = []
         if moved:
-            lines.append(f"✅ {team_label}队已拉入:{' '.join(m.mention for m in moved)}")
+            lines.append(f"✅ {label}队已拉入 Live Room: {' '.join(m.mention for m in moved)}")
         if not_in:
-            lines.append(f"⚠️ {team_label}队未在语音频道(无法拉入):{' '.join(not_in)}")
+            lines.append(f"⚠️ {label}队无法拉入: {' '.join(not_in)}")
         return lines
+
+    async def _notify(self, lines):
+        """发送通知到 NOTIFY_CHANNEL_ID。"""
+        if not lines:
+            return
+        notify_channel = self.guild.get_channel(self.NOTIFY_CHANNEL_ID)
+        if notify_channel:
+            try:
+                await notify_channel.send("\n".join(lines))
+            except Exception as e:
+                log_error("dashboard", "VoicePullView._notify", e)
 
     @discord.ui.button(label="🔵 拉 A 队入语音", style=discord.ButtonStyle.primary, row=0)
     async def pull_a_btn(self, interaction: discord.Interaction, button):
@@ -1411,13 +1610,8 @@ class VoicePullView(discord.ui.View):
         if not interaction.user.guild_permissions.administrator and uid not in self.team_a_ids and uid not in self.team_b_ids:
             return await interaction.response.send_message("仅参赛者或管理员可操作", ephemeral=True)
         await interaction.response.defer(ephemeral=True)
-        lines = await self._do_pull(interaction, self.team_a_ids, self.VA_CHANNEL_ID, "A")
-        notify_channel = self.guild.get_channel(self.NOTIFY_CHANNEL_ID)
-        if notify_channel and lines:
-            try:
-                await notify_channel.send("\n".join(lines))
-            except Exception as e:
-                log_error("dashboard", "pull_a_btn", e)
+        lines = await self._do_pull_from_vc(interaction, self.TEAM_A_VC_ID, self.LIVE_ROOM_ID, "A")
+        await self._notify(lines)
         button.disabled = True
         self._used_a = True
         await interaction.edit_original_response(view=self)
@@ -1431,17 +1625,30 @@ class VoicePullView(discord.ui.View):
         if not interaction.user.guild_permissions.administrator and uid not in self.team_a_ids and uid not in self.team_b_ids:
             return await interaction.response.send_message("仅参赛者或管理员可操作", ephemeral=True)
         await interaction.response.defer(ephemeral=True)
-        lines = await self._do_pull(interaction, self.team_b_ids, self.VB_CHANNEL_ID, "B")
-        notify_channel = self.guild.get_channel(self.NOTIFY_CHANNEL_ID)
-        if notify_channel and lines:
-            try:
-                await notify_channel.send("\n".join(lines))
-            except Exception as e:
-                log_error("dashboard", "pull_b_btn", e)
+        lines = await self._do_pull_from_vc(interaction, self.TEAM_B_VC_ID, self.LIVE_ROOM_ID, "B")
+        await self._notify(lines)
         button.disabled = True
         self._used_b = True
         await interaction.edit_original_response(view=self)
         await interaction.followup.send("B 队拉入完成!", ephemeral=True)
+
+    @discord.ui.button(label="🏠 回大厅 Return to Live Room", style=discord.ButtonStyle.success, row=1)
+    async def pull_live_btn(self, interaction: discord.Interaction, button):
+        if self._used_live:
+            return await interaction.response.send_message("已经拉过了!", ephemeral=True)
+        uid = str(interaction.user.id)
+        if not interaction.user.guild_permissions.administrator and uid not in self.team_a_ids and uid not in self.team_b_ids:
+            return await interaction.response.send_message("仅参赛者或管理员可操作", ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
+
+        lines_a = await self._do_pull_from_vc(interaction, self.TEAM_A_VC_ID, self.LIVE_ROOM_ID, "A+B")
+        lines_b = await self._do_pull_from_vc(interaction, self.TEAM_B_VC_ID, self.LIVE_ROOM_ID, "A+B")
+        await self._notify(lines_a + lines_b)
+
+        button.disabled = True
+        self._used_live = True
+        await interaction.edit_original_response(view=self)
+        await interaction.followup.send("全员拉入 Live Room 完成!", ephemeral=True)
 
 
 class PostMatchPullView(discord.ui.View):
@@ -2319,8 +2526,11 @@ class MatchViewWithID(discord.ui.View):
                     )
 
                     # Send AI analysis
-                    if analysis_embed:
-                        await interaction.channel.send(embed=analysis_embed)
+                    try:
+                        if analysis_embed:
+                            await interaction.channel.send(embed=analysis_embed)
+                    except Exception as e:
+                        logger.error(f"[MatchViewWithID] AI analysis send error: {e}")
 
                     # Send MVP vote
                     try:
@@ -2332,12 +2542,15 @@ class MatchViewWithID(discord.ui.View):
                         logger.error(f"[MatchView] MvpVoteView error: {e}")
 
                     # Send public re-shuffle button with player list
-                    reshuffle_view = ReShuffleView(match_id=mid, guild=guild)
-                    reshuffle_embed = reshuffle_view._build_player_list_embed()
-                    await interaction.channel.send(
-                        embed=reshuffle_embed,
-                        view=reshuffle_view,
-                    )
+                    try:
+                        reshuffle_view = ReShuffleView(match_id=mid, guild=guild)
+                        reshuffle_embed = reshuffle_view._build_player_list_embed()
+                        await interaction.channel.send(
+                            embed=reshuffle_embed,
+                            view=reshuffle_view,
+                        )
+                    except Exception as e:
+                        logger.error(f"[MatchViewWithID] ReShuffleView send error: {e}")
 
                     # ── 发送结算结果到 result-room ──
                     RESULT_CHANNEL_ID = 1442412993269731452
@@ -2370,6 +2583,16 @@ class MatchViewWithID(discord.ui.View):
                         )
                     except Exception as e:
                         logger.error(f"[MatchViewWithID] PostMatchPullView send error: {e}")
+
+                    # ── 重赛 / 结束按钮 ──
+                    try:
+                        rematch_view = RematchView(match_id=mid, guild=guild, match_name=t["name"])
+                        await interaction.channel.send(
+                            content="比赛已结束！是否再来一局？ / Match finished! Rematch?",
+                            view=rematch_view,
+                        )
+                    except Exception as e:
+                        logger.error(f"[MatchViewWithID] RematchView send error: {e}")
 
                 mvp_select.callback = mvp_callback
                 mvp_view = discord.ui.View(timeout=120)
@@ -2865,28 +3088,30 @@ async def _execute_settle(match_id, win_team_id, mvp_id, guild, match_name, bot=
     # Winner +150
     cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=? AND team_id=?", (match_id, win_team_id))
     winner_ids = [r["discord_id"] for r in cur.fetchall()]
-    for wid in winner_ids:
-        cur.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (wid,))
-        cur.execute("UPDATE users SET score=score+? WHERE discord_id=?", (MATCH_WIN_COINS, wid))
-        cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                     (wid, MATCH_WIN_COINS, f"Match win #{match_id}"))
-    cur.execute("INSERT INTO results (tournament_id,team_id,rank,score_awarded) VALUES (?,?,1,?)", (match_id, win_team_id, MATCH_WIN_COINS))
 
     # Loser +50
     cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=? AND team_id!=?", (match_id, win_team_id))
     loser_ids = [r["discord_id"] for r in cur.fetchall()]
-    for lid in loser_ids:
-        cur.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (lid,))
-        cur.execute("UPDATE users SET score=score+? WHERE discord_id=?", (MATCH_PARTICIPATE_COINS, lid))
-        cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                     (lid, MATCH_PARTICIPATE_COINS, f"Match participation #{match_id}"))
 
+    # Batch coin distribution: merge winner + loser + MVP into single batch ops
+    all_coin_ops = []
+    for wid in winner_ids:
+        all_coin_ops.append((wid, MATCH_WIN_COINS, f"Match win #{match_id}"))
+    for lid in loser_ids:
+        all_coin_ops.append((lid, MATCH_PARTICIPATE_COINS, f"Match participation #{match_id}"))
     # MVP +50
     if mvp_id:
-        cur.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (mvp_id,))
-        cur.execute("UPDATE users SET score=score+? WHERE discord_id=?", (MATCH_PARTICIPATE_COINS, mvp_id))
-        cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                     (mvp_id, MATCH_PARTICIPATE_COINS, f"MVP #{match_id}"))
+        all_coin_ops.append((mvp_id, MATCH_PARTICIPATE_COINS, f"MVP #{match_id}"))
+
+    # Batch insert users (deduplicate by using set)
+    all_ids = list(set([op[0] for op in all_coin_ops]))
+    if all_ids:
+        cur.executemany("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING",
+                        [(uid,) for uid in all_ids])
+        cur.executemany("UPDATE users SET score=score+? WHERE discord_id=?", all_coin_ops)
+        cur.executemany("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)", all_coin_ops)
+
+    cur.execute("INSERT INTO results (tournament_id,team_id,rank,score_awarded) VALUES (?,?,1,?)", (match_id, win_team_id, MATCH_WIN_COINS))
 
     cur.execute("UPDATE tournaments SET status='finished' WHERE id=?", (match_id,))
     conn.commit(); conn.close()
@@ -2997,7 +3222,10 @@ async def _execute_settle(match_id, win_team_id, mvp_id, guild, match_name, bot=
 
     # ── 刷新实时排行榜 ──
     if bot is not None:
-        await _refresh_mmr_board(bot, guild)
+        try:
+            await _refresh_mmr_board(bot, guild)
+        except Exception as e:
+            logger.error(f"[_execute_settle] _refresh_mmr_board failed: {e}", exc_info=True)
 
     # ── AI 赛事分析 ──
     analysis_embed = _generate_match_analysis(match_id, match_name, winner_ids, loser_ids, mvp_id, guild)
@@ -3486,7 +3714,7 @@ async def _build_mmr_board_embed(guild: discord.Guild) -> discord.Embed:
     embed = discord.Embed(
         title="\U0001f3c6 GMPT MMR Leaderboard",
         color=discord.Color.gold(),
-        timestamp=datetime.datetime.now(datetime.timezone.utc),
+        timestamp=datetime.now(timezone.utc),
     )
 
     if not rows:
@@ -3697,6 +3925,13 @@ class DashboardView(discord.ui.View):
                     await method(interaction)
                 except Exception as e:
                     logger.error(f"Dashboard callback '{cb_id}' failed: {e}", exc_info=True)
+                    try:
+                        await interaction.followup.send("❌ 操作失败，请重试 / Error, please try again.", ephemeral=True)
+                    except Exception:
+                        try:
+                            await interaction.response.send_message("❌ 操作失败，请重试 / Error, please try again.", ephemeral=True)
+                        except Exception:
+                            pass
         return inner
 
     # ═══════════════════ Navigation ═══════════════════
@@ -4118,15 +4353,59 @@ class DashboardView(discord.ui.View):
                         content="✅ 结算完成! / Settle complete!", embed=None, view=None
                     )
 
-                    if analysis_embed:
-                        await interaction.channel.send(embed=analysis_embed)
+                    try:
+                        # Send AI analysis
+                        try:
+                            if analysis_embed:
+                                await interaction.channel.send(embed=analysis_embed)
+                        except Exception as e:
+                            logger.error(f"[DashboardView] AI analysis send error: {e}")
 
-                    reshuffle_view = ReShuffleView(match_id=mid, guild=self.guild)
-                    reshuffle_embed = reshuffle_view._build_player_list_embed()
-                    await interaction.channel.send(
-                        embed=reshuffle_embed,
-                        view=reshuffle_view,
-                    )
+                        # Send MVP vote
+                        try:
+                            await MvpVoteView.send_vote(
+                                match_id=mid, match_name=t["name"],
+                                channel=interaction.channel, guild=self.guild,
+                            )
+                        except Exception as e:
+                            logger.error(f"[DashboardView] MvpVoteView error: {e}")
+
+                        # ReShuffleView
+                        try:
+                            reshuffle_view = ReShuffleView(match_id=mid, guild=self.guild)
+                            reshuffle_embed = reshuffle_view._build_player_list_embed()
+                            await interaction.channel.send(
+                                embed=reshuffle_embed,
+                                view=reshuffle_view,
+                            )
+                        except Exception as e:
+                            logger.error(f"[DashboardView] ReShuffleView send error: {e}")
+
+                        # ── 赛后统一拉入按钮 ──
+                        try:
+                            post_match_view = PostMatchPullView(guild=self.guild)
+                            await interaction.channel.send(
+                                content=f"📢 **{t['name']}** 结算完成!点击下方按钮将队员拉入赛后集合频道:",
+                                view=post_match_view,
+                            )
+                        except Exception as e:
+                            logger.error(f"[DashboardView] PostMatchPullView send error: {e}")
+
+                        # Rematch / End buttons
+                        try:
+                            rematch_view = RematchView(match_id=mid, guild=self.guild, match_name=t["name"])
+                            await interaction.channel.send(
+                                content="比赛已结束！是否再来一局？ / Match finished! Rematch?",
+                                view=rematch_view,
+                            )
+                        except Exception as e:
+                            logger.error(f"[DashboardView] RematchView send error: {e}")
+                    except Exception as e:
+                        logger.error(f"[DashboardView] mvp_callback_dash outer error: {e}")
+                        try:
+                            await interaction.followup.send("结算失败，请联系管理员。", ephemeral=True)
+                        except Exception:
+                            pass
 
                 mvp_select.callback = mvp_callback_dash
                 mvp_view = discord.ui.View(timeout=120)
@@ -4930,13 +5209,12 @@ class DashboardView(discord.ui.View):
             def __init__(self):
                 super().__init__(placeholder="Select recipient", min_values=1, max_values=1)
             async def callback(self, sel_int: discord.Interaction):
-                await sel_int.response.defer(ephemeral=True)
                 target = self.values[0]
                 if target.bot:
-                    return await sel_int.followup.send("Cannot gift to a bot.", ephemeral=True)
+                    return await sel_int.response.send_message("不能给机器人送礼 / Cannot gift to a bot.", ephemeral=True)
                 if target.id == sel_int.user.id:
-                    return await sel_int.followup.send("Cannot gift to yourself.", ephemeral=True)
-                await sel_int.followup.send_modal(GiftAmountModal(target))
+                    return await sel_int.response.send_message("不能给自己送礼 / Cannot gift to yourself.", ephemeral=True)
+                await sel_int.response.send_modal(GiftAmountModal(target))
 
         view = discord.ui.View(timeout=60)
         view.add_item(GiftUserSelect())
@@ -5270,7 +5548,7 @@ class DashboardView(discord.ui.View):
             name = row["username"] if row["username"] else uid
 
             cur.execute(
-                "SELECT summoner_name, tag_line, region, tier, tier_rank, lp "
+                "SELECT summoner_name, tag_line, region "
                 "FROM player_riot WHERE discord_id=?",
                 (uid,),
             )
@@ -5278,15 +5556,11 @@ class DashboardView(discord.ui.View):
 
             if not riot:
                 lines.append(f"{i}. {name} — Not linked / 未关联")
-            elif riot["tier"]:
-                lines.append(
-                    f"{i}. {name} — {riot['tier']} {riot['tier_rank']} "
-                    f"({riot['lp']}LP)"
-                )
             else:
+                region_label = riot["region"].upper()
                 lines.append(
-                    f"{i}. {name} ({riot['summoner_name']}#{riot['tag_line']}) "
-                    f"— No rank data / 无段位数据"
+                    f"{i}. {name} — {riot['summoner_name']}#{riot['tag_line']} "
+                    f"({region_label})"
                 )
 
         conn.close()
@@ -5609,61 +5883,76 @@ class Dashboard(commands.Cog):
     @app_commands.autocomplete(match_id=match_id_autocomplete)
     async def gmpt_recover(self, interaction: discord.Interaction, match_id: int):
         await interaction.response.defer(ephemeral=True)
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT * FROM tournaments WHERE id=?", (match_id,))
-        t = cur.fetchone()
-        if not t:
+        try:
+            conn = get_db(); cur = conn.cursor()
+            cur.execute("SELECT * FROM tournaments WHERE id=?", (match_id,))
+            t = cur.fetchone()
+            if not t:
+                conn.close()
+                return await interaction.followup.send(f"未找到比赛 #{match_id} / Match not found.")
             conn.close()
-            return await interaction.followup.send(f"未找到比赛 #{match_id} / Match not found.")
-        conn.close()
 
-        mp = t["max_teams"] * t["team_size"]
-        embed = discord.Embed(
-            title=f"Match: {t['name']}",
-            description=f"**{mp}** 人 / Players | 每队 / Per Team: {t['team_size']}\nClick below to sign up / 点击下方按钮报名",
-            color=discord.Color.blue(),
-        ).set_footer(text=f"Match ID: {match_id}")
-        view = MatchView()
-        msg = await interaction.channel.send(embed=embed, view=view)
-        save_match_view_state(match_id, msg.id, interaction.channel_id)
+            mp = t["max_teams"] * t["team_size"]
+            embed = discord.Embed(
+                title=f"Match: {t['name']}",
+                description=f"**{mp}** 人 / Players | 每队 / Per Team: {t['team_size']}\nClick below to sign up / 点击下方按钮报名",
+                color=discord.Color.blue(),
+            ).set_footer(text=f"Match ID: {match_id}")
+            view = MatchView()
+            try:
+                msg = await interaction.channel.send(embed=embed, view=view)
+            except Exception as e:
+                logger.error(f"[gmpt_recover] channel.send (match panel) error: {e}")
+                return await interaction.followup.send("发送比赛面板失败，请检查频道权限。", ephemeral=True)
+            save_match_view_state(match_id, msg.id, interaction.channel_id)
 
-        conn2 = get_db(); cur2 = conn2.cursor()
-        cur2.execute(
-            "SELECT discord_id FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0) ORDER BY id ASC",
-            (match_id,),
-        )
-        main_players = [r["discord_id"] for r in cur2.fetchall()]
-        cur2.execute(
-            "SELECT discord_id FROM registrations WHERE tournament_id=? AND is_sub=1 ORDER BY id ASC",
-            (match_id,),
-        )
-        sub_players = [r["discord_id"] for r in cur2.fetchall()]
-        conn2.close()
+            conn2 = get_db(); cur2 = conn2.cursor()
+            cur2.execute(
+                "SELECT discord_id FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0) ORDER BY id ASC",
+                (match_id,),
+            )
+            main_players = [r["discord_id"] for r in cur2.fetchall()]
+            cur2.execute(
+                "SELECT discord_id FROM registrations WHERE tournament_id=? AND is_sub=1 ORDER BY id ASC",
+                (match_id,),
+            )
+            sub_players = [r["discord_id"] for r in cur2.fetchall()]
+            conn2.close()
 
-        lines = []
-        for i, uid in enumerate(main_players, 1):
-            name = resolve_name(interaction.guild, uid)
-            lines.append(f"{i}. {name}")
-        desc = "\n".join(lines) if lines else "暂无玩家 / No signups yet"
-        title = f"已报名玩家 / Signed Up ({len(main_players)}/{mp})"
-        if sub_players:
-            title += f" +{len(sub_players)}替补"
+            lines = []
+            for i, uid in enumerate(main_players, 1):
+                name = resolve_name(interaction.guild, uid)
+                lines.append(f"{i}. {name}")
+            desc = "\n".join(lines) if lines else "暂无玩家 / No signups yet"
+            title = f"已报名玩家 / Signed Up ({len(main_players)}/{mp})"
+            if sub_players:
+                title += f" +{len(sub_players)}替补"
 
-        list_embed = discord.Embed(
-            title=title,
-            description=desc,
-            color=discord.Color.green(),
-        )
-        list_msg = await interaction.channel.send(embed=list_embed)
-        set_player_list_msg(match_id, list_msg.id)
-        conn3 = get_db(); cur3 = conn3.cursor()
-        cur3.execute(
-            "UPDATE match_view_state SET player_list_msg_id=? WHERE message_id=?",
-            (str(list_msg.id), str(msg.id)),
-        )
-        conn3.commit(); conn3.close()
+            list_embed = discord.Embed(
+                title=title,
+                description=desc,
+                color=discord.Color.green(),
+            )
+            try:
+                list_msg = await interaction.channel.send(embed=list_embed)
+            except Exception as e:
+                logger.error(f"[gmpt_recover] channel.send (player list) error: {e}")
+                return await interaction.followup.send("发送玩家列表失败，请检查频道权限。", ephemeral=True)
+            set_player_list_msg(match_id, list_msg.id)
+            conn3 = get_db(); cur3 = conn3.cursor()
+            cur3.execute(
+                "UPDATE match_view_state SET player_list_msg_id=? WHERE message_id=?",
+                (str(list_msg.id), str(msg.id)),
+            )
+            conn3.commit(); conn3.close()
 
-        await interaction.followup.send(f"已恢复比赛面板 #{match_id} / Panel recovered.", ephemeral=True)
+            await interaction.followup.send(f"已恢复比赛面板 #{match_id} / Panel recovered.", ephemeral=True)
+        except Exception as e:
+            logger.error(f"[gmpt_recover] unexpected error: {e}", exc_info=True)
+            try:
+                await interaction.followup.send(f"恢复失败 / Recovery failed: {e}", ephemeral=True)
+            except Exception:
+                pass
 
 
 async def setup(bot):
