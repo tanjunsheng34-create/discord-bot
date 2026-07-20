@@ -490,6 +490,16 @@ def init_db():
             key             TEXT PRIMARY KEY,
             value           TEXT NOT NULL
         );
+
+        -- === 排队系统 / Queue System ===
+        CREATE TABLE IF NOT EXISTS queue (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            discord_id      TEXT NOT NULL,
+            match_type      TEXT DEFAULT 'normal',
+            role            TEXT DEFAULT 'any',
+            status          TEXT DEFAULT 'waiting',
+            joined_at       TEXT DEFAULT (datetime('now'))
+        );
     """)
 
     # ── 性能索引 / Performance Indexes ──
@@ -499,6 +509,7 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS idx_giveaway_entries_giveaway ON giveaway_entries(giveaway_id)",
         "CREATE INDEX IF NOT EXISTS idx_transactions_discord_id ON transactions(discord_id)",
         "CREATE INDEX IF NOT EXISTS idx_match_signups_match ON match_signups(match_id)",
+        "CREATE INDEX IF NOT EXISTS idx_queue_status ON queue(status)",
     ]:
         try:
             cursor.execute(idx_sql)

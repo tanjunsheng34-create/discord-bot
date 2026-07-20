@@ -174,6 +174,25 @@ class CreateRoleMatchModal(discord.ui.Modal, title="创建选路比赛 / Create 
                 pass
 
 
+class SelectModeView(discord.ui.View):
+    """创建比赛模式选择 — 有分路(选路) / 无分路(盲选)"""
+
+    def __init__(self, guild, session):
+        super().__init__(timeout=60)
+        self.guild = guild
+        self.session = session
+
+    @discord.ui.button(label="🎯 有分路\nWith Roles", style=discord.ButtonStyle.primary, row=0)
+    async def role_match(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = CreateRoleMatchModal(self.guild, self.session)
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(label="🎯 无分路\nBlind Pick", style=discord.ButtonStyle.secondary, row=0)
+    async def blind_match(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = CreateMatchModal(self.guild, self.session)
+        await interaction.response.send_modal(modal)
+
+
 class LaneSelectView(discord.ui.View):
     """选路比赛报名时的路线选择下拉菜单 / Lane selection dropdown for role-pick match signup."""
 
@@ -3591,6 +3610,7 @@ class DashboardView(discord.ui.View):
                 ("📊 上报比分\nReport", "report_score"),
                 ("📈 赛事排名\nStandings", "tournament_standings"),
                 ("🗺️ 对阵表\nBracket", "tournament_bracket"),
+                ("📋 赛事记录\nHistory", "tournament_history"),
             ]
             # Pad to 8 slots for consistent grid
             while len(btns) < 8:
@@ -3602,6 +3622,8 @@ class DashboardView(discord.ui.View):
                 ("📅 每周挑战\nWeekly", "weekly"),
                 ("📅 排位赛季\nSeason", "season"),
                 ("💎 MVP排行榜\nMVP LB", "mvp_lb"),
+                ("📊 数据总览\nStats", "stats"),
+                ("🎖️ 段位列表\nRanks", "ranks"),
             ]
             while len(btns) < 8:
                 btns.append(None)
@@ -3614,6 +3636,7 @@ class DashboardView(discord.ui.View):
                 ("📊 交易记录\nTransactions", "transactions"),
                 ("🏅 成就列表\nAchievements", "achievements"),
                 ("🎟️ 抽奖\nGiveaway", "giveaway"),
+                ("🗓️ 每日奖励\nDaily", "daily"),
             ]
             while len(btns) < 8:
                 btns.append(None)
@@ -3623,6 +3646,8 @@ class DashboardView(discord.ui.View):
                 ("🔊 排队状态\nQueue Status", "queue_status"),
                 ("📊 全部玩家\nAll Players", "all_players"),
                 ("🔒 管理面板\nAdmin", "admin"),
+                ("🏅 MMR排行\nMMR LB", "mmr_lb"),
+                ("📢 发送公告\nAnnounce", "announce"),
             ]
             while len(btns) < 8:
                 btns.append(None)
@@ -3701,7 +3726,7 @@ class DashboardView(discord.ui.View):
         elif self.page == 3:
             desc = "👤 **Player / 玩家** — 资料、历史、挑战、排行\ne.g. 赛季、Profile、History、MVP"
         elif self.page == 4:
-            desc = "🛒 **Economy / 经济** — 商店、背包、金币、抽奖\ne.g. Shop、Balance、Achievements"
+            desc = "🛒 **Economy / 经济** — 商店、背包、金币、抽奖、每日\ne.g. Shop、Balance、Achievements、Daily"
         elif self.page == 5:
             desc = "🎧 **Tools / 工具** — 语音排行、排队、管理\ne.g. Voice LB、Queue、Admin"
 
@@ -3714,8 +3739,14 @@ class DashboardView(discord.ui.View):
     # ═══════════════════ Page 1 — Match ═══════════════════
 
     async def _create_match(self, interaction: discord.Interaction):
-        modal = CreateMatchModal(self.guild, self.session)
-        await interaction.response.send_modal(modal)
+        view = SelectModeView(self.guild, self.session)
+        await interaction.response.send_message(
+            "**Select Match Mode / 选择比赛模式**\n"
+            "🎯 **有分路 With Roles** — 报名时需选择 Top/JG/Mid/ADC/Support\n"
+            "🎯 **无分路 Blind Pick** — 自由报名，不分路线",
+            view=view,
+            ephemeral=True,
+        )
 
     async def _signup(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -4629,9 +4660,12 @@ class DashboardView(discord.ui.View):
 
         cur.execute("SELECT COUNT(*) as cnt FROM tournament_players WHERE discord_id=?", (uid,))
         total_matches = cur.fetchone()["cnt"]
-        cur.execute("SELECT COUNT(*) as cnt FROM tournament_players WHERE discord_id=? AND team_result='win'", (uid,))
-        wins = cur.fetchone()["cnt"]
-        win_rate = f"{wins / total_matches * 100:.1f}%" if total_matches > 0 else "N/A"
+        cur.execute("SELECT COALESCE(SUM(wins), 0) as wins, COALESCE(SUM(losses), 0) as losses FROM tournament_players WHERE discord_id=?", (uid,))
+        wr = cur.fetchone()
+        wins = wr["wins"]
+        losses = wr["losses"]
+        total_played = wins + losses
+        win_rate = f"{wins / total_played * 100:.1f}%" if total_played > 0 else "N/A"
 
         cur.execute("SELECT COUNT(*) as cnt FROM user_achievements WHERE user_id=?", (uid,))
         ach_ct = cur.fetchone()["cnt"]
@@ -4660,8 +4694,9 @@ class DashboardView(discord.ui.View):
         uid = str(interaction.user.id)
         conn = get_db(); cur = conn.cursor()
         cur.execute("""
-            SELECT tp.tournament_id, t.name as match_name, t.created_at,
-                   tp.team_result, r.team_id, rt.name as team_name
+            SELECT tp.tournament_id, tp.wins, tp.losses, tp.draws,
+                   t.name as match_name, t.created_at,
+                   r.team_id, rt.name as team_name
             FROM tournament_players tp
             JOIN tournaments t ON t.id = tp.tournament_id
             LEFT JOIN registrations r ON r.tournament_id = tp.tournament_id AND r.discord_id = tp.discord_id
@@ -4681,8 +4716,18 @@ class DashboardView(discord.ui.View):
         )
         for r in rows:
             date_str = r["created_at"][:10] if r["created_at"] else "N/A"
-            result = r["team_result"] or "?"
-            icon = "🟢" if result == "win" else ("🔴" if result == "loss" else "⚪")
+            w = r["wins"] or 0
+            l = r["losses"] or 0
+            d = r["draws"] or 0
+            if w > l:
+                result = "win"
+                icon = "🟢"
+            elif l > w:
+                result = "loss"
+                icon = "🔴"
+            else:
+                result = "draw"
+                icon = "⚪"
             embed.add_field(
                 name=f"#{r['tournament_id']} — {r['match_name']}",
                 value=f"{date_str} | {icon} {result.upper()} | {r['team_name'] or 'N/A'}",
@@ -4958,6 +5003,67 @@ class DashboardView(discord.ui.View):
             embed.set_footer(text=f"Showing first 20 of {total_ct}. Use /gmpt-achievements for full list.")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
+    async def _daily(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        uid = str(interaction.user.id)
+        conn = get_db(); cur = conn.cursor()
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        # Get daily config
+        cur.execute("SELECT value FROM daily_config WHERE key='minutes'")
+        min_row = cur.fetchone()
+        target_minutes = int(min_row["value"]) if min_row else 30
+        cur.execute("SELECT value FROM daily_config WHERE key='reward'")
+        rew_row = cur.fetchone()
+        base_reward = int(rew_row["value"]) if rew_row else 50
+
+        # Get today's voice minutes
+        cur.execute("SELECT voice_minutes, claimed, reward_amount FROM daily_rewards WHERE discord_id=? AND date=?", (uid, today))
+        dr = cur.fetchone()
+        voice_mins = dr["voice_minutes"] if dr else 0
+        claimed = dr["claimed"] if dr else 0
+        reward_amount = dr["reward_amount"] if dr else 0
+
+        # Calculate streak
+        cur.execute("SELECT streak FROM daily_checkin WHERE discord_id=?", (uid,))
+        streak_row = cur.fetchone()
+        streak = streak_row["streak"] if streak_row else 0
+
+        # Calculate milestone bonus
+        milestone_bonus = 0
+        for days, bonus in [(7, 200), (14, 350), (21, 500), (30, 1000), (60, 2000), (100, 5000)]:
+            if streak > 0 and streak % days == 0:
+                milestone_bonus = bonus
+                break
+
+        progress_pct = min(100, int(voice_mins / target_minutes * 100)) if target_minutes > 0 else 100
+        bar = "█" * (progress_pct // 10) + "░" * (10 - progress_pct // 10)
+
+        if claimed:
+            status_line = f"✅ Claimed / 已领取 — +{reward_amount} coins\n"
+        elif voice_mins >= target_minutes:
+            status_line = f"🎁 Ready to claim / 可领取 — {base_reward} coins\n"
+        else:
+            status_line = f"⏳ Not yet / 未达标 — need {target_minutes} mins\n"
+
+        embed = discord.Embed(
+            title="🗓️ Daily Reward / 每日奖励",
+            color=discord.Color.gold(),
+        )
+        embed.add_field(
+            name=f"Voice Progress / 语音进度 [{progress_pct}%]",
+            value=f"{bar}\n{voice_mins} / {target_minutes} minutes",
+            inline=False,
+        )
+        embed.add_field(name="Status / 状态", value=status_line, inline=False)
+        embed.add_field(name="Base Reward / 基础奖励", value=f"{base_reward} coins", inline=True)
+        embed.add_field(name="Streak / 连胜", value=f"{streak} days", inline=True)
+        if milestone_bonus > 0:
+            embed.add_field(name="Milestone Bonus / 里程碑奖励", value=f"+{milestone_bonus} coins", inline=True)
+        embed.set_footer(text="Use /gmpt-daily claim to claim | 使用 /gmpt-daily claim 领取")
+        conn.close()
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
     async def _giveaway(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         uid = str(interaction.user.id)
@@ -5054,6 +5160,183 @@ class DashboardView(discord.ui.View):
             "`/gmpt-season-start` — Start season / 开启赛季\n"
             "`/gmpt-season-end` — End season / 结束赛季\n"
             "`/gmpt-mmr-reset` — Reset MMR / 重置MMR",
+            ephemeral=True,
+        )
+
+    # ═══════════════════ Page 2 — Tournament History ═══════════════════
+
+    async def _tournament_history(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT id, name, status, max_teams, team_size, created_at "
+            "FROM tournaments WHERE status='finished' ORDER BY created_at DESC LIMIT 10"
+        )
+        rows = cur.fetchall(); conn.close()
+
+        if not rows:
+            return await interaction.followup.send(
+                "No finished tournaments yet. / 暂无已完成的赛事。", ephemeral=True
+            )
+
+        embed = discord.Embed(
+            title="Tournament History / 赛事记录",
+            color=discord.Color.blue(),
+        )
+        for r in rows:
+            created = r["created_at"][:10] if r["created_at"] else "N/A"
+            embed.add_field(
+                name=f"#{r['id']} — {r['name']}",
+                value=f"{r['team_size']}v{r['team_size']} | {r['max_teams']} teams | {created}",
+                inline=False,
+            )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # ═══════════════════ Page 3 — Stats ═══════════════════
+
+    async def _stats(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        uid = str(interaction.user.id)
+        conn = get_db(); cur = conn.cursor()
+
+        # MMR + coins
+        cur.execute("SELECT score, mmr FROM users WHERE discord_id=?", (uid,))
+        ur = cur.fetchone()
+        mmr = ur["mmr"] if (ur and ur["mmr"]) else 1000
+        coins = ur["score"] if ur else 0
+
+        # Tournament stats
+        cur.execute(
+            "SELECT COALESCE(SUM(wins),0), COALESCE(SUM(losses),0), COALESCE(SUM(draws),0), "
+            "COALESCE(SUM(points),0), COUNT(*) "
+            "FROM tournament_players WHERE discord_id=?",
+            (uid,),
+        )
+        tr = cur.fetchone()
+        tw, tl, td, tp, tm = tr[0], tr[1], tr[2], tr[3], tr[4]
+
+        # Season rank
+        cur.execute(
+            "SELECT rank FROM season_standings WHERE discord_id=? ORDER BY id DESC LIMIT 1",
+            (uid,),
+        )
+        sr = cur.fetchone()
+        season_rank = sr["rank"] if sr else "Unranked"
+
+        # Achievements
+        cur.execute("SELECT COUNT(*) FROM user_achievements WHERE user_id=?", (uid,))
+        ach_ct = cur.fetchone()[0]
+        conn.close()
+
+        total_played = tw + tl + td
+        win_rate = f"{tw / total_played * 100:.1f}%" if total_played > 0 else "N/A"
+
+        embed = discord.Embed(
+            title=f"Stats / 数据总览 — {interaction.user.display_name}",
+            color=discord.Color.blue(),
+        )
+        embed.add_field(name="🎯 MMR", value=str(mmr), inline=True)
+        embed.add_field(name="🪙 Coins / 金币", value=str(coins), inline=True)
+        embed.add_field(name="🎖️ Season Rank / 赛季段位", value=season_rank, inline=True)
+        embed.add_field(name="🎮 Matches / 总场次", value=str(tm), inline=True)
+        embed.add_field(name="✅ Wins / 胜", value=str(tw), inline=True)
+        embed.add_field(name="❌ Losses / 负", value=str(tl), inline=True)
+        embed.add_field(name="🤝 Draws / 平", value=str(td), inline=True)
+        embed.add_field(name="📊 Win Rate / 胜率", value=win_rate, inline=True)
+        embed.add_field(name="⭐ Achievements / 成就", value=str(ach_ct), inline=True)
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    async def _ranks(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT DISTINCT r.discord_id, u.username "
+            "FROM registrations r LEFT JOIN users u ON u.discord_id = r.discord_id "
+            "ORDER BY u.username"
+        )
+        rows = cur.fetchall()
+
+        if not rows:
+            conn.close()
+            return await interaction.followup.send(
+                "No registered players. / 暂无已报名玩家。", ephemeral=True
+            )
+
+        lines = []
+        for i, row in enumerate(rows, 1):
+            uid = row["discord_id"]
+            name = row["username"] if row["username"] else uid
+
+            cur.execute(
+                "SELECT summoner_name, tag_line, region, tier, tier_rank, lp "
+                "FROM player_riot WHERE discord_id=?",
+                (uid,),
+            )
+            riot = cur.fetchone()
+
+            if not riot:
+                lines.append(f"{i}. {name} — Not linked / 未关联")
+            elif riot["tier"]:
+                lines.append(
+                    f"{i}. {name} — {riot['tier']} {riot['tier_rank']} "
+                    f"({riot['lp']}LP)"
+                )
+            else:
+                lines.append(
+                    f"{i}. {name} ({riot['summoner_name']}#{riot['tag_line']}) "
+                    f"— No rank data / 无段位数据"
+                )
+
+        conn.close()
+
+        embed = discord.Embed(
+            title="Player Ranks / 段位列表",
+            description="\n".join(lines),
+            color=discord.Color.purple(),
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # ═══════════════════ Page 5 — MMR LB + Announce ═══════════════════
+
+    async def _mmr_lb(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT discord_id, username, mmr FROM users "
+            "WHERE mmr IS NOT NULL ORDER BY mmr DESC LIMIT 10"
+        )
+        rows = cur.fetchall(); conn.close()
+
+        if not rows:
+            return await interaction.followup.send("No MMR data yet. / 暂无MMR数据。", ephemeral=True)
+
+        embed = discord.Embed(
+            title="MMR Leaderboard / MMR 排行榜",
+            color=discord.Color.gold(),
+        )
+        lines = []
+        for i, r in enumerate(rows, 1):
+            name = r["username"] or r["discord_id"]
+            mmr = r["mmr"] or 1000
+            lines.append(f"{i}. **{name}** — {mmr} MMR")
+        embed.description = "\n".join(lines)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    async def _announce(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        if not interaction.user.guild_permissions.manage_messages:
+            return await interaction.followup.send(
+                "You need **Manage Messages** permission. / 需要 **管理消息** 权限。",
+                ephemeral=True,
+            )
+        await interaction.followup.send(
+            "📢 **Announce / 发送公告**\n"
+            "Use `/announce` command to send a styled announcement.\n"
+            "使用 `/announce` 命令发送公告。\n\n"
+            "**Usage / 用法:**\n"
+            "`/announce title:标题 content:内容 [channel:目标频道]`",
             ephemeral=True,
         )
 

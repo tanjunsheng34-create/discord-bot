@@ -1008,10 +1008,10 @@ class Economy(commands.Cog):
         streak = sr["streak"] if sr else 0
 
         # 比赛场数 + 胜场 (tournament_players 表)
-        cur.execute("SELECT COUNT(*) as cnt FROM tournament_players WHERE discord_id=?", (uid,))
-        total_matches = cur.fetchone()["cnt"]
-        cur.execute("SELECT COUNT(*) as cnt FROM tournament_players WHERE discord_id=? AND team_result='win'", (uid,))
-        wins = cur.fetchone()["cnt"]
+        cur.execute("SELECT COALESCE(SUM(wins),0) as wins, COALESCE(SUM(losses),0) as losses FROM tournament_players WHERE discord_id=?", (uid,))
+        row = cur.fetchone()
+        total_matches = row["wins"] + row["losses"]
+        wins = row["wins"]
         win_rate = f"{wins / total_matches * 100:.1f}%" if total_matches > 0 else "N/A"
 
         # 成就数
@@ -1743,7 +1743,7 @@ class Economy(commands.Cog):
 
         cur.execute("""
             SELECT tp.tournament_id, t.name as match_name, t.created_at,
-                   tp.team_result, r.team_id, rt.name as team_name
+                   tp.wins, tp.losses, tp.draws, r.team_id, rt.name as team_name
             FROM tournament_players tp
             JOIN tournaments t ON t.id = tp.tournament_id
             LEFT JOIN registrations r ON r.tournament_id = tp.tournament_id AND r.discord_id = tp.discord_id
@@ -1767,11 +1767,17 @@ class Economy(commands.Cog):
         )
         for r in rows:
             date_str = r["created_at"][:10] if r["created_at"] else "N/A"
-            result = r["team_result"] or "?"
-            icon = "🟢" if result == "win" else ("🔴" if result == "loss" else "⚪")
+            w, l = r["wins"] or 0, r["losses"] or 0
+            if w > l:
+                result, icon = "WIN", "🟢"
+            elif l > w:
+                result, icon = "LOSS", "🔴"
+            else:
+                d = r["draws"] or 0
+                result, icon = ("DRAW", "⚪") if d > 0 else ("N/A", "⚪")
             embed.add_field(
                 name=f"#{r['tournament_id']} — {r['match_name']}",
-                value=f"{date_str} | {icon} {result.upper()} | {r['team_name'] or 'N/A'}",
+                value=f"{date_str} | {icon} {result} | {r['team_name'] or 'N/A'}",
                 inline=False,
             )
         embed.set_footer(text=f"Page {page}")
@@ -1921,6 +1927,8 @@ class Economy(commands.Cog):
                     "INSERT INTO weekly_challenges (week_start, title, description, reward, target, task_type) VALUES (?,?,?,?,?,?)",
                     (week_start, ch["title"], ch["desc"], ch["reward"], ch["target"], ch["task_type"]),
                 )
+        else:
+            week_start = latest["week_start"]
 
         # 查询本周挑战 + 用户进度
         cur.execute("""
@@ -2029,24 +2037,6 @@ def settle_bets(match_id: int, winning_team_id: int) -> list:
                 "INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
                 (b["discord_id"], payout, f"下注获胜 #{match_id} — 2x 返还"),
             )
-
-    # Check for vote bets (旧版下注系统)
-    try:
-        cur.execute(
-            "SELECT id, discord_id, amount FROM vote_bets WHERE match_id=? AND settled=0",
-            (match_id,),
-        )
-        vote_bets = cur.fetchall()
-    except Exception:
-        vote_bets = []
-
-    for vb in vote_bets:
-        try:
-            cur.execute("UPDATE vote_bets SET settled=1, won=1 WHERE id=?", (vb["id"],))
-        except Exception as e:
-            log_error("economy", "settle_bets", e)
-        settled += 1
-        won += 1
 
     conn.commit(); conn.close()
 
