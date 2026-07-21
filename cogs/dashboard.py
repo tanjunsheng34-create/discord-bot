@@ -3,7 +3,7 @@ GMPT Bot — Dashboard / 统一控制面板
 """
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 from database import get_db, db_context
 from cogs.match_autocomplete import match_id_autocomplete
 from utils.helpers import resolve_name
@@ -6281,7 +6281,7 @@ class Dashboard(commands.Cog):
             self._scheduled_loop_started = True
             self.scheduled_event_loop.start()
 
-    @discord.ext.tasks.loop(minutes=1)
+    @tasks.loop(minutes=1)
     async def scheduled_event_loop(self):
         """每分钟检查一次 cron 表达式，触发到期的定时赛事。"""
         try:
