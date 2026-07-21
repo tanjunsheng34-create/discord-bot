@@ -581,7 +581,7 @@ class GMPT(commands.Cog):
                 description=(
                     f"🔵 **蓝队 Blue** (ID:{aid}): {' '.join(f'<@{u}>' for u in ta)}\n"
                     f"🔴 **红队 Red** (ID:{bid}): {' '.join(f'<@{u}>' for u in tb)}\n\n"
-                    f"结算: `/gmpt-settle {match_id} <获胜队伍ID>`"
+                    f"结算: `/gmpt-lol-settle {match_id} <获胜队伍ID>`"
                 ),
                 color=discord.Color.gold(),
             )
@@ -592,12 +592,12 @@ class GMPT(commands.Cog):
                 f"**Match: {t['name']}**\n\n"
                 f"🔵 **蓝队 Blue** (ID:{aid}): {' '.join(f'<@{u}>' for u in ta)}\n"
                 f"🔴 **红队 Red** (ID:{bid}): {' '.join(f'<@{u}>' for u in tb)}\n\n"
-                f"结算: `/gmpt-settle {match_id} <获胜队伍ID>`"
+                f"结算: `/gmpt-lol-settle {match_id} <获胜队伍ID>`"
             )
 
     # ============ 结算 ============
     @app_commands.command(
-        name="gmpt-settle",
+        name="gmpt-lol-settle",
         description="Settle match / 结算积分",
     )
     @app_commands.describe(match_id="Match ID", win_team_id="Winning team ID", mvp="MVP")
@@ -1457,7 +1457,7 @@ class CustomTeamView(discord.ui.View):
             )
 
         settle_hint = (
-            f"结算: `/gmpt-settle {self.match_id} <获胜队伍ID>`"
+            f"结算: `/gmpt-lol-settle {self.match_id} <获胜队伍ID>`"
         )
         embed.set_footer(text=f"Match ID: {self.match_id} | {settle_hint}")
 

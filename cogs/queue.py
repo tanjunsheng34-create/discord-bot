@@ -211,7 +211,7 @@ class QueueCog(commands.Cog):
                 f"   Avg MMR: **{avg_a:.0f}**\n"
                 f"🔴 **红队 Red** (ID:{bid}): {b_mentions}\n"
                 f"   Avg MMR: **{avg_b:.0f}**\n\n"
-                f"结算: `/gmpt-settle {match_id} <获胜队伍ID>`"
+                f"结算: `/gmpt-lol-settle {match_id} <获胜队伍ID>`"
             ),
             color=discord.Color.gold(),
         ).set_footer(text=f"Match ID: {match_id}")

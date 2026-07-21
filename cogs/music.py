@@ -3,7 +3,7 @@ GMPT Bot — 音乐播放 / KTV 点歌队列
 /gmpt-play <song>    — 播放歌曲 / 加入队列
 /gmpt-skip           — 跳过当前歌曲
 /gmpt-stop           — 停止播放并清空队列
-/gmpt-queue          — 查看播放队列
+/gmpt-music-queue          — 查看播放队列
 /gmpt-np             — 查看当前播放
 /gmpt-pause          — 暂停
 /gmpt-resume         — 继续播放
@@ -233,7 +233,7 @@ class Music(commands.Cog):
 
         await interaction.response.send_message("已停止播放并清空队列 | Stopped and cleared the queue")
 
-    @app_commands.command(name="gmpt-queue", description="Show song queue")
+    @app_commands.command(name="gmpt-music-queue", description="Show song queue")
     async def queue(self, interaction: discord.Interaction):
         embed = discord.Embed(title="播放队列 | Play Queue", color=0x1DB954)
 

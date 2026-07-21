@@ -505,7 +505,7 @@ class TeamAssignView(discord.ui.View):
         embed.description = (
             f"🔵 **A 队 Team A** (ID:{aid}): {' '.join(a_mentions)}\n"
             f"🔴 **B 队 Team B** (ID:{bid}): {' '.join(b_mentions)}\n\n"
-            f"Settle: `/gmpt-settle {self.match_id} <win_team_id>`"
+            f"Settle: `/gmpt-lol-settle {self.match_id} <win_team_id>`"
         )
         embed.color = discord.Color.green()
         await interaction.edit_original_response(embed=embed, view=self)
@@ -929,7 +929,7 @@ class ReShuffleView(discord.ui.View):
                 f"🔵 **A 队 Team A** (ID:{aid}): {' '.join(a_mentions)}\n"
                 f"🔴 **B 队 Team B** (ID:{bid}): {' '.join(b_mentions)}\n\n"
                 f"Match ID: {new_mid}\n"
-                f"Settle: `/gmpt-settle {new_mid} <win_team_id>`"
+                f"Settle: `/gmpt-lol-settle {new_mid} <win_team_id>`"
             ),
             color=discord.Color.gold(),
         )
@@ -1969,7 +1969,7 @@ class ManualTeamView(discord.ui.View):
             f"🔵 **A 队 Team A** (ID:{aid}): {' '.join(a_mentions)}\n"
             f"🔴 **B 队 Team B** (ID:{bid}): {' '.join(b_mentions)}\n\n"
             f"Match ID: {new_mid}\n"
-            f"Settle: `/gmpt-settle {new_mid} <win_team_id>`"
+            f"Settle: `/gmpt-lol-settle {new_mid} <win_team_id>`"
         )
         embed.color = discord.Color.green()
         await interaction.edit_original_response(embed=embed, view=self)
@@ -2192,7 +2192,7 @@ class CaptainDraftView(discord.ui.View):
                 f"🔵 **A 队 Team A** (ID:{aid}, 队长 <@{self.captain_a}>): {' '.join(a_mentions)}\n"
                 f"🔴 **B 队 Team B** (ID:{bid}, 队长 <@{self.captain_b}>): {' '.join(b_mentions)}\n\n"
                 f"Match ID: {new_mid}\n"
-                f"Settle: `/gmpt-settle {new_mid} <win_team_id>`"
+                f"Settle: `/gmpt-lol-settle {new_mid} <win_team_id>`"
             ),
             color=discord.Color.green(),
         )
@@ -2910,7 +2910,7 @@ class MatchViewWithID(discord.ui.View):
                 f"🔵 **A 队 Team A** (ID:{aid}): {' '.join(a_mentions)}\n"
                 f"🔴 **B 队 Team B** (ID:{bid}): {' '.join(b_mentions)}\n\n"
                 f"Match ID: {mid}\n"
-                f"Settle: `/gmpt-settle {mid} <win_team_id>`"
+                f"Settle: `/gmpt-lol-settle {mid} <win_team_id>`"
             ),
             color=discord.Color.gold(),
         )
@@ -4423,7 +4423,7 @@ class DashboardView(discord.ui.View):
                 description=(
                     f"🔵 **A 队 Team A** (ID:{aid}): {' '.join(a_mentions)}\n"
                     f"🔴 **B 队 Team B** (ID:{bid}): {' '.join(b_mentions)}\n\n"
-                    f"Settle: `/gmpt-settle {mid} <win_team_id>`"
+                    f"Settle: `/gmpt-lol-settle {mid} <win_team_id>`"
                 ),
                 color=discord.Color.gold(),
             )
