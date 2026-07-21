@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 from cogs.economy import get_balance, add_coins, MainMenuView
 import random
 import sqlite3
+import time as time_mod
 logger = logging.getLogger(__name__)
 
 class CreateMatchModal(discord.ui.Modal, title="创建比赛 / Create Match"):
@@ -1667,6 +1668,82 @@ class VoicePullView(discord.ui.View):
         await interaction.followup.send("全员拉入 Live Room 完成!", ephemeral=True)
 
 
+class KillReportView(discord.ui.View):
+    """赛后击杀上报按钮 — 选手可上报击杀/死亡事件用于回放。"""
+
+    def __init__(self, match_id, guild):
+        super().__init__(timeout=600)
+        self.match_id = match_id
+        self.guild = guild
+
+    async def _record_event(self, interaction: discord.Interaction, event_type: str, target_id: str = None):
+        uid = str(interaction.user.id)
+        conn = get_db()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO match_events (tournament_id, event_type, actor_id, target_id) VALUES (?, ?, ?, ?)",
+                (self.match_id, event_type, uid, target_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        label = {"kill": "击杀", "death": "阵亡", "assist": "助攻"}.get(event_type, event_type)
+        await interaction.response.send_message(
+            f"✅ {interaction.user.mention} 上报了 **{label}** 事件!", ephemeral=True
+        )
+
+    @discord.ui.button(label="⚔️ 我击杀了", style=discord.ButtonStyle.danger, row=0)
+    async def kill_btn(self, interaction: discord.Interaction, button):
+        # Show user select for target
+        conn = get_db()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT discord_id FROM registrations WHERE tournament_id=?",
+                (self.match_id,),
+            )
+            players = [r["discord_id"] for r in cur.fetchall()]
+        finally:
+            conn.close()
+
+        if not players:
+            return await interaction.response.send_message("没有参赛玩家 / No players found.", ephemeral=True)
+
+        options = []
+        for pid in players:
+            if pid == str(interaction.user.id):
+                continue
+            member = self.guild.get_member(int(pid))
+            name = member.display_name if member else pid
+            options.append(discord.SelectOption(label=name[:100], value=pid))
+
+        if not options:
+            return await interaction.response.send_message("没有可选目标 / No targets available.", ephemeral=True)
+
+        class KillTargetSelect(discord.ui.Select):
+            def __init__(self):
+                super().__init__(placeholder="选择被击杀的玩家 / Select kill target...", options=options[:25])
+
+            async def callback(self, sel_int: discord.Interaction):
+                target = self.values[0]
+                await self.view._record_event(sel_int, "kill", target)
+
+        view = discord.ui.View(timeout=60)
+        view.add_item(KillTargetSelect())
+        view._record_event = self._record_event
+        await interaction.response.send_message("选择击杀目标:", view=view, ephemeral=True)
+
+    @discord.ui.button(label="💀 我阵亡了", style=discord.ButtonStyle.secondary, row=0)
+    async def death_btn(self, interaction: discord.Interaction, button):
+        await self._record_event(interaction, "death")
+
+    @discord.ui.button(label="🤝 助攻", style=discord.ButtonStyle.primary, row=0)
+    async def assist_btn(self, interaction: discord.Interaction, button):
+        await self._record_event(interaction, "assist")
+
+
 class PostMatchPullView(discord.ui.View):
     """赛后统一拉入按钮 — 将 A/B 两队语音频道中所有人拉入赛后集合频道。"""
 
@@ -2735,7 +2812,16 @@ class MatchViewWithID(discord.ui.View):
                 )
 
             cur2.execute("DELETE FROM registrations WHERE tournament_id=? AND discord_id=?", (mid, uid))
-            conn2.commit(); conn2.close()
+            for attempt in range(3):
+                try:
+                    conn2.commit()
+                    break
+                except sqlite3.OperationalError as e:
+                    if "locked" in str(e).lower() and attempt < 2:
+                        time_mod.sleep(0.2 * (attempt + 1))
+                        continue
+                    raise
+            conn2.close()
             await sel_int.edit_original_response(
                 content=f"👢 已踢出 {member.mention} / Kicked.",
                 view=None,
@@ -2803,7 +2889,16 @@ class MatchViewWithID(discord.ui.View):
         bid = cur2.lastrowid
         for u in tb:
             cur2.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (bid, mid, u))
-        conn2.commit(); conn2.close()
+        for attempt in range(3):
+            try:
+                conn2.commit()
+                break
+            except sqlite3.OperationalError as e:
+                if "locked" in str(e).lower() and attempt < 2:
+                    time_mod.sleep(0.2 * (attempt + 1))
+                    continue
+                raise
+        conn2.close()
 
         match_name = t["name"]
 
@@ -3135,7 +3230,10 @@ async def _execute_settle(match_id, win_team_id, mvp_id, guild, match_name, bot=
     cur.execute("INSERT INTO results (tournament_id,team_id,rank,score_awarded) VALUES (?,?,1,?)", (match_id, win_team_id, MATCH_WIN_COINS))
 
     cur.execute("UPDATE tournaments SET status='finished' WHERE id=?", (match_id,))
-    conn.commit(); conn.close()
+    try:
+        conn.commit()
+    finally:
+        conn.close()
 
     # Achievement checks — batch query to avoid N+1
     all_participants = winner_ids + loser_ids
@@ -3896,6 +3994,7 @@ class DashboardView(discord.ui.View):
                 ("🎤 语音排行\nVoice LB", "voice_lb"),
                 ("🔊 排队状态\nQueue Status", "queue_status"),
                 ("📊 全部玩家\nAll Players", "all_players"),
+                ("📤 导出数据\nExport CSV", "export_data"),
                 ("🔒 管理面板\nAdmin", "admin"),
                 ("🏅 MMR排行\nMMR LB", "mmr_lb"),
                 ("📢 发送公告\nAnnounce", "announce"),
@@ -4042,7 +4141,10 @@ class DashboardView(discord.ui.View):
                     conn2.close()
                     return await sel_int.followup.send(f"Already signed up for #{mid}.", ephemeral=True)
                 cur2.execute("INSERT INTO match_signups (match_id, discord_id) VALUES (?,?)", (mid, suid))
-                conn2.commit(); conn2.close()
+                try:
+                    conn2.commit()
+                finally:
+                    conn2.close()
                 await sel_int.followup.send(f"Signed up for match **{mr['name']}** (#{mid})!", ephemeral=True)
 
         view = discord.ui.View(timeout=60)
@@ -4105,7 +4207,10 @@ class DashboardView(discord.ui.View):
             for u in tb:
                 cur2.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (bid, mid, u))
             cur2.execute("UPDATE tournaments SET status='closed' WHERE id=?", (mid,))
-            conn2.commit(); conn2.close()
+            try:
+                conn2.commit()
+            finally:
+                conn2.close()
 
             await VoteView.send_vote(match_id=mid, match_name=t["name"], channel=sel_int.channel)
 
@@ -4225,7 +4330,16 @@ class DashboardView(discord.ui.View):
 
             conn2 = get_db(); cur2 = conn2.cursor()
             cur2.execute("UPDATE tournaments SET status='closed' WHERE id=? AND status='open'", (mid,))
-            conn2.commit(); conn2.close()
+            try:
+                conn2.commit()
+                # Record match start event for replay
+                cur2.execute(
+                    "INSERT INTO match_events (tournament_id, event_type) VALUES (?, 'start')",
+                    (mid,),
+                )
+                conn2.commit()
+            finally:
+                conn2.close()
             await sel_int.edit_original_response(
                 content=f"比赛 / Match (ID: {mid}) 已开始! Started! 报名已关闭 / Signup closed.",
                 embed=None,
@@ -4406,6 +4520,16 @@ class DashboardView(discord.ui.View):
                             )
                         except Exception as e:
                             logger.error(f"[DashboardView] ReShuffleView send error: {e}")
+
+                        # ── 击杀上报按钮 ──
+                        try:
+                            kill_report_view = KillReportView(match_id=mid, guild=self.guild)
+                            await interaction.channel.send(
+                                content=f"⚔️ **{t['name']}** 比赛回放 — 点击下方按钮上报击杀/死亡事件:",
+                                view=kill_report_view,
+                            )
+                        except Exception as e:
+                            logger.error(f"[DashboardView] KillReportView send error: {e}")
 
                         # ── 赛后统一拉入按钮 ──
                         try:
@@ -4706,7 +4830,10 @@ class DashboardView(discord.ui.View):
                 "INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)",
                 (uid, sel_int.user.name),
             )
-            conn3.commit(); conn3.close()
+            try:
+                conn3.commit()
+            finally:
+                conn3.close()
 
             await sel_int.followup.send(
                 f"✅ {sel_int.user.mention} 报名成功! Signed up!\n"
@@ -5454,21 +5581,97 @@ class DashboardView(discord.ui.View):
 
     async def _all_players(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT DISTINCT r.discord_id, u.username, u.mmr FROM registrations r LEFT JOIN users u ON u.discord_id = r.discord_id ORDER BY u.mmr DESC LIMIT 20")
-        rows = cur.fetchall(); conn.close()
+        await self._show_players_page(interaction, page=0, search_term=None)
+
+    async def _show_players_page(self, interaction: discord.Interaction, page: int, search_term: str = None):
+        """分页展示玩家列表，每页 20 条。search_term 可选模糊搜索。"""
+        per_page = 20
+        conn = get_db()
+        try:
+            cur = conn.cursor()
+            if search_term:
+                like_term = f"%{search_term}%"
+                cur.execute(
+                    "SELECT COUNT(*) as cnt FROM registrations r "
+                    "LEFT JOIN users u ON u.discord_id = r.discord_id "
+                    "WHERE u.username LIKE ?",
+                    (like_term,),
+                )
+                total = cur.fetchone()["cnt"]
+                cur.execute(
+                    "SELECT DISTINCT r.discord_id, u.username, u.mmr FROM registrations r "
+                    "LEFT JOIN users u ON u.discord_id = r.discord_id "
+                    "WHERE u.username LIKE ? "
+                    "ORDER BY u.mmr DESC LIMIT ? OFFSET ?",
+                    (like_term, per_page, page * per_page),
+                )
+            else:
+                cur.execute("SELECT COUNT(DISTINCT r.discord_id) as cnt FROM registrations r")
+                total = cur.fetchone()["cnt"]
+                cur.execute(
+                    "SELECT DISTINCT r.discord_id, u.username, u.mmr FROM registrations r "
+                    "LEFT JOIN users u ON u.discord_id = r.discord_id "
+                    "ORDER BY u.mmr DESC LIMIT ? OFFSET ?",
+                    (per_page, page * per_page),
+                )
+            rows = cur.fetchall()
+        finally:
+            conn.close()
 
         if not rows:
-            return await interaction.followup.send("No registered players.", ephemeral=True)
+            return await interaction.followup.send("No registered players found.", ephemeral=True)
 
-        embed = discord.Embed(title="All Players", color=discord.Color.blue())
+        total_pages = max(1, (total + per_page - 1) // per_page)
+
+        embed = discord.Embed(
+            title=f"All Players{f' (search: {search_term})' if search_term else ''}",
+            color=discord.Color.blue(),
+        )
         lines = []
         for i, row in enumerate(rows, 1):
             name = row["username"] if row["username"] else row["discord_id"]
             mmr = row["mmr"] or 1000
-            lines.append(f"{i}. {name} - MMR {mmr}")
+            lines.append(f"{page * per_page + i}. {name} - MMR {mmr}")
         embed.description = "\n".join(lines)
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        embed.set_footer(text=f"Page {page+1}/{total_pages} | Total: {total} players")
+
+        dashboard_self = self  # 捕获外层 DashboardView 引用
+
+        class PlayerPagerView(discord.ui.View):
+            def __init__(self):
+                super().__init__(timeout=120)
+                if page <= 0:
+                    self.prev_btn.disabled = True
+                if page >= total_pages - 1:
+                    self.next_btn.disabled = True
+
+            @discord.ui.button(label="⬅️ 上一页", style=discord.ButtonStyle.secondary)
+            async def prev_btn(self, btn_int: discord.Interaction, button):
+                await btn_int.response.defer()
+                await dashboard_self._show_players_page(btn_int, page - 1, search_term)
+
+            @discord.ui.button(label="下一页 ➡️", style=discord.ButtonStyle.secondary)
+            async def next_btn(self, btn_int: discord.Interaction, button):
+                await btn_int.response.defer()
+                await dashboard_self._show_players_page(btn_int, page + 1, search_term)
+
+            @discord.ui.button(label="🔍 搜索", style=discord.ButtonStyle.primary)
+            async def search_btn(self, btn_int: discord.Interaction, button):
+                class SearchModal(discord.ui.Modal, title="搜索玩家 / Search Player"):
+                    keyword = discord.ui.TextInput(
+                        label="用户名关键词 / Username keyword",
+                        placeholder="输入用户名部分内容...",
+                        required=True,
+                        max_length=50,
+                    )
+                    async def on_submit(self, modal_int: discord.Interaction):
+                        await modal_int.response.defer()
+                        await dashboard_self._show_players_page(modal_int, 0, self.keyword.value.strip())
+
+                await btn_int.response.send_modal(SearchModal())
+
+        view = PlayerPagerView()
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     async def _admin(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -5661,12 +5864,67 @@ class DashboardView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
         if not interaction.user.guild_permissions.administrator:
             return await interaction.followup.send("管理员专用 / Admin only.", ephemeral=True)
-        await interaction.followup.send(
-            "📅 **定时赛事 / Scheduled Event**\n"
-            "该功能开发中，敬请期待。\n"
-            "Use `/gmpt-schedule` to create a scheduled tournament (coming soon).",
-            ephemeral=True,
-        )
+
+        class ScheduledEventModal(discord.ui.Modal, title="新建定时赛事 / New Scheduled Event"):
+            event_name = discord.ui.TextInput(
+                label="赛事名称 / Event Name",
+                placeholder="e.g. 周五晚内部赛",
+                required=True,
+                max_length=100,
+            )
+            cron_expr = discord.ui.TextInput(
+                label="Cron 表达式 / Cron Expression",
+                placeholder="e.g. 30 20 * * 5 (周五20:30)",
+                required=True,
+                max_length=32,
+            )
+            template_id = discord.ui.TextInput(
+                label="模板ID (可选) / Template ID (optional)",
+                placeholder="留空则使用默认设置",
+                required=False,
+                max_length=10,
+            )
+            channel_id = discord.ui.TextInput(
+                label="发布频道ID / Channel ID (可选)",
+                placeholder="留空则使用当前频道",
+                required=False,
+                max_length=20,
+            )
+
+            async def on_submit(self, modal_int: discord.Interaction):
+                await modal_int.response.defer(ephemeral=True)
+                name = self.event_name.value.strip()
+                cron = self.cron_expr.value.strip()
+                tpl = self.template_id.value.strip()
+                ch = self.channel_id.value.strip() or str(modal_int.channel_id)
+
+                # Basic cron validation: 5 fields
+                if len(cron.split()) != 5:
+                    return await modal_int.followup.send(
+                        "❌ Cron 表达式格式错误，需要 5 个字段 (分 时 日 月 周)。",
+                        ephemeral=True,
+                    )
+                tid = int(tpl) if tpl else None
+
+                conn = get_db()
+                try:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "INSERT INTO scheduled_events (event_name, cron_expr, template_id, channel_id, created_by) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (name, cron, tid, ch, str(modal_int.user.id)),
+                    )
+                    conn.commit()
+                finally:
+                    conn.close()
+
+                await modal_int.followup.send(
+                    f"✅ 定时赛事已创建 / Scheduled event created:\n"
+                    f"**名称**: {name}\n**Cron**: `{cron}`\n**频道**: <#{ch}>",
+                    ephemeral=True,
+                )
+
+        await interaction.followup.send_modal(ScheduledEventModal())
 
     # ── Page 3 补位: 连胜王 ──
     async def _win_streak(self, interaction: discord.Interaction):
@@ -5696,28 +5954,304 @@ class DashboardView(discord.ui.View):
         embed.description = "\n".join(lines)
         await interaction.followup.send(embed=embed, ephemeral=True)
 
+    # ── Page 5 补位: 数据导出 ──
+    async def _export_data(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.followup.send("管理员专用 / Admin only.", ephemeral=True)
+
+        class ExportModal(discord.ui.Modal, title="导出数据 / Export Data"):
+            export_type = discord.ui.TextInput(
+                label="导出类型 (players/matches/transactions)",
+                placeholder="players, matches, transactions (逗号分隔)",
+                required=True,
+                max_length=100,
+            )
+
+            async def on_submit(self, modal_int: discord.Interaction):
+                await modal_int.response.defer(ephemeral=True)
+                import csv as _csv
+                import os as _os
+                import io
+
+                types = [t.strip().lower() for t in self.export_type.value.split(",")]
+                valid = {"players", "matches", "transactions"}
+                selected = [t for t in types if t in valid]
+                if not selected:
+                    return await modal_int.followup.send(
+                        "无效类型。支持: players, matches, transactions", ephemeral=True
+                    )
+
+                temp_dir = _os.path.join(
+                    _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+                    "temp",
+                )
+                _os.makedirs(temp_dir, exist_ok=True)
+
+                files_sent = []
+                conn = get_db()
+                try:
+                    cur = conn.cursor()
+                    for etype in selected:
+                        if etype == "players":
+                            cur.execute(
+                                "SELECT u.discord_id, u.username, u.mmr, u.score, "
+                                "COUNT(r.id) as games "
+                                "FROM users u LEFT JOIN registrations r ON u.discord_id=r.discord_id "
+                                "GROUP BY u.discord_id ORDER BY u.mmr DESC"
+                            )
+                            rows = cur.fetchall()
+                            csv_path = _os.path.join(temp_dir, f"players_export_{modal_int.user.id}.csv")
+                            with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
+                                w = _csv.writer(f)
+                                w.writerow(["discord_id", "username", "mmr", "coins", "games_played"])
+                                for r in rows:
+                                    w.writerow([r["discord_id"], r["username"] or "", r["mmr"] or 1000, r["score"] or 0, r["games"] or 0])
+                            files_sent.append(("players", csv_path))
+
+                        elif etype == "matches":
+                            cur.execute(
+                                "SELECT id, name, status, max_teams, team_size, created_at "
+                                "FROM tournaments ORDER BY created_at DESC LIMIT 500"
+                            )
+                            rows = cur.fetchall()
+                            csv_path = _os.path.join(temp_dir, f"matches_export_{modal_int.user.id}.csv")
+                            with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
+                                w = _csv.writer(f)
+                                w.writerow(["id", "name", "status", "max_teams", "team_size", "created_at"])
+                                for r in rows:
+                                    w.writerow([r["id"], r["name"], r["status"], r["max_teams"], r["team_size"], r["created_at"]])
+                            files_sent.append(("matches", csv_path))
+
+                        elif etype == "transactions":
+                            cur.execute(
+                                "SELECT id, discord_id, amount, reason, created_at "
+                                "FROM transactions ORDER BY created_at DESC LIMIT 500"
+                            )
+                            rows = cur.fetchall()
+                            csv_path = _os.path.join(temp_dir, f"transactions_export_{modal_int.user.id}.csv")
+                            with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
+                                w = _csv.writer(f)
+                                w.writerow(["id", "discord_id", "amount", "reason", "created_at"])
+                                for r in rows:
+                                    w.writerow([r["id"], r["discord_id"], r["amount"], r["reason"], r["created_at"]])
+                            files_sent.append(("transactions", csv_path))
+                finally:
+                    conn.close()
+
+                if not files_sent:
+                    return await modal_int.followup.send("没有数据可导出 / No data to export.", ephemeral=True)
+
+                for label, fp in files_sent:
+                    try:
+                        await modal_int.followup.send(
+                            f"📤 **{label}** 导出完成:",
+                            file=discord.File(fp, f"{label}_export.csv"),
+                            ephemeral=True,
+                        )
+                    except Exception as e:
+                        logger.error(f"[Export] send file error: {e}")
+
+                # 清理临时文件
+                for _, fp in files_sent:
+                    try:
+                        _os.remove(fp)
+                    except Exception:
+                        pass
+
+                await modal_int.followup.send(
+                    f"✅ 导出完成! 共导出 {len(files_sent)} 个文件。", ephemeral=True
+                )
+
+        await interaction.followup.send_modal(ExportModal())
+
     # ── Page 5 补位: 赛季重置 ──
     async def _season_reset(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         if not interaction.user.guild_permissions.administrator:
             return await interaction.followup.send("管理员专用 / Admin only.", ephemeral=True)
-        await interaction.followup.send(
-            "🔄 **赛季重置 / Season Reset**\n"
-            "该功能将重置所有玩家的 MMR 和段位数据。\n"
-            "开发中，敬请期待。 / Coming soon.",
-            ephemeral=True,
-        )
+
+        class SeasonResetModal(discord.ui.Modal, title="赛季重置 / Season Reset"):
+            season_label = discord.ui.TextInput(
+                label="赛季标签 / Season Label",
+                placeholder="e.g. S4-2026Q3",
+                required=True,
+                max_length=32,
+            )
+
+            async def on_submit(self, modal_int: discord.Interaction):
+                await modal_int.response.defer(ephemeral=True)
+                label = self.season_label.value.strip()
+                try:
+                    conn = get_db()
+                    cur = conn.cursor()
+                    # 1. 创建新赛季记录
+                    cur.execute(
+                        "INSERT INTO seasons (name, start_date, active) VALUES (?, datetime('now'), 1)",
+                        (label,),
+                    )
+                    season_id = cur.lastrowid
+                    # 2. 归档所有玩家当前 MMR/段位（从 users + mmr 表联合读取）
+                    cur.execute(
+                        "SELECT u.discord_id, u.mmr, u.games_played, "
+                        "COALESCE(m.rank, 'Unranked') as rank_tier "
+                        "FROM users u LEFT JOIN mmr m ON u.discord_id = m.discord_id"
+                    )
+                    players = cur.fetchall()
+                    for p in players:
+                        cur.execute(
+                            "INSERT INTO season_history "
+                            "(season_id, discord_id, mmr_before, mmr_after, rank_before, rank_after, games_played) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                            (
+                                season_id,
+                                p["discord_id"],
+                                p["mmr"] if p["mmr"] is not None else 1000,
+                                1000,
+                                p["rank_tier"] if p["rank_tier"] else "Unranked",
+                                "Unranked",
+                                p["games_played"] if p["games_played"] else 0,
+                            ),
+                        )
+                    # 3. 重置所有玩家 MMR/段位
+                    cur.execute("UPDATE users SET mmr=1000")
+                    cur.execute("UPDATE mmr SET mmr=1000, rank='Unranked'")
+                    conn.commit()
+                    conn.close()
+
+                    embed = discord.Embed(
+                        title="🔄 赛季重置完成 / Season Reset Complete",
+                        description=(
+                            f"**赛季**: {label}\n"
+                            f"**归档玩家数**: {len(players)}\n"
+                            f"所有玩家 MMR 已重置为 1000，段位重置为 Unranked。"
+                        ),
+                        color=discord.Color.green(),
+                    )
+                    await modal_int.followup.send(embed=embed, ephemeral=True)
+                    # 公告到当前频道
+                    try:
+                        await modal_int.channel.send(
+                            f"📢 **新赛季开启**: {label}\n所有玩家 MMR 已重置，历史数据已归档。"
+                        )
+                    except Exception:
+                        pass
+                except Exception as e:
+                    log_error("dashboard", "season_reset", e)
+                    await modal_int.followup.send(
+                        "❌ 赛季重置失败 / Season reset failed.", ephemeral=True
+                    )
+
+        await interaction.followup.send_modal(SeasonResetModal())
 
     # ── Page 5 补位: 比赛回放 ──
     async def _replay(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        await interaction.followup.send(
-            "🎬 **比赛回放 / Match Replay**\n"
-            "该功能将展示最近的比赛回放记录。\n"
-            "开发中，敬请期待。 / Coming soon.\n\n"
-            "目前可使用 `/gmpt-history` 查看历史比赛数据。",
-            ephemeral=True,
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, name, status, created_at FROM tournaments "
+            "WHERE status='finished' ORDER BY created_at DESC LIMIT 10"
         )
+        matches = cur.fetchall()
+        conn.close()
+
+        if not matches:
+            return await interaction.followup.send("没有已结束的比赛 / No finished matches.", ephemeral=True)
+
+        options = []
+        for m in matches:
+            options.append(discord.SelectOption(
+                label=m["name"][:100],
+                value=str(m["id"]),
+                description=f"ID:{m['id']} | {m['created_at'][:10] if m['created_at'] else '?'}",
+            ))
+
+        select = discord.ui.Select(
+            placeholder="选择比赛查看回放 / Select a match...",
+            options=options[:25],
+        )
+
+        async def replay_select_cb(sel_int: discord.Interaction):
+            mid = int(sel_int.data["values"][0])
+            conn2 = get_db()
+            cur2 = conn2.cursor()
+            cur2.execute(
+                "SELECT event_type, actor_id, target_id, team_id, timestamp, data "
+                "FROM match_events WHERE tournament_id=? ORDER BY timestamp ASC",
+                (mid,),
+            )
+            events = cur2.fetchall()
+            conn2.close()
+
+            if not events:
+                return await sel_int.response.send_message(
+                    "该比赛暂无回放数据 / No replay data for this match.", ephemeral=True
+                )
+
+            # 分页：每页 10 条
+            pages = [events[i:i+10] for i in range(0, len(events), 10)]
+            page_idx = [0]
+
+            def build_embed(page):
+                embed = discord.Embed(
+                    title=f"🎬 比赛回放 — #{mid}",
+                    description="",
+                    color=discord.Color.blurple(),
+                )
+                lines = []
+                for e in page:
+                    ts = e["timestamp"][11:19] if e["timestamp"] else "--:--:--"
+                    atype = e["event_type"]
+                    if atype == "start":
+                        lines.append(f"`{ts}` ⏯️ 比赛开始")
+                    elif atype == "end":
+                        lines.append(f"`{ts}` ⏹️ 比赛结束")
+                    elif atype == "kill":
+                        lines.append(
+                            f"`{ts}` ⚔️ <@{e['actor_id']}> 击杀 <@{e['target_id']}>"
+                        )
+                    elif atype == "score_change":
+                        d = e.get("data") and json_loads(e["data"]) if e["data"] else {}
+                        lines.append(
+                            f"`{ts}` 🏆 得分变更: <@{e['actor_id']}> "
+                            f"+{d.get('delta', '?')}"
+                        )
+                embed.description = "\n".join(lines) if lines else "无事件"
+                embed.set_footer(text=f"第 {page_idx[0]+1}/{len(pages)} 页 | 共 {len(events)} 条事件")
+                return embed
+
+            class ReplayPager(discord.ui.View):
+                def __init__(self):
+                    super().__init__(timeout=120)
+
+                @discord.ui.button(label="⬅️ 上一页", style=discord.ButtonStyle.secondary, row=0)
+                async def prev_btn(self, btn_int: discord.Interaction, button):
+                    if page_idx[0] <= 0:
+                        return await btn_int.response.defer()
+                    page_idx[0] -= 1
+                    await btn_int.response.edit_message(
+                        embed=build_embed(pages[page_idx[0]]), view=self
+                    )
+
+                @discord.ui.button(label="下一页 ➡️", style=discord.ButtonStyle.secondary, row=0)
+                async def next_btn(self, btn_int: discord.Interaction, button):
+                    if page_idx[0] >= len(pages) - 1:
+                        return await btn_int.response.defer()
+                    page_idx[0] += 1
+                    await btn_int.response.edit_message(
+                        embed=build_embed(pages[page_idx[0]]), view=self
+                    )
+
+            pager = ReplayPager()
+            await sel_int.response.send_message(
+                embed=build_embed(pages[0]), view=pager, ephemeral=True
+            )
+
+        select.callback = replay_select_cb
+        view = discord.ui.View(timeout=60)
+        view.add_item(select)
+        await interaction.followup.send(view=view, ephemeral=True)
 
     # ── Page 5 补位: 赛后拉入语音 ──
     async def _post_match_pull(self, interaction: discord.Interaction):
@@ -5742,6 +6276,93 @@ class Dashboard(commands.Cog):
     async def cog_load(self):
         import aiohttp
         self.session = aiohttp.ClientSession()
+        # 启动定时赛事轮询
+        if not hasattr(self, '_scheduled_loop_started'):
+            self._scheduled_loop_started = True
+            self.scheduled_event_loop.start()
+
+    @discord.ext.tasks.loop(minutes=1)
+    async def scheduled_event_loop(self):
+        """每分钟检查一次 cron 表达式，触发到期的定时赛事。"""
+        try:
+            from croniter import croniter
+            from datetime import datetime as dt
+            import json as _json
+
+            now = dt.now()
+            conn = get_db()
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT event_id, event_name, cron_expr, template_id, channel_id, created_by "
+                    "FROM scheduled_events WHERE enabled=1"
+                )
+                events = cur.fetchall()
+                for ev in events:
+                    try:
+                        cron = croniter(ev["cron_expr"], now.replace(second=0, microsecond=0))
+                        prev_time = cron.get_prev(dt)
+                        # 如果上一次触发时间在最近 65 秒内（允许一些偏差）
+                        if (now - prev_time).total_seconds() < 65:
+                            # 防止重复触发：检查最近 3 分钟内是否已创建同名赛事
+                            cur.execute(
+                                "SELECT COUNT(*) as cnt FROM tournaments "
+                                "WHERE name=? AND created_at > datetime('now', '-3 minutes')",
+                                (f"[定时] {ev['event_name']}",),
+                            )
+                            if cur.fetchone()["cnt"] > 0:
+                                continue
+
+                            # 从模板复制配置
+                            max_teams = 2
+                            team_size = 5
+                            if ev["template_id"]:
+                                cur.execute(
+                                    "SELECT max_teams, team_size FROM match_templates WHERE template_id=?",
+                                    (ev["template_id"],),
+                                )
+                                tpl = cur.fetchone()
+                                if tpl:
+                                    max_teams = tpl["max_teams"]
+                                    team_size = tpl["team_size"]
+
+                            cur.execute(
+                                "INSERT INTO tournaments (name, max_teams, team_size, created_by, status) "
+                                "VALUES (?, ?, ?, ?, 'open')",
+                                (f"[定时] {ev['event_name']}", max_teams, team_size, ev["created_by"]),
+                            )
+                            tid = cur.lastrowid
+                            conn.commit()
+
+                            # 发送报名 embed 到指定频道
+                            channel_id = int(ev["channel_id"]) if ev["channel_id"] else None
+                            if channel_id:
+                                channel = self.bot.get_channel(channel_id)
+                                if channel:
+                                    embed = discord.Embed(
+                                        title=f"📅 定时赛事: {ev['event_name']}",
+                                        description=(
+                                            f"**{team_size}v{team_size}** | **{max_teams}** 队\n"
+                                            f"报名已自动开启，点击下方按钮报名！\n"
+                                            f"Match ID: {tid}"
+                                        ),
+                                        color=discord.Color.blue(),
+                                    )
+                                    view = MatchView()
+                                    await channel.send(embed=embed, view=view)
+                    except Exception as e:
+                        logger.error(f"[ScheduledEventLoop] event {ev['event_id']} error: {e}")
+                        continue
+            finally:
+                conn.close()
+        except ImportError:
+            logger.warning("[ScheduledEventLoop] croniter not installed, skipping scheduled events")
+        except Exception as e:
+            logger.error(f"[ScheduledEventLoop] loop error: {e}")
+
+    @scheduled_event_loop.before_loop
+    async def before_scheduled_loop(self):
+        await self.bot.wait_until_ready()
 
     def _build_dashboard_embed(self):
         return discord.Embed(

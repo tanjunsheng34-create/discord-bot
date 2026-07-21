@@ -500,6 +500,53 @@ def init_db():
             status          TEXT DEFAULT 'waiting',
             joined_at       TEXT DEFAULT (datetime('now'))
         );
+
+        -- === 比赛事件回放 / Match Event Replay ===
+        CREATE TABLE IF NOT EXISTS match_events (
+            event_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            tournament_id   INTEGER,
+            timestamp       TEXT DEFAULT (datetime('now')),
+            event_type      TEXT NOT NULL,
+            actor_id        TEXT,
+            target_id       TEXT,
+            team_id         INTEGER,
+            data            TEXT
+        );
+
+        -- === 定时赛事 / Scheduled Events ===
+        CREATE TABLE IF NOT EXISTS scheduled_events (
+            event_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_name      TEXT NOT NULL,
+            cron_expr       TEXT NOT NULL,
+            template_id     INTEGER,
+            channel_id      TEXT,
+            created_by      TEXT,
+            enabled         INTEGER DEFAULT 1,
+            created_at      TEXT DEFAULT (datetime('now'))
+        );
+
+        -- === 赛事模板 / Match Templates ===
+        CREATE TABLE IF NOT EXISTS match_templates (
+            template_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+            template_name   TEXT UNIQUE,
+            max_teams       INTEGER DEFAULT 2,
+            team_size       INTEGER DEFAULT 5,
+            rules           TEXT
+        );
+
+        -- === 赛季历史归档 / Season History Archive ===
+        CREATE TABLE IF NOT EXISTS season_history (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            season_id       INTEGER,
+            discord_id      TEXT,
+            mmr_before      INTEGER,
+            mmr_after       INTEGER,
+            rank_before     TEXT,
+            rank_after      TEXT,
+            games_played    INTEGER DEFAULT 0,
+            archived_at     TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (season_id) REFERENCES seasons(id)
+        );
     """)
 
     # ── 性能索引 / Performance Indexes ──
