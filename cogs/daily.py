@@ -7,7 +7,7 @@ GMPT Bot — 每日语音签到奖励系统 (Daily Voice Reward)
 """
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 from datetime import datetime, date, timezone, timedelta
 from database import get_db
 
@@ -19,6 +19,7 @@ from utils.logger import log_error
 logger = logging.getLogger(__name__)
 
 UTC8 = timezone(timedelta(hours=8))
+MYT = timezone(timedelta(hours=8))
 
 # ── Default config ──
 DEFAULT_MINUTES = 30
@@ -44,6 +45,34 @@ class Daily(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self._join_times: dict[str, datetime] = {}  # discord_id -> join_time (UTC+8)
+        self.last_reminder_date = None  # 防重复：记录上次发送提醒的日期
+
+    # ── 每日签到提醒 ──
+    def cog_unload(self):
+        self.daily_reminder_loop.cancel()
+
+    @tasks.loop(minutes=1)
+    async def daily_reminder_loop(self):
+        now = datetime.now(MYT)
+        today = now.date()
+
+        if now.hour == 10 and now.minute == 0:
+            if self.last_reminder_date == today:
+                return
+
+            self.last_reminder_date = today
+            channel = self.bot.get_channel(1528241061007327354)
+            if channel:
+                embed = discord.Embed(
+                    title="🎁 每日签到提醒 | Daily Check-in",
+                    description="输入 `/gmpt-daily claim` 领取今日奖励！\nClaim your daily reward now!",
+                    color=0xFFA500,
+                )
+                await channel.send(embed=embed)
+
+    @daily_reminder_loop.before_loop
+    async def before_daily_reminder(self):
+        await self.bot.wait_until_ready()
 
     # ═══════════════════════════════════════
     #  Config helpers
@@ -482,4 +511,6 @@ class Daily(commands.Cog):
 
 
 async def setup(bot):
-    await bot.add_cog(Daily(bot))
+    cog = Daily(bot)
+    await bot.add_cog(cog)
+    cog.daily_reminder_loop.start()

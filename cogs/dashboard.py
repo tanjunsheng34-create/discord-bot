@@ -6490,6 +6490,19 @@ class Dashboard(commands.Cog):
             embed.set_thumbnail(url=member.display_avatar.url)
             await welcome_channel.send(embed=embed)
 
+    @commands.Cog.listener()
+    async def on_member_remove(self, member: discord.Member):
+        log_channel = member.guild.get_channel(1435096093737222336)
+        if log_channel:
+            embed = discord.Embed(
+                title="👋 成员离开 | Member Left",
+                description=f"{member.mention} ({member.name}) 离开了服务器\nleft the server",
+                color=0xE74C3C
+            )
+            embed.add_field(name="加入时间 | Joined", value=discord.utils.format_dt(member.joined_at, 'R') if member.joined_at else "未知")
+            embed.set_thumbnail(url=member.display_avatar.url)
+            await log_channel.send(embed=embed)
+
     # ── LoL Vote: 发投票 ──
     async def _post_lol_vote(self):
         """Post daily LoL mode vote to channel."""
