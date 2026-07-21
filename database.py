@@ -553,6 +553,25 @@ def init_db():
             archived_at     TEXT DEFAULT (datetime('now')),
             FOREIGN KEY (season_id) REFERENCES seasons(id)
         );
+
+        -- === LoL 模式投票系统 / LoL Mode Vote System ===
+        CREATE TABLE IF NOT EXISTS lol_vote_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            channel_id TEXT NOT NULL,
+            message_id TEXT,
+            vote_date TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            winner_mode TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS lol_vote_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER REFERENCES lol_vote_sessions(id),
+            discord_id TEXT NOT NULL,
+            mode TEXT NOT NULL,
+            voted_at TEXT DEFAULT (datetime('now'))
+        );
     """)
 
     # ── 性能索引 / Performance Indexes ──

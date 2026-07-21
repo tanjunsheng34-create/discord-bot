@@ -3097,6 +3097,110 @@ class MatchViewWithID(discord.ui.View):
             ephemeral=True,
         )
 
+# =============================================================================
+# LoL Vote View — 模式投票（ARAM / Summoner's Rift / TFT）
+# =============================================================================
+class LolVoteView(discord.ui.View):
+    """Persistent view for LoL mode voting: ARAM / Summoner's Rift / TFT."""
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    async def _get_session(self, message_id: int):
+        """Look up vote session by message_id."""
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, channel_id, vote_date, status, winner_mode FROM lol_vote_sessions WHERE message_id=?",
+            (str(message_id),),
+        )
+        row = cur.fetchone()
+        conn.close()
+        return row
+
+    async def _record_vote(self, session_id: int, discord_id: str, mode: str):
+        """Record or overwrite a vote (one vote per user per session)."""
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "DELETE FROM lol_vote_results WHERE session_id=? AND discord_id=?",
+            (session_id, discord_id),
+        )
+        cur.execute(
+            "INSERT INTO lol_vote_results (session_id, discord_id, mode) VALUES (?,?,?)",
+            (session_id, discord_id, mode),
+        )
+        conn.commit()
+        conn.close()
+
+    async def _update_embed(self, interaction: discord.Interaction, session):
+        """Refresh embed with current vote counts."""
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT mode, COUNT(*) as cnt FROM lol_vote_results WHERE session_id=? GROUP BY mode",
+            (session["id"],),
+        )
+        rows = cur.fetchall()
+        conn.close()
+
+        counts = {"ARAM": 0, "Summoner's Rift": 0, "TFT": 0}
+        for r in rows:
+            mode_name = r["mode"]
+            if mode_name in counts:
+                counts[mode_name] = r["cnt"]
+
+        sr_votes = counts.get("Summoner's Rift", 0)
+        embed = discord.Embed(
+            title="🎮 今天玩什么？| What to play today?",
+            description=(
+                f"📅 {session['vote_date']}\n\n"
+                f"点击下方按钮投票，每人一票！\n"
+                f"下午 1:00 自动结算并创建比赛 🏆\n\n"
+                f"🏹 ARAM: **{counts['ARAM']}** 票\n"
+                f"⚔️ 召唤师峡谷 Summoner's Rift: **{sr_votes}** 票\n"
+                f"🎯 TFT: **{counts['TFT']}** 票"
+            ),
+            color=discord.Color.gold(),
+        )
+        await interaction.message.edit(embed=embed)
+
+    @discord.ui.button(label="🏹 ARAM", style=discord.ButtonStyle.primary, row=0, custom_id="lolvote_aram")
+    async def vote_aram(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        session = await self._get_session(interaction.message.id)
+        if not session:
+            return await interaction.followup.send("投票会话不存在。", ephemeral=True)
+        if session["status"] != "pending":
+            return await interaction.followup.send("投票已结束。", ephemeral=True)
+        await self._record_vote(session["id"], str(interaction.user.id), "ARAM")
+        await self._update_embed(interaction, session)
+        await interaction.followup.send("已投票 ARAM！", ephemeral=True)
+
+    @discord.ui.button(label="⚔️ Summoner's Rift", style=discord.ButtonStyle.primary, row=0, custom_id="lolvote_sr")
+    async def vote_sr(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        session = await self._get_session(interaction.message.id)
+        if not session:
+            return await interaction.followup.send("投票会话不存在。", ephemeral=True)
+        if session["status"] != "pending":
+            return await interaction.followup.send("投票已结束。", ephemeral=True)
+        await self._record_vote(session["id"], str(interaction.user.id), "Summoner's Rift")
+        await self._update_embed(interaction, session)
+        await interaction.followup.send("已投票 Summoner's Rift！", ephemeral=True)
+
+    @discord.ui.button(label="🎯 TFT", style=discord.ButtonStyle.primary, row=0, custom_id="lolvote_tft")
+    async def vote_tft(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        session = await self._get_session(interaction.message.id)
+        if not session:
+            return await interaction.followup.send("投票会话不存在。", ephemeral=True)
+        if session["status"] != "pending":
+            return await interaction.followup.send("投票已结束。", ephemeral=True)
+        await self._record_vote(session["id"], str(interaction.user.id), "TFT")
+        await self._update_embed(interaction, session)
+        await interaction.followup.send("已投票 TFT！", ephemeral=True)
+
 # ══════════ 向后兼容别名══════════
 MatchView = MatchViewWithID
 
@@ -6339,6 +6443,143 @@ class Dashboard(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    # ── LoL Vote: 发投票 ──
+    async def _post_lol_vote(self):
+        """Post daily LoL mode vote to channel."""
+        channel_id = 1397073481627340961
+        channel = self.bot.get_channel(channel_id)
+        if not channel:
+            logger.warning(f"[LoLVote] Channel {channel_id} not found")
+            return
+
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        # 防重复：检查今天是否已发过
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id FROM lol_vote_sessions WHERE vote_date=? AND status='pending'",
+            (today,),
+        )
+        if cur.fetchone():
+            conn.close()
+            return
+        conn.close()
+
+        embed = discord.Embed(
+            title="🎮 今天玩什么？| What to play today?",
+            description=(
+                f"📅 {today}\n\n"
+                f"点击下方按钮投票，每人一票！\n"
+                f"下午 1:00 自动结算并创建比赛 🏆\n\n"
+                f"🏹 ARAM: **0** 票\n"
+                f"⚔️ 召唤师峡谷 Summoner's Rift: **0** 票\n"
+                f"🎯 TFT: **0** 票"
+            ),
+            color=discord.Color.gold(),
+        )
+
+        view = LolVoteView()
+        msg = await channel.send(embed=embed, view=view)
+
+        conn2 = get_db()
+        cur2 = conn2.cursor()
+        cur2.execute(
+            "INSERT INTO lol_vote_sessions (channel_id, message_id, vote_date, status) VALUES (?,?,?,?)",
+            (str(channel_id), str(msg.id), today, "pending"),
+        )
+        conn2.commit()
+        conn2.close()
+        logger.info(f"[LoLVote] Vote posted for {today}")
+
+    # ── LoL Vote: 结算投票 ──
+    async def _close_lol_vote(self):
+        """Close today's vote, determine winner, create match."""
+        channel_id = 1397073481627340961
+        channel = self.bot.get_channel(channel_id)
+        if not channel:
+            logger.warning(f"[LoLVote] Channel {channel_id} not found")
+            return
+
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, message_id FROM lol_vote_sessions WHERE vote_date=? AND status='pending'",
+            (today,),
+        )
+        session = cur.fetchone()
+        if not session:
+            conn.close()
+            return
+
+        # 统计票数
+        cur.execute(
+            "SELECT mode, COUNT(*) as cnt FROM lol_vote_results WHERE session_id=? GROUP BY mode ORDER BY cnt DESC",
+            (session["id"],),
+        )
+        rows = cur.fetchall()
+
+        if not rows:
+            # 无人投票，默认 ARAM
+            winner_mode = "ARAM"
+        else:
+            winner_mode = rows[0]["mode"]
+
+        # 更新 session 状态
+        cur.execute(
+            "UPDATE lol_vote_sessions SET status='closed', winner_mode=? WHERE id=?",
+            (winner_mode, session["id"]),
+        )
+        conn.commit()
+
+        # 创建比赛：插入 tournaments 表
+        match_name = f"[投票] {winner_mode} — {today}"
+        team_size = 5
+        cur.execute(
+            "INSERT INTO tournaments (name, max_teams, team_size, created_by, status) VALUES (?, 2, ?, 'system', 'open')",
+            (match_name, team_size),
+        )
+        tid = cur.lastrowid
+        conn.commit()
+        conn.close()
+
+        # 发送比赛报名 embed
+        embed = discord.Embed(
+            title=f"🏆 投票结束！今天玩 {winner_mode}！",
+            description=(
+                f"📅 {today}\n\n"
+                f"最高票模式: **{winner_mode}**\n"
+                f"比赛已自动创建，点击下方按钮报名 👇"
+            ),
+            color=discord.Color.green(),
+        ).set_footer(text=f"Match ID: {tid}")
+
+        view = MatchView()
+        msg = await channel.send(embed=embed, view=view)
+        save_match_view_state(tid, msg.id, channel_id)
+
+        # 发送初始报名列表
+        list_embed = discord.Embed(
+            title="已报名玩家 / Signed Up (0/10)",
+            description="暂无玩家 / No signups yet",
+            color=discord.Color.green(),
+        )
+        list_msg = await channel.send(embed=list_embed)
+        set_player_list_msg(tid, list_msg.id)
+        conn2 = get_db()
+        cur2 = conn2.cursor()
+        cur2.execute(
+            "UPDATE match_view_state SET player_list_msg_id=? WHERE message_id=?",
+            (str(list_msg.id), str(msg.id)),
+        )
+        conn2.commit()
+        conn2.close()
+
+        logger.info(f"[LoLVote] Vote closed for {today}, winner: {winner_mode}, match #{tid}")
+
+
     async def cog_load(self):
         import aiohttp
         self.session = aiohttp.ClientSession()
@@ -6356,6 +6597,14 @@ class Dashboard(commands.Cog):
             import json as _json
 
             now = dt.now()
+
+            # ── LoL Vote: 周五/六/日/一 早上9点发投票 ──
+            if now.weekday() in [4, 5, 6, 0] and now.hour == 9 and now.minute == 0:
+                await self._post_lol_vote()
+
+            # ── LoL Vote: 周五/六/日/一 下午1点结算 ──
+            if now.weekday() in [4, 5, 6, 0] and now.hour == 13 and now.minute == 0:
+                await self._close_lol_vote()
             conn = get_db()
             try:
                 cur = conn.cursor()
@@ -6762,3 +7011,4 @@ async def setup(bot):
     await bot.add_cog(Dashboard(bot))
     # 注册持久化 MatchView,使 Bot 重启后按钮仍可响应
     bot.add_view(MatchView())
+    bot.add_view(LolVoteView())
