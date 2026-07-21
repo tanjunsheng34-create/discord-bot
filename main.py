@@ -109,7 +109,7 @@ import subprocess
 import sys
 
 def ensure_deps():
-    """Auto-install missing Python dependencies."""
+    """Auto-install missing Python and system dependencies."""
     pkgs = {
         "nacl": "PyNaCl",
         "croniter": "croniter",
@@ -122,6 +122,14 @@ def ensure_deps():
             subprocess.check_call(
                 [sys.executable, "-m", "pip", "install", pip_name]
             )
+
+    # Install FFmpeg system package if missing
+    try:
+        subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        print("Installing missing system dependency: ffmpeg ...")
+        subprocess.run(["apt-get", "update", "-qq"], check=False)
+        subprocess.run(["apt-get", "install", "-y", "-qq", "ffmpeg"], check=False)
 
 # 在 bot.run() 之前调用
 ensure_deps()
