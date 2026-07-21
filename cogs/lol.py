@@ -1357,7 +1357,7 @@ class CustomTeamView(discord.ui.View):
         self.selected_player = None
         self._rebuild_select()
         embed = self.build_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.edit_original_response(embed=embed, view=self)
 
     @discord.ui.button(label="加入B队", style=discord.ButtonStyle.danger, emoji="🔴", row=1, custom_id="custom_team_b")
     async def add_to_b(self, interaction: discord.Interaction, button):
@@ -1375,7 +1375,7 @@ class CustomTeamView(discord.ui.View):
         self.selected_player = None
         self._rebuild_select()
         embed = self.build_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.edit_original_response(embed=embed, view=self)
 
     @discord.ui.button(label="清空", style=discord.ButtonStyle.secondary, emoji="🔄", row=2, custom_id="custom_team_clear")
     async def clear_teams(self, interaction: discord.Interaction, button):
@@ -1387,7 +1387,7 @@ class CustomTeamView(discord.ui.View):
         self.selected_player = None
         self._rebuild_select()
         embed = self.build_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.edit_original_response(embed=embed, view=self)
 
     @discord.ui.button(label="确认", style=discord.ButtonStyle.success, emoji="✅", row=2, custom_id="custom_team_confirm")
     async def confirm_teams(self, interaction: discord.Interaction, button):
@@ -1461,7 +1461,7 @@ class CustomTeamView(discord.ui.View):
         )
         embed.set_footer(text=f"Match ID: {self.match_id} | {settle_hint}")
 
-        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.edit_original_response(embed=embed, view=self)
 
         # Send ReShuffleView below result for settle/re-shuffle/finish
         from cogs.dashboard import ReShuffleView

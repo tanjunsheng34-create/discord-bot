@@ -2068,7 +2068,7 @@ class CaptainDraftView(discord.ui.View):
         self.team_b = [self.captain_b]
         self.turn = "A"
         self._build_draft_view()
-        await interaction.response.edit_message(
+        await interaction.edit_original_response(
             content=f"**队长分队 / Captain Draft** — {self.match_name}\n队长已选定,开始轮流选人!",
             embed=self._build_embed(),
             view=self,
@@ -2119,14 +2119,14 @@ class CaptainDraftView(discord.ui.View):
         if not self._get_unassigned():
             # All picked — show confirm
             self._build_confirm_view()
-            await interaction.response.edit_message(
+            await interaction.edit_original_response(
                 content=f"**队长分队 / Captain Draft** — {self.match_name}\n所有玩家已选完,确认分队!",
                 embed=self._build_embed(),
                 view=self,
             )
         else:
             self._build_draft_view()
-            await interaction.response.edit_message(embed=self._build_embed(), view=self)
+            await interaction.edit_original_response(embed=self._build_embed(), view=self)
 
     def _build_confirm_view(self):
         for child in list(self.children):
@@ -2147,7 +2147,7 @@ class CaptainDraftView(discord.ui.View):
         self.team_b = []
         self.turn = "A"
         self._build_captain_select()
-        await interaction.response.edit_message(
+        await interaction.edit_original_response(
             content=f"**队长分队 / Captain Draft** — {self.match_name}\n第一步:选择 2 名队长",
             embed=None,
             view=self,

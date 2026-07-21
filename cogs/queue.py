@@ -7,7 +7,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from database import get_db
-from datetime import datetime
+from datetime import datetime, timezone
 
 import logging
 logger = logging.getLogger(__name__)
@@ -53,7 +53,7 @@ class QueueCog(commands.Cog):
 
             self.queue[uid] = {
                 "position": position,
-                "joined_at": datetime.utcnow(),
+                "joined_at": datetime.now(timezone.utc),
             }
             count = len(self.queue)
 
@@ -160,7 +160,7 @@ class QueueCog(commands.Cog):
         avg_b = sum(mmr_map[uid] for uid, _ in team_b) / 5
 
         conn = get_db(); cur = conn.cursor()
-        match_name = f"Auto Queue Match {datetime.utcnow().strftime('%H:%M')}"
+        match_name = f"Auto Queue Match {datetime.now(timezone.utc).strftime('%H:%M')}"
         cur.execute(
             "INSERT INTO tournaments (name, max_teams, team_size, created_by, status) VALUES (?, 2, 5, ?, 'open')",
             (match_name, str(self.bot.user.id)),

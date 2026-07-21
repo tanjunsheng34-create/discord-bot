@@ -3,10 +3,13 @@ Backup & Restore — Database backup/restore
 """
 import json
 import io
+import time as _time
+import sqlite3
 import discord
 from discord import app_commands
 from discord.ext import commands
 from database import get_db
+from utils.logger import log_error
 
 
 class AdminBackup(commands.Cog):
@@ -46,7 +49,8 @@ class AdminBackup(commands.Cog):
                 cur.execute(f"SELECT * FROM {table}")
                 rows = [dict(row) for row in cur.fetchall()]
                 data[table] = rows
-            except Exception:
+            except Exception as e:
+                log_error("admin_backup", f"backup table {table}", e)
                 data[table] = []
 
         conn.close()
@@ -231,7 +235,16 @@ class AdminBackup(commands.Cog):
                 )
             restored["matches"] = len(data["matches"])
 
-        conn.commit()
+        # Commit with retry for database lock
+        for attempt in range(3):
+            try:
+                conn.commit()
+                break
+            except sqlite3.OperationalError as e:
+                if "locked" in str(e).lower() and attempt < 2:
+                    _time.sleep(0.3 * (attempt + 1))
+                    continue
+                raise
         conn.close()
 
         summary = ", ".join(f"{k}: {v}" for k, v in restored.items())

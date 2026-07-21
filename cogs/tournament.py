@@ -288,7 +288,7 @@ class DraftView(discord.ui.View):
 
         self._rebuild_select()
         embed = self.build_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.edit_original_response(embed=embed, view=self)
 
     @discord.ui.button(label="跳过 / Skip Turn", style=discord.ButtonStyle.secondary,
                        emoji="⏭️", row=1, custom_id="draft_skip")
@@ -333,7 +333,7 @@ class DraftView(discord.ui.View):
 
         self._rebuild_select()
         embed = self.build_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.edit_original_response(embed=embed, view=self)
 
     @discord.ui.button(label="结束选秀 / End Draft", style=discord.ButtonStyle.danger,
                        emoji="🏁", row=2, custom_id="draft_end")
@@ -362,7 +362,7 @@ class DraftView(discord.ui.View):
         embed.title = f"Draft Complete — {embed.title.replace('Draft — ', '')}"
         embed.description = "✅ 队长选秀已完成！ / Captain Draft completed!"
         embed.color = discord.Color.gold()
-        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.edit_original_response(embed=embed, view=self)
 
     def build_embed(self):
         embed = discord.Embed(
@@ -637,12 +637,12 @@ class ReportView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
         val = interaction.data["values"][0]
         if val == "__none__":
-            return await interaction.response.defer()
+            return
         self._pending_match = int(val)
         for child in self.children:
             if isinstance(child, discord.ui.Button):
                 child.disabled = False
-        await interaction.response.edit_message(view=self)
+        await interaction.edit_original_response(view=self)
 
     @discord.ui.button(label="我赢了 / I Won", style=discord.ButtonStyle.success,
                        emoji="🏆", row=1, disabled=True)
@@ -765,12 +765,7 @@ class ReportView(discord.ui.View):
             embed.color = discord.Color.green()
             if embed.description:
                 embed.description += next_round_info
-        await interaction.response.edit_message(embed=embed, view=self)
-
-
-# =============================================================================
-# DraftSetupView — button-based captain selection for draft
-# =============================================================================
+        await interaction.edit_original_response(embed=embed, view=self)
 
 
 class DraftSetupView(discord.ui.View):
@@ -824,7 +819,7 @@ class DraftSetupView(discord.ui.View):
         for child in self.children:
             if isinstance(child, discord.ui.Button) and child.custom_id in ("draft_add_cap", "draft_rm_cap"):
                 child.disabled = False
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="设为队长 / Add Captain", style=discord.ButtonStyle.success,
                        row=1, disabled=True, custom_id="draft_add_cap")
@@ -859,7 +854,7 @@ class DraftSetupView(discord.ui.View):
         for child in self.children:
             if child.custom_id == "draft_start":
                 child.disabled = len(self.captains) < 2
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="移除队长 / Remove", style=discord.ButtonStyle.danger,
                        row=1, disabled=True, custom_id="draft_rm_cap")
@@ -886,7 +881,7 @@ class DraftSetupView(discord.ui.View):
                 child.disabled = True
             if child.custom_id == "draft_start":
                 child.disabled = len(self.captains) < 2
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="确认开始选秀 / Start Draft", style=discord.ButtonStyle.primary,
                        emoji="🚀", row=2, disabled=True, custom_id="draft_start")
@@ -896,8 +891,6 @@ class DraftSetupView(discord.ui.View):
             return await interaction.followup.send("仅管理员可操作。", ephemeral=True)
         if len(self.captains) < 2:
             return await interaction.followup.send("至少需要 2 名队长。", ephemeral=True)
-
-        await interaction.response.defer()
 
         conn = get_db(); cur = conn.cursor()
         cur.execute(

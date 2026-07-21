@@ -268,7 +268,7 @@ class VoiceTimeView(discord.ui.View):
                 f"{self.user.display_name} no voice data yet.", ephemeral=True
             )
         embed = self.cog._build_self_embed(self.user, row)
-        await interaction.response.edit_message(embed=embed, view=None)
+        await interaction.edit_original_response(embed=embed, view=None)
 
     @discord.ui.button(label="View Leaderboard", style=discord.ButtonStyle.success, emoji="🏆", row=0)
     async def view_leaderboard_btn(self, interaction: discord.Interaction, button):
@@ -281,7 +281,7 @@ class VoiceTimeView(discord.ui.View):
         embed = VoiceLeaderboardView._build_embed(data, 0, self.guild)
         view.prev_btn.disabled = True
         view.next_btn.disabled = len(data) <= 10
-        await interaction.response.edit_message(embed=embed, view=view)
+        await interaction.edit_original_response(embed=embed, view=view)
 
     @discord.ui.button(label="View Someone", style=discord.ButtonStyle.secondary, emoji="🔍", row=0)
     async def view_other_btn(self, interaction: discord.Interaction, button):

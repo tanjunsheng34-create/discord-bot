@@ -2580,7 +2580,7 @@ class CoinPaginationView(discord.ui.View):
         if self.page > 0:
             self.page -= 1
             self._update_buttons()
-            await interaction.response.edit_message(embed=self.build_embed(), view=self)
+            await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="下一页 Next", emoji="➡️", style=discord.ButtonStyle.secondary)
     async def next_btn(self, interaction: discord.Interaction, button):
@@ -2588,7 +2588,7 @@ class CoinPaginationView(discord.ui.View):
         if (self.page + 1) * self.per_page < len(self.users_data):
             self.page += 1
             self._update_buttons()
-            await interaction.response.edit_message(embed=self.build_embed(), view=self)
+            await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
 
 async def setup(bot):
