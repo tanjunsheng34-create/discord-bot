@@ -173,6 +173,7 @@ def ensure_deps():
     pkgs = {
         "nacl": "PyNaCl",
         "croniter": "croniter",
+        "yt_dlp": "yt-dlp",
     }
     for import_name, pip_name in pkgs.items():
         try:
