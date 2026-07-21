@@ -3144,28 +3144,32 @@ class LolVoteView(discord.ui.View):
         rows = cur.fetchall()
         conn.close()
 
-        counts = {"ARAM": 0, "Summoner's Rift": 0, "TFT": 0}
+        counts = {"ARAM": 0, "Summoner's Rift": 0, "TFT": 0, "URF": 0, "Arena": 0}
         for r in rows:
             mode_name = r["mode"]
             if mode_name in counts:
                 counts[mode_name] = r["cnt"]
 
         sr_votes = counts.get("Summoner's Rift", 0)
+        urf_votes = counts.get("URF", 0)
+        arena_votes = counts.get("Arena", 0)
         embed = discord.Embed(
-            title="🎮 今天玩什么？| What to play today?",
+            title="🎮 今天玩什么？What to play today?",
             description=(
                 f"📅 {session['vote_date']}\n\n"
-                f"点击下方按钮投票，每人一票！\n"
-                f"下午 1:00 自动结算并创建比赛 🏆\n\n"
-                f"🏹 ARAM: **{counts['ARAM']}** 票\n"
+                f"点击下方按钮投票，每人一票！Vote below, one per person!\n"
+                f"下午 1:00 自动结算并创建比赛 🏆 Auto-settle at 1PM\n\n"
+                f"🏹 ARAM 大乱斗: **{counts['ARAM']}** 票\n"
                 f"⚔️ 召唤师峡谷 Summoner's Rift: **{sr_votes}** 票\n"
-                f"🎯 TFT: **{counts['TFT']}** 票"
+                f"🎯 TFT 云顶: **{counts['TFT']}** 票\n"
+                f"🎪 无限火力 URF: **{urf_votes}** 票\n"
+                f"👊 斗魂竞技场 Arena: **{arena_votes}** 票"
             ),
             color=discord.Color.gold(),
         )
         await interaction.message.edit(embed=embed)
 
-    @discord.ui.button(label="🏹 ARAM", style=discord.ButtonStyle.primary, row=0, custom_id="lolvote_aram")
+    @discord.ui.button(label="🏹 ARAM 大乱斗", style=discord.ButtonStyle.primary, row=0, custom_id="lolvote_aram")
     async def vote_aram(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         session = await self._get_session(interaction.message.id)
@@ -3175,9 +3179,9 @@ class LolVoteView(discord.ui.View):
             return await interaction.followup.send("投票已结束。", ephemeral=True)
         await self._record_vote(session["id"], str(interaction.user.id), "ARAM")
         await self._update_embed(interaction, session)
-        await interaction.followup.send("已投票 ARAM！", ephemeral=True)
+        await interaction.followup.send("已投票 ARAM 大乱斗！Voted!", ephemeral=True)
 
-    @discord.ui.button(label="⚔️ Summoner's Rift", style=discord.ButtonStyle.primary, row=0, custom_id="lolvote_sr")
+    @discord.ui.button(label="⚔️ 召唤师峡谷 Summoner's Rift", style=discord.ButtonStyle.primary, row=0, custom_id="lolvote_sr")
     async def vote_sr(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         session = await self._get_session(interaction.message.id)
@@ -3187,9 +3191,9 @@ class LolVoteView(discord.ui.View):
             return await interaction.followup.send("投票已结束。", ephemeral=True)
         await self._record_vote(session["id"], str(interaction.user.id), "Summoner's Rift")
         await self._update_embed(interaction, session)
-        await interaction.followup.send("已投票 Summoner's Rift！", ephemeral=True)
+        await interaction.followup.send("已投票 召唤师峡谷 Summoner's Rift！Voted!", ephemeral=True)
 
-    @discord.ui.button(label="🎯 TFT", style=discord.ButtonStyle.primary, row=0, custom_id="lolvote_tft")
+    @discord.ui.button(label="🎯 TFT 云顶", style=discord.ButtonStyle.primary, row=0, custom_id="lolvote_tft")
     async def vote_tft(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         session = await self._get_session(interaction.message.id)
@@ -3199,7 +3203,31 @@ class LolVoteView(discord.ui.View):
             return await interaction.followup.send("投票已结束。", ephemeral=True)
         await self._record_vote(session["id"], str(interaction.user.id), "TFT")
         await self._update_embed(interaction, session)
-        await interaction.followup.send("已投票 TFT！", ephemeral=True)
+        await interaction.followup.send("已投票 TFT 云顶！Voted!", ephemeral=True)
+
+    @discord.ui.button(label="🎪 无限火力 URF", style=discord.ButtonStyle.primary, row=1, custom_id="lolvote_urf")
+    async def vote_urf(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        session = await self._get_session(interaction.message.id)
+        if not session:
+            return await interaction.followup.send("投票会话不存在。Vote session not found.", ephemeral=True)
+        if session["status"] != "pending":
+            return await interaction.followup.send("投票已结束。Vote closed.", ephemeral=True)
+        await self._record_vote(session["id"], str(interaction.user.id), "URF")
+        await self._update_embed(interaction, session)
+        await interaction.followup.send("已投票 无限火力 URF！Voted!", ephemeral=True)
+
+    @discord.ui.button(label="👊 斗魂竞技场 Arena", style=discord.ButtonStyle.primary, row=1, custom_id="lolvote_arena")
+    async def vote_arena(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        session = await self._get_session(interaction.message.id)
+        if not session:
+            return await interaction.followup.send("投票会话不存在。Vote session not found.", ephemeral=True)
+        if session["status"] != "pending":
+            return await interaction.followup.send("投票已结束。Vote closed.", ephemeral=True)
+        await self._record_vote(session["id"], str(interaction.user.id), "Arena")
+        await self._update_embed(interaction, session)
+        await interaction.followup.send("已投票 斗魂竞技场 Arena！Voted!", ephemeral=True)
 
 # ══════════ 向后兼容别名══════════
 MatchView = MatchViewWithID
@@ -5624,7 +5652,8 @@ class DashboardView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
         uid = str(interaction.user.id)
         conn = get_db(); cur = conn.cursor()
-        today = datetime.now().strftime("%Y-%m-%d")
+        myt = timezone(timedelta(hours=8))
+        today = datetime.now(myt).strftime("%Y-%m-%d")
 
         # Get daily config
         cur.execute("SELECT value FROM daily_config WHERE key='minutes'")
@@ -6452,7 +6481,8 @@ class Dashboard(commands.Cog):
             logger.warning(f"[LoLVote] Channel {channel_id} not found")
             return
 
-        today = datetime.now().strftime("%Y-%m-%d")
+        myt = timezone(timedelta(hours=8))
+        today = datetime.now(myt).strftime("%Y-%m-%d")
 
         # 防重复：检查今天是否已发过
         conn = get_db()
@@ -6467,14 +6497,16 @@ class Dashboard(commands.Cog):
         conn.close()
 
         embed = discord.Embed(
-            title="🎮 今天玩什么？| What to play today?",
+            title="🎮 今天玩什么？What to play today?",
             description=(
                 f"📅 {today}\n\n"
-                f"点击下方按钮投票，每人一票！\n"
-                f"下午 1:00 自动结算并创建比赛 🏆\n\n"
-                f"🏹 ARAM: **0** 票\n"
+                f"点击下方按钮投票，每人一票！Vote below, one per person!\n"
+                f"下午 1:00 自动结算并创建比赛 🏆 Auto-settle at 1PM\n\n"
+                f"🏹 ARAM 大乱斗: **0** 票\n"
                 f"⚔️ 召唤师峡谷 Summoner's Rift: **0** 票\n"
-                f"🎯 TFT: **0** 票"
+                f"🎯 TFT 云顶: **0** 票\n"
+                f"🎪 无限火力 URF: **0** 票\n"
+                f"👊 斗魂竞技场 Arena: **0** 票"
             ),
             color=discord.Color.gold(),
         )
@@ -6501,7 +6533,8 @@ class Dashboard(commands.Cog):
             logger.warning(f"[LoLVote] Channel {channel_id} not found")
             return
 
-        today = datetime.now().strftime("%Y-%m-%d")
+        myt = timezone(timedelta(hours=8))
+        today = datetime.now(myt).strftime("%Y-%m-%d")
 
         conn = get_db()
         cur = conn.cursor()
@@ -6547,11 +6580,11 @@ class Dashboard(commands.Cog):
 
         # 发送比赛报名 embed
         embed = discord.Embed(
-            title=f"🏆 投票结束！今天玩 {winner_mode}！",
+            title=f"🏆 投票结束！Vote closed! 今天玩 {winner_mode}！点击报名 👇",
             description=(
                 f"📅 {today}\n\n"
-                f"最高票模式: **{winner_mode}**\n"
-                f"比赛已自动创建，点击下方按钮报名 👇"
+                f"最高票模式 Winner: **{winner_mode}**\n"
+                f"比赛已自动创建，点击下方按钮报名 Match created, click below to sign up 👇"
             ),
             color=discord.Color.green(),
         ).set_footer(text=f"Match ID: {tid}")
@@ -6580,6 +6613,26 @@ class Dashboard(commands.Cog):
         logger.info(f"[LoLVote] Vote closed for {today}, winner: {winner_mode}, match #{tid}")
 
 
+    @app_commands.command(
+        name="lol-vote",
+        description="手动发起LoL模式投票 / Manually start LoL mode vote",
+    )
+    @app_commands.default_permissions(administrator=True)
+    async def lol_vote_cmd(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        await self._post_lol_vote()
+        await interaction.followup.send("已发起投票 / Vote posted.", ephemeral=True)
+
+    @app_commands.command(
+        name="lol-vote-close",
+        description="手动结算LoL投票并创建比赛 / Manually close vote and create match",
+    )
+    @app_commands.default_permissions(administrator=True)
+    async def lol_vote_close_cmd(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        await self._close_lol_vote()
+        await interaction.followup.send("已结算投票 / Vote closed.", ephemeral=True)
+
     async def cog_load(self):
         import aiohttp
         self.session = aiohttp.ClientSession()
@@ -6593,17 +6646,18 @@ class Dashboard(commands.Cog):
         """每分钟检查一次 cron 表达式，触发到期的定时赛事。"""
         try:
             from croniter import croniter
-            from datetime import datetime as dt
+            from datetime import datetime as dt, timezone, timedelta
             import json as _json
 
-            now = dt.now()
+            MYT = timezone(timedelta(hours=8))
+            now = dt.now(MYT)
 
-            # ── LoL Vote: 周五/六/日/一 早上9点发投票 ──
-            if now.weekday() in [4, 5, 6, 0] and now.hour == 9 and now.minute == 0:
+            # ── LoL Vote: 每天 早上9点发投票 (马来西亚时间) ──
+            if now.hour == 9 and now.minute == 0:
                 await self._post_lol_vote()
 
-            # ── LoL Vote: 周五/六/日/一 下午1点结算 ──
-            if now.weekday() in [4, 5, 6, 0] and now.hour == 13 and now.minute == 0:
+            # ── LoL Vote: 每天 下午1点结算 (马来西亚时间) ──
+            if now.hour == 13 and now.minute == 0:
                 await self._close_lol_vote()
             conn = get_db()
             try:
