@@ -26,6 +26,12 @@ from cogs.tournament import (
 import logging
 from utils.logger import log_error
 from datetime import datetime, timezone, timedelta
+
+try:
+    from croniter import croniter
+    HAS_CRONITER = True
+except ImportError:
+    HAS_CRONITER = False
 from cogs.economy import get_balance, add_coins, MainMenuView
 import random
 import sqlite3
@@ -6469,6 +6475,8 @@ class DashboardView(discord.ui.View):
 class Dashboard(commands.Cog):
     """统一控制面板 / Unified Control Panel — 一个界面完成所有操作"""
 
+    _croniter_warned = False
+
     def __init__(self, bot):
         self.bot = bot
 
@@ -6734,8 +6742,13 @@ class Dashboard(commands.Cog):
     @tasks.loop(minutes=1)
     async def scheduled_event_loop(self):
         """每分钟检查一次 cron 表达式，触发到期的定时赛事。"""
+        if not HAS_CRONITER:
+            if not Dashboard._croniter_warned:
+                logger.warning("[ScheduledEventLoop] croniter not installed, scheduled events disabled")
+                Dashboard._croniter_warned = True
+            return
+
         try:
-            from croniter import croniter
             from datetime import datetime as dt, timezone, timedelta
             import json as _json
 
@@ -6815,8 +6828,6 @@ class Dashboard(commands.Cog):
                         continue
             finally:
                 conn.close()
-        except ImportError:
-            logger.warning("[ScheduledEventLoop] croniter not installed, skipping scheduled events")
         except Exception as e:
             logger.error(f"[ScheduledEventLoop] loop error: {e}")
 
