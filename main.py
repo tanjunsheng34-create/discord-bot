@@ -218,6 +218,33 @@ def ensure_deps():
         print("All nacl imports verified OK")
     print("--- end nacl diagnostics ---")
 
+    # Install davey (discord.py 2.7.1 voice dependency)
+    try:
+        import davey
+        print("davey already installed.")
+    except ImportError:
+        print("Installing davey library...")
+        try:
+            subprocess.check_call(
+                [sys.executable, "-m", "pip", "install", "davey"]
+            )
+            import davey
+            print("davey installed successfully.")
+        except Exception as e:
+            print(f"pip install davey failed: {e}")
+            print("Trying GitHub install...")
+            try:
+                subprocess.check_call(
+                    [sys.executable, "-m", "pip", "install",
+                     "git+https://github.com/davey/davey.git"]
+                )
+                import davey
+                print("davey installed from GitHub successfully.")
+            except Exception as e2:
+                print(f"GitHub install also failed: {e2}")
+                print("davey unavailable — voice features may not work.")
+                print("To fix: downgrade discord.py to 2.6.0 in requirements.txt")
+
     # Install FFmpeg via static binary download (no root/apt required)
     return install_static_ffmpeg()
 
