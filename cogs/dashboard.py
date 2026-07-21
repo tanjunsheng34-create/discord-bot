@@ -25,7 +25,7 @@ from cogs.tournament import (
 
 import logging
 from utils.logger import log_error
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from cogs.economy import get_balance, add_coins, MainMenuView
 import random
 import sqlite3
