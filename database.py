@@ -239,6 +239,12 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
+    # --- 新增 users.win_streak 字段（连胜记录）---
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN win_streak INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
     # --- 新增选路比赛字段 / Role-Pick Match Fields ---
     try:
         cursor.execute("ALTER TABLE tournaments ADD COLUMN role_pick INTEGER DEFAULT 0")

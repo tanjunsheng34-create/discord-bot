@@ -3034,6 +3034,69 @@ class MatchViewWithID(discord.ui.View):
         view.add_item(user_select)
         await interaction.followup.send("选择要添加的用户 / Select users to add:", view=view, ephemeral=True)
 
+    @discord.ui.button(label="开始比赛 Start", style=discord.ButtonStyle.success, emoji="▶️", row=2, custom_id="matchv2_start")
+    async def start_btn(self, interaction: discord.Interaction, button):
+        """正式开赛：锁定报名，不能再报名或退出。"""
+        mid, t, guild = await self._get_context(interaction)
+        if not t:
+            return await interaction.response.send_message("比赛不存在 / Match not found.", ephemeral=True)
+        if t["status"] != "open":
+            return await interaction.response.send_message("比赛已开始或已结束 / Match already started or finished.", ephemeral=True)
+        if str(interaction.user.id) != t["created_by"] and not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("仅创建者或管理员可操作 / Creator or admin only.", ephemeral=True)
+
+        await interaction.response.defer(ephemeral=True)
+
+        conn = get_db()
+        try:
+            cur = conn.cursor()
+            cur.execute("UPDATE tournaments SET status='closed' WHERE id=?", (mid,))
+            conn.commit()
+        finally:
+            conn.close()
+
+        await interaction.followup.send(
+            "▶️ **比赛已开始！报名已锁定。** / Match started! Signups are now locked.",
+            ephemeral=True,
+        )
+
+        # 更新公开消息
+        try:
+            embeds = interaction.message.embeds
+            if embeds:
+                embed = embeds[0]
+                embed.color = discord.Color.orange()
+                embed.set_footer(text=embed.footer.text + " | 已开始/Started" if embed.footer.text else "已开始/Started")
+                await interaction.message.edit(embed=embed)
+        except Exception:
+            pass
+
+        await self._refresh_list(interaction, mid)
+
+    @discord.ui.button(label="拉入语音 Voice", style=discord.ButtonStyle.primary, emoji="🎙️", row=2, custom_id="matchv2_voice")
+    async def voice_btn(self, interaction: discord.Interaction, button):
+        """将参赛者拉入语音频道。"""
+        mid, t, guild = await self._get_context(interaction)
+        if not t:
+            return await interaction.response.send_message("比赛不存在 / Match not found.", ephemeral=True)
+
+        await interaction.response.defer(ephemeral=True)
+
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT discord_id, is_sub FROM registrations WHERE tournament_id=? ORDER BY is_sub ASC, id ASC", (mid,))
+        rows = cur.fetchall()
+        conn.close()
+
+        if not rows:
+            return await interaction.followup.send("无人报名 / No one signed up.", ephemeral=True)
+
+        view = PostMatchPullView(guild)
+        await interaction.followup.send(
+            "🎙️ **拉入语音 / Voice Pull**\n选择要将队员拉入的频道：",
+            view=view,
+            ephemeral=True,
+        )
+
 # ══════════ 向后兼容别名══════════
 MatchView = MatchViewWithID
 
@@ -5445,7 +5508,10 @@ class DashboardView(discord.ui.View):
                 parts.append(f":white_check_mark: **{r['name']}** - {r['description']} (+{r['reward']}g)")
             else:
                 parts.append(f":black_large_square: {r['name']} - {r['description']} (+{r['reward']}g)")
-        embed.add_field(name="", value="\n".join(parts[:20]), inline=False)
+        value = "\n".join(parts[:20])
+        if len(value) > 1024:
+            value = value[:1020] + "..."
+        embed.add_field(name="", value=value, inline=False)
         if total_ct > 20:
             embed.set_footer(text=f"Showing first 20 of {total_ct}. Use /gmpt-achievements for full list.")
         await interaction.followup.send(embed=embed, ephemeral=True)
@@ -5861,8 +5927,8 @@ class DashboardView(discord.ui.View):
 
     # ── Page 2 补位: 定时赛事 ──
     async def _scheduled_event(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
         if not interaction.user.guild_permissions.administrator:
+            await interaction.response.defer(ephemeral=True)
             return await interaction.followup.send("管理员专用 / Admin only.", ephemeral=True)
 
         class ScheduledEventModal(discord.ui.Modal, title="新建定时赛事 / New Scheduled Event"):
@@ -5924,7 +5990,7 @@ class DashboardView(discord.ui.View):
                     ephemeral=True,
                 )
 
-        await interaction.followup.send_modal(ScheduledEventModal())
+        await interaction.response.send_modal(ScheduledEventModal())
 
     # ── Page 3 补位: 连胜王 ──
     async def _win_streak(self, interaction: discord.Interaction):
@@ -5956,8 +6022,8 @@ class DashboardView(discord.ui.View):
 
     # ── Page 5 补位: 数据导出 ──
     async def _export_data(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
         if not interaction.user.guild_permissions.administrator:
+            await interaction.response.defer(ephemeral=True)
             return await interaction.followup.send("管理员专用 / Admin only.", ephemeral=True)
 
         class ExportModal(discord.ui.Modal, title="导出数据 / Export Data"):
@@ -6063,12 +6129,12 @@ class DashboardView(discord.ui.View):
                     f"✅ 导出完成! 共导出 {len(files_sent)} 个文件。", ephemeral=True
                 )
 
-        await interaction.followup.send_modal(ExportModal())
+        await interaction.response.send_modal(ExportModal())
 
     # ── Page 5 补位: 赛季重置 ──
     async def _season_reset(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
         if not interaction.user.guild_permissions.administrator:
+            await interaction.response.defer(ephemeral=True)
             return await interaction.followup.send("管理员专用 / Admin only.", ephemeral=True)
 
         class SeasonResetModal(discord.ui.Modal, title="赛季重置 / Season Reset"):
@@ -6142,7 +6208,7 @@ class DashboardView(discord.ui.View):
                         "❌ 赛季重置失败 / Season reset failed.", ephemeral=True
                     )
 
-        await interaction.followup.send_modal(SeasonResetModal())
+        await interaction.response.send_modal(SeasonResetModal())
 
     # ── Page 5 补位: 比赛回放 ──
     async def _replay(self, interaction: discord.Interaction):
@@ -6349,7 +6415,8 @@ class Dashboard(commands.Cog):
                                         color=discord.Color.blue(),
                                     )
                                     view = MatchView()
-                                    await channel.send(embed=embed, view=view)
+                                    msg = await channel.send(embed=embed, view=view)
+                                    save_match_view_state(tid, msg.id, channel_id)
                     except Exception as e:
                         logger.error(f"[ScheduledEventLoop] event {ev['event_id']} error: {e}")
                         continue
