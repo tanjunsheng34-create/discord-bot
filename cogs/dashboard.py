@@ -6652,6 +6652,31 @@ class Dashboard(commands.Cog):
         await interaction.followup.send("已结算投票 / Vote closed.", ephemeral=True)
 
     @app_commands.command(
+        name="gmpt-test-welcome",
+        description="Preview welcome message",
+    )
+    @app_commands.default_permissions(administrator=True)
+    async def gmpt_test_welcome(self, interaction: discord.Interaction):
+        welcome_channel = interaction.guild.get_channel(1398991787523313675)
+        if not welcome_channel:
+            await interaction.response.send_message("未找到welcome频道", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title="👋 欢迎来到 Gaming Planet！",
+            description=f"{interaction.user.mention} 加入了我们！\nWelcome to Gaming Planet!",
+            color=0x9B59B6,
+        )
+        embed.add_field(
+            name="快速开始 | Quick Start",
+            value="输入 `/gmpt-help` 查看所有功能\nType `/gmpt-help` to see all features",
+            inline=False,
+        )
+        embed.set_thumbnail(url=interaction.user.display_avatar.url)
+        await welcome_channel.send(embed=embed)
+        await interaction.response.send_message("已发送欢迎预览到welcome频道", ephemeral=True)
+
+    @app_commands.command(
         name="setup-economy-info",
         description="Setup economy info panel in economy-info channel",
     )
