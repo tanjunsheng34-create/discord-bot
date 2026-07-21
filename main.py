@@ -40,6 +40,8 @@ COGS = [
     "cogs.match",
     "cogs.daily",
     "cogs.help",
+    "cogs.music",
+    "cogs.peiwans",
 ]
 
 

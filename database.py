@@ -574,6 +574,51 @@ def init_db():
         );
     """)
 
+    # ── 陪玩系统 / Companion System ──
+    cursor.executescript("""
+        CREATE TABLE IF NOT EXISTS peiwans_profiles (
+            user_id INTEGER PRIMARY KEY,
+            game TEXT,
+            rank TEXT,
+            price INTEGER,
+            intro TEXT,
+            status TEXT DEFAULT 'offline',
+            total_orders INTEGER DEFAULT 0,
+            avg_rating REAL DEFAULT 0,
+            total_earnings INTEGER DEFAULT 0,
+            created_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS peiwans_orders (
+            order_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_id INTEGER,
+            peiwans_id INTEGER,
+            game TEXT,
+            price INTEGER,
+            status TEXT DEFAULT 'pending',
+            created_at TEXT,
+            completed_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS peiwans_reviews (
+            review_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id INTEGER,
+            reviewer_id INTEGER,
+            peiwans_id INTEGER,
+            rating INTEGER,
+            comment TEXT,
+            created_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS peiwans_earnings (
+            earning_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            peiwans_id INTEGER,
+            order_id INTEGER,
+            amount INTEGER,
+            created_at TEXT
+        );
+    """)
+
     # ── 性能索引 / Performance Indexes ──
     for idx_sql in [
         "CREATE INDEX IF NOT EXISTS idx_registrations_discord_id ON registrations(discord_id)",
