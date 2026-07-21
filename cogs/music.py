@@ -56,15 +56,36 @@ class Music(commands.Cog):
 
         channel = interaction.user.voice.channel
 
-        if self.voice_client is None:
-            self.voice_client = await channel.connect()
-        elif self.voice_client.channel.id != channel.id:
-            await self.voice_client.move_to(channel)
+        try:
+            if self.voice_client is None:
+                self.voice_client = await channel.connect()
+            elif self.voice_client.channel.id != channel.id:
+                await self.voice_client.move_to(channel)
+        except asyncio.TimeoutError:
+            print("[Music] WARNING: Voice connection timed out")
+            await interaction.followup.send(
+                "语音连接超时 | Voice connection timed out. Please try again.",
+                ephemeral=True,
+            )
+            return False
+        except discord.ClientException as e:
+            print(f"[Music] WARNING: Voice connection failed: {e}")
+            await interaction.followup.send(
+                f"语音连接失败 | Voice connection failed: {e}",
+                ephemeral=True,
+            )
+            return False
 
         return True
 
     async def _play_next(self, interaction: discord.Interaction = None):
-        """Play the next song in queue. If queue empty, start disconnect timer."""
+        """Play the next song in queue. If queue empty, start disconnect timer.
+
+        Uses a safe loop instead of recursion. When a song fails to play,
+        it is skipped and the next one is attempted. If every song in the
+        queue fails (fail_count >= queue length), playback stops and the bot
+        disconnects with a user-visible message.
+        """
         if not self.song_queue:
             self.now_playing = None
             if self.voice_client and self.voice_client.is_connected():
@@ -73,40 +94,71 @@ class Music(commands.Cog):
 
         self._cancel_disconnect()
 
-        song = self.song_queue.pop(0)
-        self.now_playing = song
+        fail_count = 0
+        queue_len = len(self.song_queue)
 
-        try:
-            audio_url = await self._extract_audio_url(song["query"])
-            if audio_url is None:
-                # Skip this song, try next
-                await self._play_next(interaction)
+        while self.song_queue:
+            song = self.song_queue.pop(0)
+            self.now_playing = song
+
+            try:
+                audio_url = await self._extract_audio_url(song["query"])
+                if audio_url is None:
+                    # Skip this song, try next
+                    fail_count += 1
+                    print(f"[Music] Skipped song (no audio URL): {song['title']}")
+                    continue
+
+                ffmpeg_opts = {
+                    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
+                    "options": "-vn",
+                }
+                try:
+                    source = discord.FFmpegPCMAudio(audio_url, **ffmpeg_opts)
+                except (FileNotFoundError, discord.errors.ClientException) as ffmpeg_err:
+                    print(f"[Music] ERROR: FFmpeg not found or failed: {ffmpeg_err}")
+                    raise
+                source = discord.PCMVolumeTransformer(source, volume=self._volume)
+
+                def after_play(error):
+                    if error:
+                        print(f"[Music] Playback error: {error}")
+                    asyncio.run_coroutine_threadsafe(self._after_song(interaction), self.bot.loop)
+
+                self.voice_client.play(source, after=after_play)
+                # Successfully started playback; exit loop
                 return
 
-            ffmpeg_opts = {
-                "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
-                "options": "-vn",
-            }
-            source = discord.FFmpegPCMAudio(audio_url, **ffmpeg_opts)
-            source = discord.PCMVolumeTransformer(source, volume=self._volume)
+            except Exception as e:
+                fail_count += 1
+                print(f"[Music] Error playing song '{song['title']}': {e}")
+                continue
 
-            def after_play(error):
-                if error:
-                    print(f"[Music] Playback error: {error}")
-                asyncio.run_coroutine_threadsafe(self._after_song(interaction), self.bot.loop)
-
-            self.voice_client.play(source, after=after_play)
-
-        except Exception as e:
-            print(f"[Music] Error playing song: {e}")
-            await self._play_next(interaction)
+        # All songs failed (or queue drained without a successful start)
+        self.now_playing = None
+        if fail_count >= queue_len and queue_len > 0:
+            print(f"[Music] All {queue_len} song(s) failed to play. Disconnecting.")
+            if interaction:
+                await interaction.followup.send(
+                    f"所有 {queue_len} 首歌曲均播放失败 | All {queue_len} song(s) failed to play. "
+                    "请检查 yt-dlp / FFmpeg 是否已正确安装。",
+                    ephemeral=True,
+                )
+            if self.voice_client and self.voice_client.is_connected():
+                await self.voice_client.disconnect()
+                self.voice_client = None
+            self.song_queue.clear()
 
     async def _after_song(self, interaction):
         await self._play_next(interaction)
 
     async def _extract_audio_url(self, query: str) -> str | None:
         """Use yt-dlp to search YouTube and extract best audio URL."""
-        import yt_dlp
+        try:
+            import yt_dlp
+        except ImportError:
+            print("[Music] ERROR: yt-dlp is not installed. Install it with: pip install yt-dlp")
+            raise RuntimeError("yt-dlp is not installed. Install it with: pip install yt-dlp")
 
         ydl_opts = {
             "format": "bestaudio/best",
@@ -128,8 +180,10 @@ class Music(commands.Cog):
 
         try:
             return await loop.run_in_executor(None, _extract)
+        except RuntimeError:
+            raise
         except Exception as e:
-            print(f"[Music] yt-dlp error: {e}")
+            print(f"[Music] yt-dlp error: {type(e).__name__}: {e}")
             return None
 
     @app_commands.command(name="gmpt-play", description="Play a song from YouTube")
@@ -137,40 +191,68 @@ class Music(commands.Cog):
     async def play(self, interaction: discord.Interaction, song: str):
         await interaction.response.defer()
 
-        if not await self._join_voice(interaction):
-            return
-
-        song_info = {
-            "query": song,
-            "title": song,
-            "requester": interaction.user.mention,
-        }
-
         try:
-            yt_title = await self._get_title(song)
-            if yt_title:
-                song_info["title"] = yt_title
-        except Exception:
-            pass
+            if not await self._join_voice(interaction):
+                return
 
-        self.song_queue.append(song_info)
+            song_info = {
+                "query": song,
+                "title": song,
+                "requester": interaction.user.mention,
+            }
 
-        if self.voice_client.is_playing() or self.voice_client.is_paused():
-            embed = discord.Embed(
-                title="已加入队列 | Added to Queue",
-                description=f"**{song_info['title']}**\n请求者 | Requested by: {interaction.user.mention}",
-                color=0x1DB954,
+            try:
+                yt_title = await self._get_title(song)
+                if yt_title:
+                    song_info["title"] = yt_title
+            except Exception:
+                pass
+
+            self.song_queue.append(song_info)
+
+            if self.voice_client.is_playing() or self.voice_client.is_paused():
+                embed = discord.Embed(
+                    title="已加入队列 | Added to Queue",
+                    description=f"**{song_info['title']}**\n请求者 | Requested by: {interaction.user.mention}",
+                    color=0x1DB954,
+                )
+                embed.set_footer(text=f"队列位置 #{len(self.song_queue)} | Queue position #{len(self.song_queue)}")
+                await interaction.followup.send(embed=embed)
+            else:
+                embed = discord.Embed(
+                    title="正在播放 | Now Playing",
+                    description=f"**{song_info['title']}**\n请求者 | Requested by: {interaction.user.mention}",
+                    color=0x1DB954,
+                )
+                await interaction.followup.send(embed=embed)
+                await self._play_next(interaction)
+
+        except RuntimeError as e:
+            # e.g. yt-dlp not installed
+            print(f"[Music] ERROR: {e}")
+            await interaction.followup.send(
+                f"错误 | Error: {e}",
+                ephemeral=True,
             )
-            embed.set_footer(text=f"队列位置 #{len(self.song_queue)} | Queue position #{len(self.song_queue)}")
-            await interaction.followup.send(embed=embed)
-        else:
-            embed = discord.Embed(
-                title="正在播放 | Now Playing",
-                description=f"**{song_info['title']}**\n请求者 | Requested by: {interaction.user.mention}",
-                color=0x1DB954,
+        except (FileNotFoundError, discord.errors.ClientException) as e:
+            # e.g. FFmpeg not found
+            print(f"[Music] ERROR: FFmpeg not found or failed: {e}")
+            await interaction.followup.send(
+                "错误 | Error: FFmpeg not found. Install FFmpeg and make sure it is on PATH.",
+                ephemeral=True,
             )
-            await interaction.followup.send(embed=embed)
-            await self._play_next(interaction)
+        except asyncio.TimeoutError:
+            print("[Music] ERROR: Voice connection timed out")
+            await interaction.followup.send(
+                "错误 | Error: Voice connection timed out. Please try again.",
+                ephemeral=True,
+            )
+        except Exception as e:
+            print(f"[Music] ERROR: Unexpected error in play command: {type(e).__name__}: {e}")
+            await interaction.followup.send(
+                f"错误 | Error: {type(e).__name__}: {e}",
+                ephemeral=True,
+            )
 
     async def _get_title(self, query: str) -> str | None:
         """Extract video title from query using yt-dlp."""
@@ -317,40 +399,68 @@ class Music(commands.Cog):
     async def karaoke(self, interaction: discord.Interaction, song: str):
         await interaction.response.defer()
 
-        if not await self._join_voice(interaction):
-            return
-
-        song_info = {
-            "query": song,
-            "title": song,
-            "requester": interaction.user.mention,
-        }
-
         try:
-            yt_title = await self._get_title(song)
-            if yt_title:
-                song_info["title"] = yt_title
-        except Exception:
-            pass
+            if not await self._join_voice(interaction):
+                return
 
-        self.song_queue.append(song_info)
+            song_info = {
+                "query": song,
+                "title": song,
+                "requester": interaction.user.mention,
+            }
 
-        if self.voice_client.is_playing() or self.voice_client.is_paused():
-            embed = discord.Embed(
-                title="已加入KTV队列 | Added to KTV Queue",
-                description=f"**{song_info['title']}**\n点歌人 | Requested by: {interaction.user.mention}",
-                color=0x1DB954,
+            try:
+                yt_title = await self._get_title(song)
+                if yt_title:
+                    song_info["title"] = yt_title
+            except Exception:
+                pass
+
+            self.song_queue.append(song_info)
+
+            if self.voice_client.is_playing() or self.voice_client.is_paused():
+                embed = discord.Embed(
+                    title="已加入KTV队列 | Added to KTV Queue",
+                    description=f"**{song_info['title']}**\n点歌人 | Requested by: {interaction.user.mention}",
+                    color=0x1DB954,
+                )
+                embed.set_footer(text=f"队列位置 #{len(self.song_queue)} | Queue position #{len(self.song_queue)}")
+                await interaction.followup.send(embed=embed)
+            else:
+                embed = discord.Embed(
+                    title="KTV — 正在播放 | Now Playing",
+                    description=f"**{song_info['title']}**\n点歌人 | Requested by: {interaction.user.mention}",
+                    color=0x1DB954,
+                )
+                await interaction.followup.send(embed=embed)
+                await self._play_next(interaction)
+
+        except RuntimeError as e:
+            # e.g. yt-dlp not installed
+            print(f"[Music] ERROR: {e}")
+            await interaction.followup.send(
+                f"错误 | Error: {e}",
+                ephemeral=True,
             )
-            embed.set_footer(text=f"队列位置 #{len(self.song_queue)} | Queue position #{len(self.song_queue)}")
-            await interaction.followup.send(embed=embed)
-        else:
-            embed = discord.Embed(
-                title="KTV — 正在播放 | Now Playing",
-                description=f"**{song_info['title']}**\n点歌人 | Requested by: {interaction.user.mention}",
-                color=0x1DB954,
+        except (FileNotFoundError, discord.errors.ClientException) as e:
+            # e.g. FFmpeg not found
+            print(f"[Music] ERROR: FFmpeg not found or failed: {e}")
+            await interaction.followup.send(
+                "错误 | Error: FFmpeg not found. Install FFmpeg and make sure it is on PATH.",
+                ephemeral=True,
             )
-            await interaction.followup.send(embed=embed)
-            await self._play_next(interaction)
+        except asyncio.TimeoutError:
+            print("[Music] ERROR: Voice connection timed out")
+            await interaction.followup.send(
+                "错误 | Error: Voice connection timed out. Please try again.",
+                ephemeral=True,
+            )
+        except Exception as e:
+            print(f"[Music] ERROR: Unexpected error in karaoke command: {type(e).__name__}: {e}")
+            await interaction.followup.send(
+                f"错误 | Error: {type(e).__name__}: {e}",
+                ephemeral=True,
+            )
 
     @app_commands.command(name="gmpt-music-panel", description="Send the music control panel")
     @app_commands.default_permissions(administrator=True)
