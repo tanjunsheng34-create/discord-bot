@@ -96,6 +96,14 @@ class GiveawayModal(discord.ui.Modal, title="创建抽奖 / Create Giveaway"):
         # Schedule auto-end
         asyncio.create_task(auto_end_giveaway(gid, duration_mins))
 
+        # 持久化到 scheduled_giveaways（重启后恢复）
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO scheduled_giveaways (gid, channel_id, end_time, prize) VALUES (?, ?, ?, ?)",
+            (gid, str(interaction.channel_id), ends_at, self.prize.value),
+        )
+        conn.commit(); conn.close()
+
 
 # =============================================================================
 # GiveawayView — 按钮交互
@@ -184,6 +192,18 @@ class Giveaway(commands.Cog):
         self.bot = bot
         global _bot_ref
         _bot_ref = bot
+
+        # 创建 scheduled_giveaways 持久化表（重启后恢复定时器）
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS scheduled_giveaways (
+                gid INTEGER PRIMARY KEY,
+                channel_id TEXT NOT NULL,
+                end_time TEXT NOT NULL,
+                prize TEXT NOT NULL
+            )
+        """)
+        conn.commit(); conn.close()
 
     giveaway_group = app_commands.Group(
         name="gmpt-giveaway-admin",
@@ -369,6 +389,9 @@ async def end_giveaway(gid, bot):
 
     cur.execute("UPDATE giveaway SET status='ended' WHERE id=?", (gid,))
 
+    # 从持久化表删除
+    cur.execute("DELETE FROM scheduled_giveaways WHERE gid=?", (gid,))
+
     cur.execute("SELECT user_id FROM giveaway_entries WHERE giveaway_id=?", (gid,))
     entries = [r["user_id"] for r in cur.fetchall()]
     conn.commit()
@@ -417,3 +440,29 @@ async def auto_end_giveaway(gid, duration_mins):
 
 async def setup(bot):
     await bot.add_cog(Giveaway(bot))
+
+    # 重启后恢复未完成的 giveaway 定时器
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("SELECT gid, channel_id, end_time, prize FROM scheduled_giveaways")
+    rows = cur.fetchall()
+    conn.close()
+
+    now = datetime.now()
+    for row in rows:
+        try:
+            end_dt = datetime.fromisoformat(row["end_time"])
+            remaining_seconds = (end_dt - now).total_seconds()
+            if remaining_seconds <= 0:
+                # 已过期，直接结算
+                conn2 = get_db(); cur2 = conn2.cursor()
+                cur2.execute("SELECT status FROM giveaway WHERE id=?", (row["gid"],))
+                gw = cur2.fetchone()
+                conn2.close()
+                if gw and gw["status"] == "active":
+                    asyncio.create_task(end_giveaway(row["gid"], bot))
+            else:
+                # 未过期，重新排期
+                remaining_mins = remaining_seconds / 60
+                asyncio.create_task(auto_end_giveaway(row["gid"], remaining_mins))
+        except Exception as e:
+            log_error("giveaway", "reschedule", e)

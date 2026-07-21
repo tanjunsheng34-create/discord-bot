@@ -39,6 +39,7 @@ COGS = [
     "cogs.admin_backup",
     "cogs.match",
     "cogs.daily",
+    "cogs.help",
 ]
 
 

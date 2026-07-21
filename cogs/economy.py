@@ -895,9 +895,13 @@ def check_achievement(user_id: str, key: str):
             try:
                 ach_ch = _bot.get_channel(ACHIEVEMENTS_CHANNEL_ID)
                 if ach_ch:
-                    await ach_ch.send(f"<@{user_id}> 解锁了成就 [{a['name']}] — +{a['reward']} coins")
+                    embed = discord.Embed(title="🏅 成就解锁 | Achievement Unlocked", color=0xFFD700)
+                    embed.description = f"<@{user_id}> 解锁了 **{a['name']}**！\nUnlocked achievement! (+{a['reward']} coins)"
+                    await ach_ch.send(embed=embed)
                     if completed:
-                        await ach_ch.send(f"<@{user_id}> 解锁了成就 [{completed['name']}] — +{completed['reward']} coins")
+                        embed2 = discord.Embed(title="🏅 成就解锁 | Achievement Unlocked", color=0xFFD700)
+                        embed2.description = f"<@{user_id}> 解锁了 **{completed['name']}**！\nUnlocked achievement! (+{completed['reward']} coins)"
+                        await ach_ch.send(embed=embed2)
             except Exception as e:
                 log_error("economy", "_send_ach", e)
         _bot.loop.create_task(_send_ach())
@@ -1059,6 +1063,7 @@ class Economy(commands.Cog):
     # ========== 赠送 ==========
     @app_commands.command(name="gmpt-gift", description="Gift coins to another player / 赠送金币")
     @app_commands.describe(player="Receiver / 接收者", amount="Amount / 数量")
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def gift_cmd(self, interaction: discord.Interaction, player: discord.Member, amount: int):
         if amount < 1:
             return await interaction.response.send_message(
@@ -1093,6 +1098,16 @@ class Economy(commands.Cog):
         await interaction.response.send_message(
             f"{interaction.user.mention} → {player.mention} gifted **{amount}** coins! / 赠送了 **{amount}** coins！"
         )
+
+        # 送礼广播到 SHOP_LOG_CHANNEL
+        try:
+            gift_channel = interaction.guild.get_channel(SHOP_LOG_CHANNEL_ID)
+            if gift_channel:
+                embed = discord.Embed(title="💸 送礼 | Gift", color=0xE91E63)
+                embed.description = f"{interaction.user.mention} → {player.mention} **{amount}** coins / 金币"
+                await gift_channel.send(embed=embed)
+        except Exception:
+            pass
 
         conn = get_db(); cur = conn.cursor()
         cur.execute(
@@ -1175,6 +1190,7 @@ class Economy(commands.Cog):
     # ========== 购买 ==========
     @app_commands.command(name="gmpt-buy", description="Buy item from shop / 购买商店物品")
     @app_commands.describe(item_id="Item ID from /gmpt-shop", message="Message content (required for Broadcast)")
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def buy_cmd(self, interaction: discord.Interaction, item_id: int, message: str = None):
         await buy_item(interaction, str(interaction.user.id), item_id, broadcast_message=message)
 
@@ -1225,6 +1241,7 @@ class Economy(commands.Cog):
 
     @app_commands.command(name="gmpt-use", description="Use an item from inventory / 使用背包物品")
     @app_commands.autocomplete(item_id=_use_autocomplete)
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def use_cmd(self, interaction: discord.Interaction, item_id: int):
         uid = str(interaction.user.id)
         conn = get_db(); cur = conn.cursor()
@@ -1570,6 +1587,7 @@ class Economy(commands.Cog):
         amount="下注金额 / Bet amount (max 500)",
         team="下注队伍 ID / Team ID to bet on",
     )
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def bet_cmd(
         self, interaction: discord.Interaction,
         match_id: int, amount: int, team: int,

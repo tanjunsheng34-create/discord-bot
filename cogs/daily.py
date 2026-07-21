@@ -224,6 +224,7 @@ class Daily(commands.Cog):
         name="claim",
         description="Claim your daily voice reward / 领取每日语音奖励",
     )
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def claim_cmd(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
         today_str = datetime.now(UTC8).strftime("%Y-%m-%d")
