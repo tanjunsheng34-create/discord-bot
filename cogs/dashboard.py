@@ -6633,6 +6633,93 @@ class Dashboard(commands.Cog):
         await self._close_lol_vote()
         await interaction.followup.send("已结算投票 / Vote closed.", ephemeral=True)
 
+    @app_commands.command(
+        name="setup-economy-info",
+        description="发送经济系统介绍到 economy-info 频道",
+    )
+    @app_commands.default_permissions(administrator=True)
+    async def setup_economy_info_cmd(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        channel = discord.utils.get(interaction.guild.text_channels, name="economy-info")
+        if not channel:
+            await interaction.followup.send("未找到 #economy-info 频道", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title="🏦 GMPT 经济系统",
+            description="欢迎来到经济频道！以下是所有经济功能介绍。\nWelcome! Here's all economy features.",
+            color=0x2ECC71,
+        )
+
+        embed.add_field(name=" ", value="━━━━━━━━━━━━━━━━━━━━", inline=False)
+
+        embed.add_field(
+            name="🛒 积分商店 | Point Shop",
+            value="→ #shop\n`/shop` 打开商店面板 | Open shop menu\n双倍MMR卡 | MMR保护卡 | 偷金币卡\n经验加成卡 | 语音加成卡 | 抽奖券",
+            inline=False,
+        )
+
+        embed.add_field(
+            name="🎒 背包 | Inventory",
+            value="`/inventory` 查看背包 | Check items",
+            inline=False,
+        )
+
+        embed.add_field(
+            name="💰 余额 | Balance",
+            value="`/balance` 查看积分余额 | Check points",
+            inline=False,
+        )
+
+        embed.add_field(
+            name="🎁 每日奖励 | Daily Reward",
+            value="→ #daily\n`/daily` 领取每日签到奖励\nDaily check-in, streak bonuses",
+            inline=False,
+        )
+
+        embed.add_field(
+            name="🎤 语音奖励 | Voice Reward",
+            value="挂语音频道自动攒积分\nEarn points by staying in voice channels",
+            inline=False,
+        )
+
+        embed.add_field(
+            name="🏆 成就 | Achievements",
+            value="→ #achievements\n`/achievements` 查看成就列表 | View achievements",
+            inline=False,
+        )
+
+        embed.add_field(
+            name="🎪 抽奖 | Giveaway",
+            value="`/giveaway` 参与限时抽奖 | Time-limited giveaways",
+            inline=False,
+        )
+
+        embed.add_field(
+            name="💸 送礼 | Gift",
+            value="`/gift @用户 金额` 赠送积分\nGift points to friends",
+            inline=False,
+        )
+
+        embed.add_field(
+            name="📊 交易记录 | Transactions",
+            value="`/transactions` 查看收支明细 | View history",
+            inline=False,
+        )
+
+        embed.add_field(name=" ", value="━━━━━━━━━━━━━━━━━━━━", inline=False)
+
+        embed.add_field(
+            name="💡 小技巧 | Tips",
+            value="比赛赚积分 · 挂语音30分钟 · 连胜更多积分\nPlay matches · 30min VC · Streak bonus",
+            inline=False,
+        )
+
+        embed.set_footer(text="🛍️ 购买记录查看 #shop-log")
+
+        await channel.send(embed=embed)
+        await interaction.followup.send("已发送经济系统介绍到 #economy-info", ephemeral=True)
+
     async def cog_load(self):
         import aiohttp
         self.session = aiohttp.ClientSession()
