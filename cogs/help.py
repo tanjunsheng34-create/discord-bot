@@ -10,8 +10,8 @@ class HelpCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="help", description="Show all commands")
-    async def help_cmd(self, interaction: discord.Interaction):
+    @app_commands.command(name="gmpt-help", description="Show all commands")
+    async def gmpt_help_cmd(self, interaction: discord.Interaction):
         embed = discord.Embed(
             title="📖 GMPT 帮助 | Help",
             description="以下是所有可用命令 | All available commands:",

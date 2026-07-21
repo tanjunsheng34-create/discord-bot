@@ -6484,7 +6484,7 @@ class Dashboard(commands.Cog):
             )
             embed.add_field(
                 name="快速开始 | Quick Start",
-                value="输入 `/help` 查看所有功能\nType `/help` to see all features",
+                value="输入 `/gmpt-help` 查看所有功能\nType `/gmpt-help` to see all features",
                 inline=False,
             )
             embed.set_thumbnail(url=member.display_avatar.url)
