@@ -1,5 +1,15 @@
 # GMPT Discord Bot
 
+## Quick Start (Pterodactyl / Linux)
+
+Pterodactyl 的 **Startup Command** 设为：
+
+```
+bash start.sh
+```
+
+脚本自动安装系统依赖（ffmpeg）和 Python 依赖（PyNaCl、croniter），然后启动 bot。
+
 ## Railway Deployment — Database Persistence
 
 Railway 免费计划每次部署会重建容器，SQLite 文件丢失。需要挂载 Volume 持久化数据库。
