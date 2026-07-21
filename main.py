@@ -103,6 +103,31 @@ bot.setup_hook = setup_hook.__get__(bot)
 
 
 # =============================================================================
+# Auto-install missing dependencies
+# =============================================================================
+import subprocess
+import sys
+
+def ensure_deps():
+    """Auto-install missing Python dependencies."""
+    pkgs = {
+        "nacl": "PyNaCl",
+        "croniter": "croniter",
+    }
+    for import_name, pip_name in pkgs.items():
+        try:
+            __import__(import_name)
+        except ImportError:
+            print(f"Installing missing dependency: {pip_name} ...")
+            subprocess.check_call(
+                [sys.executable, "-m", "pip", "install", pip_name]
+            )
+
+# 在 bot.run() 之前调用
+ensure_deps()
+
+
+# =============================================================================
 # Auto-backup → Discord channel
 # =============================================================================
 def export_backup_data():
