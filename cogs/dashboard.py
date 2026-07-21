@@ -6615,7 +6615,7 @@ class Dashboard(commands.Cog):
 
     @app_commands.command(
         name="lol-vote",
-        description="手动发起LoL模式投票 / Manually start LoL mode vote",
+        description="Manual start LoL mode vote",
     )
     @app_commands.default_permissions(administrator=True)
     async def lol_vote_cmd(self, interaction: discord.Interaction):
