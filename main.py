@@ -107,6 +107,31 @@ bot.setup_hook = setup_hook.__get__(bot)
 # =============================================================================
 import subprocess
 import sys
+import urllib.request
+
+def install_static_ffmpeg():
+    """Download a precompiled static FFmpeg binary into the project directory.
+
+    Works without root/apt in restricted containers (e.g. Pterodactyl).
+    """
+    ffmpeg_path = os.path.join(os.path.dirname(__file__), "ffmpeg")
+    if os.path.exists(os.path.join(ffmpeg_path, "ffmpeg")):
+        # Make sure it is on PATH for this process
+        if ffmpeg_path not in os.environ.get("PATH", ""):
+            os.environ["PATH"] = ffmpeg_path + ":" + os.environ.get("PATH", "")
+        return ffmpeg_path
+
+    os.makedirs(ffmpeg_path, exist_ok=True)
+    # Download static FFmpeg (Linux x86_64)
+    url = "https://github.com/eugeneware/ffmpeg-static/releases/download/b5.0.1/linux-x64"
+    dest = os.path.join(ffmpeg_path, "ffmpeg")
+    print("Downloading static FFmpeg...")
+    urllib.request.urlretrieve(url, dest)
+    os.chmod(dest, 0o755)
+
+    # Set environment variable so discord.py / subprocess can find it
+    os.environ["PATH"] = ffmpeg_path + ":" + os.environ.get("PATH", "")
+    return ffmpeg_path
 
 def ensure_deps():
     """Auto-install missing Python and system dependencies."""
@@ -123,13 +148,8 @@ def ensure_deps():
                 [sys.executable, "-m", "pip", "install", pip_name]
             )
 
-    # Install FFmpeg system package if missing
-    try:
-        subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        print("Installing missing system dependency: ffmpeg ...")
-        subprocess.run(["apt-get", "update", "-qq"], check=False)
-        subprocess.run(["apt-get", "install", "-y", "-qq", "ffmpeg"], check=False)
+    # Install FFmpeg via static binary download (no root/apt required)
+    install_static_ffmpeg()
 
 # 在 bot.run() 之前调用
 ensure_deps()
