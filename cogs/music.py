@@ -132,10 +132,11 @@ class Music(commands.Cog):
                     "options": "-vn",
                 }
                 try:
-                    ffmpeg_exe = os.path.join(os.path.dirname(__file__), "..", "ffmpeg", "ffmpeg")
-                    if os.path.exists(ffmpeg_exe):
+                    try:
+                        import imageio_ffmpeg
+                        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
                         source = discord.FFmpegPCMAudio(audio_url, executable=ffmpeg_exe, **ffmpeg_opts)
-                    else:
+                    except ImportError:
                         source = discord.FFmpegPCMAudio(audio_url, **ffmpeg_opts)
                 except (FileNotFoundError, discord.errors.ClientException) as ffmpeg_err:
                     print(f"[Music] ERROR: FFmpeg not found or failed: {ffmpeg_err}")

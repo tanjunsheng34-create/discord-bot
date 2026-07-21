@@ -107,73 +107,6 @@ bot.setup_hook = setup_hook.__get__(bot)
 # =============================================================================
 import subprocess
 import sys
-import urllib.request
-
-def install_static_ffmpeg():
-    """Download a precompiled static FFmpeg binary into the project directory.
-
-    Works without root/apt in restricted containers (e.g. Pterodactyl).
-    Downloads the BtbN static build (.tar.xz), extracts
-    ffmpeg + ffprobe, verifies they run, and puts them on PATH.
-    """
-    import tarfile
-    import shutil
-
-    ffmpeg_path = os.path.join(os.path.dirname(__file__), "ffmpeg")
-    ffmpeg_bin = os.path.join(ffmpeg_path, "ffmpeg")
-    ffprobe_bin = os.path.join(ffmpeg_path, "ffprobe")
-
-    if os.path.exists(ffmpeg_bin) and os.path.exists(ffprobe_bin):
-        # Make sure it is on PATH for this process
-        if ffmpeg_path not in os.environ.get("PATH", ""):
-            os.environ["PATH"] = ffmpeg_path + os.pathsep + os.environ.get("PATH", "")
-        return ffmpeg_path
-
-    os.makedirs(ffmpeg_path, exist_ok=True)
-
-    # Download static FFmpeg (Linux x86_64) from BtbN/FFmpeg-Builds
-    url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
-    tar_path = os.path.join(ffmpeg_path, "ffmpeg-master-latest-linux64-gpl.tar.xz")
-    print("Downloading static FFmpeg from BtbN/FFmpeg-Builds ...")
-    urllib.request.urlretrieve(url, tar_path)
-
-    # Extract the full archive
-    print("Extracting FFmpeg ...")
-    with tarfile.open(tar_path, "r:xz") as tar:
-        tar.extractall(ffmpeg_path)
-
-    # BtbN archive extracts to ffmpeg-master-latest-linux64-gpl/ with binaries in bin/
-    extract_dir = os.path.join(ffmpeg_path, "ffmpeg-master-latest-linux64-gpl")
-    bin_dir = os.path.join(extract_dir, "bin")
-
-    # Copy ffmpeg and ffprobe to ffmpeg/ root
-    shutil.copy2(os.path.join(bin_dir, "ffmpeg"), ffmpeg_bin)
-    shutil.copy2(os.path.join(bin_dir, "ffprobe"), ffprobe_bin)
-
-    # Clean up the extracted directory and downloaded archive
-    try:
-        shutil.rmtree(extract_dir)
-    except OSError:
-        pass
-    try:
-        os.remove(tar_path)
-    except OSError:
-        pass
-
-    os.chmod(ffmpeg_bin, 0o755)
-    os.chmod(ffprobe_bin, 0o755)
-
-    # Verify the binary actually runs
-    try:
-        subprocess.run([ffmpeg_bin, "-version"], check=True,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        print("FFmpeg verified OK.")
-    except (subprocess.CalledProcessError, FileNotFoundError) as e:
-        print(f"[WARNING] FFmpeg verification failed: {e}")
-
-    # Set environment variable so discord.py / subprocess can find it
-    os.environ["PATH"] = ffmpeg_path + os.pathsep + os.environ.get("PATH", "")
-    return ffmpeg_path
 
 def ensure_deps():
     """Auto-install missing Python and system dependencies.
@@ -255,8 +188,19 @@ def ensure_deps():
                 print("davey unavailable — voice features may not work.")
                 print("To fix: downgrade discord.py to 2.6.0 in requirements.txt")
 
-    # Install FFmpeg via static binary download (no root/apt required)
-    return install_static_ffmpeg()
+    # Install imageio-ffmpeg (bundled FFmpeg binary, no root/apt required)
+    try:
+        import imageio_ffmpeg
+    except ImportError:
+        print("Installing imageio-ffmpeg ...")
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "imageio-ffmpeg"]
+        )
+        import imageio_ffmpeg
+
+    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    print(f"imageio-ffmpeg 提供的 FFmpeg: {ffmpeg_exe}")
+    return ffmpeg_exe
 
 # 在 bot.run() 之前调用，保存路径到 bot.ffmpeg_path
 bot.ffmpeg_path = ensure_deps()
