@@ -113,9 +113,12 @@ def install_static_ffmpeg():
     """Download a precompiled static FFmpeg binary into the project directory.
 
     Works without root/apt in restricted containers (e.g. Pterodactyl).
-    Downloads the official johnvansickle.com static build (.tar.xz), extracts
+    Downloads the BtbN static build (.tar.xz), extracts
     ffmpeg + ffprobe, verifies they run, and puts them on PATH.
     """
+    import tarfile
+    import shutil
+
     ffmpeg_path = os.path.join(os.path.dirname(__file__), "ffmpeg")
     ffmpeg_bin = os.path.join(ffmpeg_path, "ffmpeg")
     ffprobe_bin = os.path.join(ffmpeg_path, "ffprobe")
@@ -128,23 +131,30 @@ def install_static_ffmpeg():
 
     os.makedirs(ffmpeg_path, exist_ok=True)
 
-    # Download static FFmpeg (Linux x86_64) from johnvansickle.com
-    url = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
-    tar_path = os.path.join(ffmpeg_path, "ffmpeg-release-amd64-static.tar.xz")
-    print("Downloading static FFmpeg from johnvansickle.com ...")
+    # Download static FFmpeg (Linux x86_64) from BtbN/FFmpeg-Builds
+    url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
+    tar_path = os.path.join(ffmpeg_path, "ffmpeg-master-latest-linux64-gpl.tar.xz")
+    print("Downloading static FFmpeg from BtbN/FFmpeg-Builds ...")
     urllib.request.urlretrieve(url, tar_path)
 
-    # Extract ffmpeg + ffprobe from the archive
-    import tarfile
+    # Extract the full archive
     print("Extracting FFmpeg ...")
     with tarfile.open(tar_path, "r:xz") as tar:
-        for member in tar.getmembers():
-            base = os.path.basename(member.name)
-            if base in ("ffmpeg", "ffprobe"):
-                member.name = base  # flatten into ffmpeg/ dir
-                tar.extract(member, ffmpeg_path)
+        tar.extractall(ffmpeg_path)
 
-    # Clean up the downloaded archive
+    # BtbN archive extracts to ffmpeg-master-latest-linux64-gpl/ with binaries in bin/
+    extract_dir = os.path.join(ffmpeg_path, "ffmpeg-master-latest-linux64-gpl")
+    bin_dir = os.path.join(extract_dir, "bin")
+
+    # Copy ffmpeg and ffprobe to ffmpeg/ root
+    shutil.copy2(os.path.join(bin_dir, "ffmpeg"), ffmpeg_bin)
+    shutil.copy2(os.path.join(bin_dir, "ffprobe"), ffprobe_bin)
+
+    # Clean up the extracted directory and downloaded archive
+    try:
+        shutil.rmtree(extract_dir)
+    except OSError:
+        pass
     try:
         os.remove(tar_path)
     except OSError:
@@ -154,7 +164,6 @@ def install_static_ffmpeg():
     os.chmod(ffprobe_bin, 0o755)
 
     # Verify the binary actually runs
-    import subprocess
     try:
         subprocess.run([ffmpeg_bin, "-version"], check=True,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
