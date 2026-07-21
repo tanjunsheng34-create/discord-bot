@@ -352,6 +352,17 @@ class Music(commands.Cog):
             await interaction.followup.send(embed=embed)
             await self._play_next(interaction)
 
+    @app_commands.command(name="gmpt-music-panel", description="Send the music control panel")
+    @app_commands.default_permissions(administrator=True)
+    async def music_panel(self, interaction: discord.Interaction):
+        """Send a persistent music control panel to the current channel."""
+        view = MusicPanelView(self)
+        embed = discord.Embed(
+            title="🎵 音乐控制面板 | Music Control Panel",
+            description="点击下方按钮控制音乐播放 | Click buttons below to control playback",
+            color=0x1DB954,
+        )
+        await interaction.response.send_message(embed=embed, view=view)
 
 
 class MusicPanelView(discord.ui.View):
@@ -487,18 +498,6 @@ class MusicPanelView(discord.ui.View):
 
 
 
-
-    @app_commands.command(name="gmpt-music-panel", description="Send the music control panel")
-    @app_commands.default_permissions(administrator=True)
-    async def music_panel(self, interaction: discord.Interaction):
-        """Send a persistent music control panel to the current channel."""
-        view = MusicPanelView(self)
-        embed = discord.Embed(
-            title="🎵 音乐控制面板 | Music Control Panel",
-            description="点击下方按钮控制音乐播放 | Click buttons below to control playback",
-            color=0x1DB954,
-        )
-        await interaction.response.send_message(embed=embed, view=view)
 
 async def setup(bot):
     await bot.add_cog(Music(bot))
