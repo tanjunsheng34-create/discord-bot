@@ -183,6 +183,41 @@ def ensure_deps():
                 [sys.executable, "-m", "pip", "install", pip_name]
             )
 
+    # --- PyNaCl / nacl import verification (debug discord voice warning) ---
+    print("--- nacl import diagnostics ---")
+    nacl_import_ok = True
+    try:
+        import nacl
+        print(f"import nacl OK: {nacl.__file__}")
+    except ImportError as e:
+        nacl_import_ok = False
+        print(f"import nacl FAILED: {e}")
+
+    if nacl_import_ok:
+        for submod in ("nacl.utils", "nacl.bindings"):
+            try:
+                __import__(submod)
+                print(f"import {submod} OK")
+            except ImportError as e:
+                nacl_import_ok = False
+                print(f"import {submod} FAILED: {e}")
+
+    if not nacl_import_ok:
+        print("nacl import failed — force-reinstalling PyNaCl ...")
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "--force-reinstall", "PyNaCl"]
+        )
+        try:
+            import nacl
+            import nacl.utils
+            import nacl.bindings
+            print("nacl reimport OK after force-reinstall")
+        except ImportError as e:
+            print(f"CRITICAL: nacl still fails after force-reinstall: {e}")
+    else:
+        print("All nacl imports verified OK")
+    print("--- end nacl diagnostics ---")
+
     # Install FFmpeg via static binary download (no root/apt required)
     return install_static_ffmpeg()
 

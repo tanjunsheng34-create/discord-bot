@@ -17,6 +17,23 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+# --- nacl import check (diagnose discord voice warning misreporting) ---
+try:
+    import nacl
+    print(f"[Music] nacl OK: {nacl.__file__}")
+except ImportError as e:
+    print(f"[Music] nacl import FAILED: {e}")
+
+try:
+    import nacl.utils
+except ImportError as e:
+    print(f"[Music] nacl.utils import FAILED: {e}")
+
+try:
+    import nacl.bindings
+except ImportError as e:
+    print(f"[Music] nacl.bindings import FAILED: {e}")
+
 
 class Music(commands.Cog):
     def __init__(self, bot):
