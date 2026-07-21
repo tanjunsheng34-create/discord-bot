@@ -113,28 +113,63 @@ def install_static_ffmpeg():
     """Download a precompiled static FFmpeg binary into the project directory.
 
     Works without root/apt in restricted containers (e.g. Pterodactyl).
+    Downloads the official johnvansickle.com static build (.tar.xz), extracts
+    ffmpeg + ffprobe, verifies they run, and puts them on PATH.
     """
     ffmpeg_path = os.path.join(os.path.dirname(__file__), "ffmpeg")
-    if os.path.exists(os.path.join(ffmpeg_path, "ffmpeg")):
+    ffmpeg_bin = os.path.join(ffmpeg_path, "ffmpeg")
+    ffprobe_bin = os.path.join(ffmpeg_path, "ffprobe")
+
+    if os.path.exists(ffmpeg_bin) and os.path.exists(ffprobe_bin):
         # Make sure it is on PATH for this process
         if ffmpeg_path not in os.environ.get("PATH", ""):
-            os.environ["PATH"] = ffmpeg_path + ":" + os.environ.get("PATH", "")
+            os.environ["PATH"] = ffmpeg_path + os.pathsep + os.environ.get("PATH", "")
         return ffmpeg_path
 
     os.makedirs(ffmpeg_path, exist_ok=True)
-    # Download static FFmpeg (Linux x86_64)
-    url = "https://github.com/eugeneware/ffmpeg-static/releases/download/b5.0.1/linux-x64"
-    dest = os.path.join(ffmpeg_path, "ffmpeg")
-    print("Downloading static FFmpeg...")
-    urllib.request.urlretrieve(url, dest)
-    os.chmod(dest, 0o755)
+
+    # Download static FFmpeg (Linux x86_64) from johnvansickle.com
+    url = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
+    tar_path = os.path.join(ffmpeg_path, "ffmpeg-release-amd64-static.tar.xz")
+    print("Downloading static FFmpeg from johnvansickle.com ...")
+    urllib.request.urlretrieve(url, tar_path)
+
+    # Extract ffmpeg + ffprobe from the archive
+    import tarfile
+    print("Extracting FFmpeg ...")
+    with tarfile.open(tar_path, "r:xz") as tar:
+        for member in tar.getmembers():
+            base = os.path.basename(member.name)
+            if base in ("ffmpeg", "ffprobe"):
+                member.name = base  # flatten into ffmpeg/ dir
+                tar.extract(member, ffmpeg_path)
+
+    # Clean up the downloaded archive
+    try:
+        os.remove(tar_path)
+    except OSError:
+        pass
+
+    os.chmod(ffmpeg_bin, 0o755)
+    os.chmod(ffprobe_bin, 0o755)
+
+    # Verify the binary actually runs
+    import subprocess
+    try:
+        subprocess.run([ffmpeg_bin, "-version"], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print("FFmpeg verified OK.")
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        print(f"[WARNING] FFmpeg verification failed: {e}")
 
     # Set environment variable so discord.py / subprocess can find it
-    os.environ["PATH"] = ffmpeg_path + ":" + os.environ.get("PATH", "")
+    os.environ["PATH"] = ffmpeg_path + os.pathsep + os.environ.get("PATH", "")
     return ffmpeg_path
 
 def ensure_deps():
-    """Auto-install missing Python and system dependencies."""
+    """Auto-install missing Python and system dependencies.
+    Returns the path to the ffmpeg binary directory.
+    """
     pkgs = {
         "nacl": "PyNaCl",
         "croniter": "croniter",
@@ -149,10 +184,10 @@ def ensure_deps():
             )
 
     # Install FFmpeg via static binary download (no root/apt required)
-    install_static_ffmpeg()
+    return install_static_ffmpeg()
 
-# 在 bot.run() 之前调用
-ensure_deps()
+# 在 bot.run() 之前调用，保存路径到 bot.ffmpeg_path
+bot.ffmpeg_path = ensure_deps()
 
 
 # =============================================================================

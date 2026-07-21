@@ -11,6 +11,7 @@ GMPT Bot — 音乐播放 / KTV 点歌队列
 /gmpt-karaoke <song> — KTV模式（同 play）
 """
 import asyncio
+import os
 import re
 import discord
 from discord import app_commands
@@ -114,7 +115,11 @@ class Music(commands.Cog):
                     "options": "-vn",
                 }
                 try:
-                    source = discord.FFmpegPCMAudio(audio_url, **ffmpeg_opts)
+                    ffmpeg_exe = os.path.join(os.path.dirname(__file__), "..", "ffmpeg", "ffmpeg")
+                    if os.path.exists(ffmpeg_exe):
+                        source = discord.FFmpegPCMAudio(audio_url, executable=ffmpeg_exe, **ffmpeg_opts)
+                    else:
+                        source = discord.FFmpegPCMAudio(audio_url, **ffmpeg_opts)
                 except (FileNotFoundError, discord.errors.ClientException) as ffmpeg_err:
                     print(f"[Music] ERROR: FFmpeg not found or failed: {ffmpeg_err}")
                     raise
