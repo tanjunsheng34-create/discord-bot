@@ -151,6 +151,7 @@ class Peiwan(commands.Cog):
     # ─────────────────────────────────────────────
     @app_commands.command(name="pw-profile", description="查看陪玩主页 | View companion profile")
     @app_commands.describe(user="要查看的用户（留空则查看自己）| User to view (leave empty for self)")
+    @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
     async def profile(self, interaction: discord.Interaction, user: discord.Member = None):
         target = user or interaction.user
         uid = target.id
@@ -228,6 +229,7 @@ class Peiwan(commands.Cog):
     # ─────────────────────────────────────────────
     @app_commands.command(name="pw-list", description="浏览在线陪玩 | Browse online companions")
     @app_commands.describe(game="按游戏筛选（可选）| Filter by game (optional)")
+    @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
     async def list_companions(self, interaction: discord.Interaction, game: str = None):
         conn = get_db()
         cur = conn.cursor()

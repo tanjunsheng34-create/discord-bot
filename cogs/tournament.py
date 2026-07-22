@@ -1505,6 +1505,7 @@ class Tournament(commands.Cog):
         name="list",
         description="List all tournaments / 赛事列表",
     )
+    @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
     async def list_cmd(self, interaction: discord.Interaction):
         conn = get_db(); cur = conn.cursor()
         cur.execute(

@@ -17,6 +17,8 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+# Suppress noisy discord library logs
+logging.getLogger("discord").setLevel(logging.WARNING)
 
 if TOKEN is None:
     logger.critical("请在 .env 文件中设置 DISCORD_TOKEN")
@@ -95,8 +97,8 @@ async def setup_hook(self):
                         "命令执行时发生意外错误，请稍后再试 / An unexpected error occurred, please try again later.",
                         ephemeral=True,
                     )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to send error message: {e}")
 
 bot.setup_hook = setup_hook.__get__(bot)
 
@@ -157,33 +159,6 @@ def ensure_deps():
         print("All nacl imports verified OK")
     print("--- end nacl diagnostics ---")
 
-    # Install davey (discord.py 2.7.1 voice dependency)
-    try:
-        import davey
-        print("davey already installed.")
-    except ImportError:
-        print("Installing davey library...")
-        try:
-            subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", "davey"]
-            )
-            import davey
-            print("davey installed successfully.")
-        except Exception as e:
-            print(f"pip install davey failed: {e}")
-            print("Trying GitHub install...")
-            try:
-                subprocess.check_call(
-                    [sys.executable, "-m", "pip", "install",
-                     "git+https://github.com/davey/davey.git"]
-                )
-                import davey
-                print("davey installed from GitHub successfully.")
-            except Exception as e2:
-                print(f"GitHub install also failed: {e2}")
-                print("davey unavailable — voice features may not work.")
-                print("To fix: downgrade discord.py to 2.6.0 in requirements.txt")
-
     # All dependencies installed
 
 # 在 bot.run() 之前调用，保存路径到 bot.ffmpeg_path
@@ -223,8 +198,8 @@ async def _get_backup_channel():
     if channel is None:
         try:
             channel = await bot.fetch_channel(cid)
-        except Exception:
-            pass
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException) as e:
+            logger.warning(f"Failed to fetch backup channel {cid}: {e}")
     if channel is None:
         logger.error(f"Channel {cid} not accessible.")
     return channel
@@ -412,6 +387,15 @@ async def auto_restore():
 @bot.event
 async def on_ready():
     init_db()
+    # Periodic database maintenance
+    try:
+        conn = get_db()
+        conn.execute("PRAGMA optimize")
+        conn.execute("VACUUM")
+        conn.close()
+        logger.info("Database VACUUM completed")
+    except Exception as e:
+        logger.warning(f"Database VACUUM failed (non-critical): {e}")
     # Restore data from Discord backup channel (if configured)
     await auto_restore()
     logger.info(f"Bot online: {bot.user}")
@@ -483,7 +467,7 @@ async def health_check():
                 async with session.get(f"http://localhost:{port}/health") as resp:
                     pass
         except Exception:
-            pass
+            pass  # Health check is best-effort, expected to fail occasionally
 
 
 async def main():
@@ -500,6 +484,7 @@ async def main():
             logger.info(f"Loaded: {cog}")
         except Exception as e:
             logger.error(f"FAILED to load {cog}: {e}", exc_info=True)
+            continue
     await bot.start(TOKEN)
 
 

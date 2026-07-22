@@ -1,7 +1,10 @@
 import sqlite3
 import time
+import logging
 from contextlib import contextmanager
 from config import DATABASE
+
+logger = logging.getLogger(__name__)
 
 # WAL mode enabled at module load — ensures all connections inherit it
 _WAL_INITIALIZED = False
@@ -18,8 +21,8 @@ def _ensure_wal():
         conn.execute("PRAGMA busy_timeout=5000")
         conn.close()
         _WAL_INITIALIZED = True
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"WAL initialization failed: {e}")
 
 
 def get_db(max_retries=3):
@@ -65,13 +68,8 @@ def db_context():
         conn.close()
 
 
-def init_db():
-    conn = get_db()
-    cursor = conn.cursor()
-    # Ensure WAL + busy_timeout on the init connection as well
-    cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.execute("PRAGMA busy_timeout=5000")
-
+def _create_core_tables(cursor):
+    """Create core user & tournament tables."""
     cursor.executescript("""
         CREATE TABLE IF NOT EXISTS users (
             discord_id   TEXT PRIMARY KEY,
@@ -115,9 +113,12 @@ def init_db():
             score_awarded   INTEGER NOT NULL,
             FOREIGN KEY (tournament_id) REFERENCES tournaments(id)
         );
+    """)
 
-        -- === 经济系统 ===
 
+def _create_economy_tables(cursor):
+    """Create economy / shop / achievements tables."""
+    cursor.executescript("""
         CREATE TABLE IF NOT EXISTS daily_checkin (
             discord_id  TEXT PRIMARY KEY,
             last_date   TEXT NOT NULL,
@@ -163,6 +164,36 @@ def init_db():
             UNIQUE(user_id, item_id)
         );
 
+        CREATE TABLE IF NOT EXISTS user_flags (
+            discord_id TEXT PRIMARY KEY,
+            queue_skip INTEGER DEFAULT 0,
+            mode_pick TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS active_effects (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id     TEXT NOT NULL,
+            effect_type TEXT NOT NULL,
+            used_at     TEXT DEFAULT (datetime('now')),
+            consumed    INTEGER DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS bets (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            match_id    INTEGER NOT NULL,
+            discord_id  TEXT NOT NULL,
+            amount      INTEGER NOT NULL,
+            team        TEXT NOT NULL,
+            placed_at   TEXT DEFAULT (datetime('now')),
+            settled     INTEGER DEFAULT 0,
+            won         INTEGER DEFAULT 0
+        );
+    """)
+
+
+def _create_lol_tables(cursor):
+    """Create LoL / MMR / Riot connection tables."""
+    cursor.executescript("""
         CREATE TABLE IF NOT EXISTS player_riot (
             discord_id    TEXT PRIMARY KEY,
             summoner_name TEXT NOT NULL,
@@ -180,97 +211,6 @@ def init_db():
             UNIQUE(tournament_id, discord_id)
         );
 
-        -- === 抽奖系统 ===
-
-        CREATE TABLE IF NOT EXISTS giveaway_tickets (
-            discord_id TEXT PRIMARY KEY,
-            tickets INTEGER DEFAULT 0
-        );
-
-        CREATE TABLE IF NOT EXISTS giveaways (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            channel_id TEXT,
-            prize TEXT,
-            created_by TEXT,
-            drawn INTEGER DEFAULT 0,
-            winner_id TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            draw_at TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS giveaway_entries (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            giveaway_id INTEGER,
-            discord_id TEXT,
-            tickets_used INTEGER DEFAULT 1,
-            FOREIGN KEY (giveaway_id) REFERENCES giveaways(id)
-        );
-
-        -- === Discord 道具状态 ===
-
-        CREATE TABLE IF NOT EXISTS user_flags (
-            discord_id TEXT PRIMARY KEY,
-            queue_skip INTEGER DEFAULT 0,
-            mode_pick TEXT
-        );
-    """)
-
-    # --- 新增锦标赛字段（Swiss/Elimination Tournament System）---
-    for col, col_type in [
-        ("format", "TEXT DEFAULT 'swiss'"),
-        ("max_players", "INTEGER DEFAULT 32"),
-        ("rounds", "INTEGER DEFAULT 3"),
-        ("tier_restriction", "TEXT"),
-    ]:
-        try:
-            cursor.execute(f"ALTER TABLE tournaments ADD COLUMN {col} {col_type}")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-    # --- 新增 registrations.is_sub 字段（替补标记）---
-    try:
-        cursor.execute("ALTER TABLE registrations ADD COLUMN is_sub INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
-
-    # --- 新增 users.mmr 字段（排位系统）---
-    try:
-        cursor.execute("ALTER TABLE users ADD COLUMN mmr INTEGER DEFAULT 1000")
-    except sqlite3.OperationalError:
-        pass
-
-    # --- 新增 users.win_streak 字段（连胜记录）---
-    try:
-        cursor.execute("ALTER TABLE users ADD COLUMN win_streak INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
-
-    # --- 新增选路比赛字段 / Role-Pick Match Fields ---
-    try:
-        cursor.execute("ALTER TABLE tournaments ADD COLUMN role_pick INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
-
-    try:
-        cursor.execute("ALTER TABLE registrations ADD COLUMN lane TEXT DEFAULT NULL")
-    except sqlite3.OperationalError:
-        pass
-
-    # --- 新增商店字段（stock/ends_at/discount_pct）---
-    try:
-        cursor.execute("ALTER TABLE shop_items ADD COLUMN stock INTEGER DEFAULT -1")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE shop_items ADD COLUMN ends_at TEXT DEFAULT NULL")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE shop_items ADD COLUMN discount_pct INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
-
-    cursor.executescript("""
         CREATE TABLE IF NOT EXISTS tournament_players (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             tournament_id   INTEGER NOT NULL,
@@ -299,8 +239,33 @@ def init_db():
             reported_at     TEXT
         );
 
-        -- === Captain Draft / 队长选秀 ===
+        CREATE TABLE IF NOT EXISTS mmr (
+            discord_id  TEXT PRIMARY KEY,
+            mmr         INTEGER DEFAULT 1000,
+            wins        INTEGER DEFAULT 0,
+            losses      INTEGER DEFAULT 0,
+            streak      INTEGER DEFAULT 0,
+            rank        TEXT DEFAULT 'Iron'
+        );
 
+        CREATE TABLE IF NOT EXISTS mmr_board (
+            guild_id    TEXT PRIMARY KEY,
+            message_id  TEXT NOT NULL,
+            channel_id  TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS match_view_state (
+            message_id        TEXT PRIMARY KEY,
+            match_id          INTEGER NOT NULL,
+            channel_id        INTEGER NOT NULL,
+            player_list_msg_id TEXT
+        );
+    """)
+
+
+def _create_draft_tables(cursor):
+    """Create captain draft tables."""
+    cursor.executescript("""
         CREATE TABLE IF NOT EXISTS draft_sessions (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             tournament_id   INTEGER,
@@ -329,8 +294,12 @@ def init_db():
             pick_number     INTEGER NOT NULL,
             UNIQUE(draft_id, player_id)
         );
+    """)
 
-        -- === Voice time tracking for daily reward ===
+
+def _create_voice_giveaway_tables(cursor):
+    """Create voice tracking and giveaway tables."""
+    cursor.executescript("""
         CREATE TABLE IF NOT EXISTS voice_sessions (
             discord_id    TEXT NOT NULL,
             join_time     TEXT NOT NULL,
@@ -338,7 +307,15 @@ def init_db():
             PRIMARY KEY (discord_id, join_time)
         );
 
-        -- === Giveaway system ===
+        CREATE TABLE IF NOT EXISTS voice_tracker (
+            user_id         TEXT PRIMARY KEY,
+            total_seconds   INTEGER DEFAULT 0,
+            login_days      INTEGER DEFAULT 0,
+            total_joins     INTEGER DEFAULT 0,
+            last_join_date  TEXT,
+            last_join_time  TEXT
+        );
+
         CREATE TABLE IF NOT EXISTS giveaway (
             id                INTEGER PRIMARY KEY AUTOINCREMENT,
             guild_id          TEXT NOT NULL,
@@ -359,70 +336,27 @@ def init_db():
             UNIQUE(giveaway_id, user_id)
         );
 
-        -- === Voice / online time tracker (stats) ===
-        CREATE TABLE IF NOT EXISTS voice_tracker (
-            user_id         TEXT PRIMARY KEY,
-            total_seconds   INTEGER DEFAULT 0,
-            login_days      INTEGER DEFAULT 0,
-            total_joins     INTEGER DEFAULT 0,
-            last_join_date  TEXT,
-            last_join_time  TEXT
+        CREATE TABLE IF NOT EXISTS giveaway_tickets (
+            discord_id TEXT PRIMARY KEY,
+            tickets INTEGER DEFAULT 0
         );
 
-        -- === MMR 排位系统 ===
-        CREATE TABLE IF NOT EXISTS mmr (
-            discord_id  TEXT PRIMARY KEY,
-            mmr         INTEGER DEFAULT 1000,
-            wins        INTEGER DEFAULT 0,
-            losses      INTEGER DEFAULT 0,
-            streak      INTEGER DEFAULT 0,
-            rank        TEXT DEFAULT 'Iron'
+        CREATE TABLE IF NOT EXISTS giveaways (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            channel_id TEXT,
+            prize TEXT,
+            created_by TEXT,
+            drawn INTEGER DEFAULT 0,
+            winner_id TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            draw_at TIMESTAMP
         );
+    """)
 
-        -- === MMR 排行榜持久化 ===
-        CREATE TABLE IF NOT EXISTS mmr_board (
-            guild_id    TEXT PRIMARY KEY,
-            message_id  TEXT NOT NULL,
-            channel_id  TEXT NOT NULL
-        );
 
-        -- === MatchView 持久化状态（Bot 重启后恢复报名按钮）===
-        CREATE TABLE IF NOT EXISTS match_view_state (
-            message_id        TEXT PRIMARY KEY,
-            match_id          INTEGER NOT NULL,
-            channel_id        INTEGER NOT NULL,
-            player_list_msg_id TEXT
-        );
-
-        -- === 道具激活效果 / Active Item Effects ===
-        CREATE TABLE IF NOT EXISTS active_effects (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id     TEXT NOT NULL,
-            effect_type TEXT NOT NULL,
-            used_at     TEXT DEFAULT (datetime('now')),
-            consumed    INTEGER DEFAULT 0
-        );
-
-        -- === Dashboard 面板持久化（Bot 重启后自动刷新）===  [DEPRECATED: 零引用死表，待下个大版本删除]
-        CREATE TABLE IF NOT EXISTS dashboard_panel (
-            guild_id    TEXT PRIMARY KEY,
-            message_id  TEXT NOT NULL,
-            channel_id  TEXT NOT NULL
-        );
-
-        -- === Betting / 金币下注 ===
-        CREATE TABLE IF NOT EXISTS bets (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            match_id    INTEGER NOT NULL,
-            discord_id  TEXT NOT NULL,
-            amount      INTEGER NOT NULL,
-            team        TEXT NOT NULL,
-            placed_at   TEXT DEFAULT (datetime('now')),
-            settled     INTEGER DEFAULT 0,
-            won         INTEGER DEFAULT 0
-        );
-
-        -- === 赛季系统 / Season System ===
+def _create_season_queue_tables(cursor):
+    """Create season / queue / scheduled events / match tables."""
+    cursor.executescript("""
         CREATE TABLE IF NOT EXISTS seasons (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             name        TEXT NOT NULL,
@@ -442,7 +376,6 @@ def init_db():
             UNIQUE(season_id, discord_id)
         );
 
-        -- === 每周挑战 / Weekly Challenges ===
         CREATE TABLE IF NOT EXISTS weekly_challenges (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             week_start  TEXT NOT NULL,
@@ -462,7 +395,6 @@ def init_db():
             UNIQUE(discord_id, challenge_id)
         );
 
-        -- === 快速比赛 / Quick Match System ===
         CREATE TABLE IF NOT EXISTS matches (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             name        TEXT NOT NULL,
@@ -480,7 +412,6 @@ def init_db():
             UNIQUE(match_id, discord_id)
         );
 
-        -- === 每日语音签到奖励 / Daily Voice Reward ===
         CREATE TABLE IF NOT EXISTS daily_rewards (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             discord_id      TEXT NOT NULL,
@@ -497,7 +428,6 @@ def init_db():
             value           TEXT NOT NULL
         );
 
-        -- === 排队系统 / Queue System ===
         CREATE TABLE IF NOT EXISTS queue (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             discord_id      TEXT NOT NULL,
@@ -507,7 +437,6 @@ def init_db():
             joined_at       TEXT DEFAULT (datetime('now'))
         );
 
-        -- === 比赛事件回放 / Match Event Replay ===
         CREATE TABLE IF NOT EXISTS match_events (
             event_id        INTEGER PRIMARY KEY AUTOINCREMENT,
             tournament_id   INTEGER,
@@ -519,7 +448,6 @@ def init_db():
             data            TEXT
         );
 
-        -- === 定时赛事 / Scheduled Events ===
         CREATE TABLE IF NOT EXISTS scheduled_events (
             event_id        INTEGER PRIMARY KEY AUTOINCREMENT,
             event_name      TEXT NOT NULL,
@@ -531,7 +459,6 @@ def init_db():
             created_at      TEXT DEFAULT (datetime('now'))
         );
 
-        -- === 赛事模板 / Match Templates ===
         CREATE TABLE IF NOT EXISTS match_templates (
             template_id     INTEGER PRIMARY KEY AUTOINCREMENT,
             template_name   TEXT UNIQUE,
@@ -540,7 +467,6 @@ def init_db():
             rules           TEXT
         );
 
-        -- === 赛季历史归档 / Season History Archive ===
         CREATE TABLE IF NOT EXISTS season_history (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             season_id       INTEGER,
@@ -554,7 +480,6 @@ def init_db():
             FOREIGN KEY (season_id) REFERENCES seasons(id)
         );
 
-        -- === LoL 模式投票系统 / LoL Mode Vote System ===
         CREATE TABLE IF NOT EXISTS lol_vote_sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             channel_id TEXT NOT NULL,
@@ -572,9 +497,17 @@ def init_db():
             mode TEXT NOT NULL,
             voted_at TEXT DEFAULT (datetime('now'))
         );
+
+        CREATE TABLE IF NOT EXISTS dashboard_panel (
+            guild_id    TEXT PRIMARY KEY,
+            message_id  TEXT NOT NULL,
+            channel_id  TEXT NOT NULL
+        );
     """)
 
-    # ── 陪玩系统 / Companion System ──
+
+def _create_peiwans_tables(cursor):
+    """Create companion system tables."""
     cursor.executescript("""
         CREATE TABLE IF NOT EXISTS peiwans_profiles (
             user_id INTEGER PRIMARY KEY,
@@ -619,7 +552,64 @@ def init_db():
         );
     """)
 
-    # ── 性能索引 / Performance Indexes ──
+
+def _run_migrations(cursor):
+    """Apply schema migrations (ALTER TABLE ADD COLUMN)."""
+    # tournament format / swiss fields
+    for col, col_type in [
+        ("format", "TEXT DEFAULT 'swiss'"),
+        ("max_players", "INTEGER DEFAULT 32"),
+        ("rounds", "INTEGER DEFAULT 3"),
+        ("tier_restriction", "TEXT"),
+    ]:
+        try:
+            cursor.execute(f"ALTER TABLE tournaments ADD COLUMN {col} {col_type}")
+        except sqlite3.OperationalError:
+            pass
+
+    # registrations.is_sub
+    try:
+        cursor.execute("ALTER TABLE registrations ADD COLUMN is_sub INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
+    # users.mmr / win_streak
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN mmr INTEGER DEFAULT 1000")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN win_streak INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
+    # role_pick
+    try:
+        cursor.execute("ALTER TABLE tournaments ADD COLUMN role_pick INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE registrations ADD COLUMN lane TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+
+    # shop items fields
+    try:
+        cursor.execute("ALTER TABLE shop_items ADD COLUMN stock INTEGER DEFAULT -1")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE shop_items ADD COLUMN ends_at TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE shop_items ADD COLUMN discount_pct INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
+
+def _create_performance_indexes(cursor):
+    """Create performance indexes."""
     for idx_sql in [
         "CREATE INDEX IF NOT EXISTS idx_registrations_discord_id ON registrations(discord_id)",
         "CREATE INDEX IF NOT EXISTS idx_registrations_tournament_team ON registrations(tournament_id, team_id)",
@@ -632,6 +622,24 @@ def init_db():
             cursor.execute(idx_sql)
         except sqlite3.OperationalError:
             pass
+
+
+def init_db():
+    """Initialize database schema — delegates to sub-functions by module."""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=5000")
+
+    _create_core_tables(cursor)
+    _create_economy_tables(cursor)
+    _create_lol_tables(cursor)
+    _create_draft_tables(cursor)
+    _create_voice_giveaway_tables(cursor)
+    _create_season_queue_tables(cursor)
+    _create_peiwans_tables(cursor)
+    _run_migrations(cursor)
+    _create_performance_indexes(cursor)
 
     conn.commit()
     conn.close()

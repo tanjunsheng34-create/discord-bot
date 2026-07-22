@@ -222,6 +222,7 @@ class VoiceTracker(commands.Cog):
             await interaction.response.send_message(embed=embed, view=view)
 
     @app_commands.command(name="gmpt-voice-leaderboard", description="Voice time leaderboard / 语音时长排行榜")
+    @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
     async def voice_leaderboard_cmd(self, interaction: discord.Interaction):
         data = VoiceLeaderboardView._fetch_leaderboard_data()
         if not data:

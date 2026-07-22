@@ -1,15 +1,17 @@
 import os
+from typing import Optional
+
 from dotenv import load_dotenv
 
 load_dotenv()
 
-TOKEN = os.getenv("DISCORD_TOKEN")
-RIOT_API_KEY = os.getenv("RIOT_API_KEY", "")
+TOKEN: Optional[str] = os.getenv("DISCORD_TOKEN")
+RIOT_API_KEY: str = os.getenv("RIOT_API_KEY", "")
 
 # 自动备份配置 (Discord channel-based)
-BACKUP_CHANNEL_ID = os.getenv("BACKUP_CHANNEL_ID")          # REQUIRED for auto-backup
-BACKUP_INTERVAL = int(os.getenv("BACKUP_INTERVAL", "300"))  # seconds
-BACKUP_TABLES = [
+BACKUP_CHANNEL_ID: Optional[str] = os.getenv("BACKUP_CHANNEL_ID")          # REQUIRED for auto-backup
+BACKUP_INTERVAL: int = int(os.getenv("BACKUP_INTERVAL", "300"))  # seconds
+BACKUP_TABLES: list = [
     "users",
     "voice_tracker",
     "daily_checkin",
@@ -24,7 +26,35 @@ BACKUP_TABLES = [
 ]
 
 # DB_PATH: env var for persistence (SparkedHost), default to local data.db
-DATABASE = os.getenv("DB_PATH", os.path.join(os.path.dirname(__file__), "data.db"))
+DATABASE: str = os.getenv("DB_PATH", os.path.join(os.path.dirname(__file__), "data.db"))
+
+# =============================================================================
+# Discord Channel/Server IDs — centralized for maintainability
+# =============================================================================
+
+# Dashboard / Match channels
+POST_MATCH_VC_TEAM_A: int = 1453208983358935121
+POST_MATCH_VC_TEAM_B: int = 1438050912814895186
+RESULT_CHANNEL_ID: int = 1442412993269731452
+LOL_VOTE_CHANNEL_ID: int = 1397073481627340961
+MEMBER_LEAVE_LOG_CHANNEL_ID: int = 1435096093737222336
+
+# Economy channels
+SHOP_LOG_CHANNEL_ID: int = 1528241284177854624
+ACHIEVEMENTS_CHANNEL_ID: int = 1528241092640768101
+ITEM_REQUESTS_CHANNEL_ID: int = 1528249993914220625
+
+
+def _get_env_int(key: str, default: int = 0) -> int:
+    """Helper to read integer env var."""
+    val = os.getenv(key)
+    if val is None:
+        return default
+    try:
+        return int(val)
+    except ValueError:
+        return default
+
 
 # Ensure database directory exists
 _db_dir = os.path.dirname(DATABASE)

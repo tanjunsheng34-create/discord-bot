@@ -11,7 +11,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from database import get_db
-from datetime import date, datetime
+from datetime import datetime
 from cogs.shared_views import ConfirmView
 
 import logging
@@ -19,9 +19,7 @@ from utils.logger import log_error
 logger = logging.getLogger(__name__)
 
 # ---------- 频道 ID ----------
-SHOP_LOG_CHANNEL_ID = 1528241284177854624
-ACHIEVEMENTS_CHANNEL_ID = 1528241092640768101
-ITEM_REQUESTS_CHANNEL_ID = 1528249993914220625
+from config import SHOP_LOG_CHANNEL_ID, ACHIEVEMENTS_CHANNEL_ID, ITEM_REQUESTS_CHANNEL_ID
 
 _bot = None  # 由 setup() 注入
 
@@ -168,8 +166,8 @@ def _get_font(size, bold=False):
     if path:
         try:
             return ImageFont.truetype(path, size)
-        except:
-            pass
+        except Exception:
+            logger.warning(f"Font not found: {path}, falling back to default")
     return ImageFont.load_default()
 
 
@@ -1448,7 +1446,7 @@ class Economy(commands.Cog):
             f"✅ {action} {abs(amount)} coins {prep} {player.mention}. New balance: {new_balance}"
         )
 
-    # ========== 管理员重置金币 ==========
+    # ========== 管理员重置金币 [DEPRECATED - 重定向到 /gmpt-admin-coins] ==========
     @app_commands.command(name="gmpt-reset-coins", description="[DEPRECATED] Use /gmpt-admin-coins instead / 已弃用，请用 /gmpt-admin-coins")
     @app_commands.describe(
         target="Target player / 目标玩家（与 all 二选一）",
@@ -1462,75 +1460,8 @@ class Economy(commands.Cog):
         all: bool = False,
         amount: int = 500,
     ):
-        if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message(
-                "Admin only. / 仅管理员可使用此命令。", ephemeral=True
-            )
-
-        if target is None and not all:
-            return await interaction.response.send_message(
-                "请指定 @玩家 或设置 all=True / Specify @user or all=True.", ephemeral=True
-            )
-        if target is not None and all:
-            return await interaction.response.send_message(
-                "不能同时指定 target 和 all / Cannot specify both target and all.", ephemeral=True
-            )
-
-        conn = get_db()
-        cur = conn.cursor()
-
-        if target is not None:
-            uid = str(target.id)
-            cur.execute(
-                "INSERT INTO users (discord_id, username, score) VALUES (?, ?, ?) "
-                "ON CONFLICT(discord_id) DO UPDATE SET score=?",
-                (uid, target.name, amount, amount),
-            )
-            cur.execute(
-                "INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                (uid, 0, f"Admin reset coins to {amount} by {interaction.user.display_name} / 管理员重置金币"),
-            )
-            conn.commit()
-            conn.close()
-
-            embed = discord.Embed(
-                title="金币重置 / Reset Coins",
-                description=f"✅ {target.mention} 的金币已重置为 **{amount}**\n{target.mention}'s coins reset to **{amount}**.",
-                color=discord.Color.green(),
-            )
-            await interaction.response.send_message(embed=embed)
-        else:
-            # Reset all existing users
-            cur.execute("SELECT discord_id, username FROM users")
-            all_users = cur.fetchall()
-
-            if not all_users:
-                conn.close()
-                return await interaction.response.send_message(
-                    "数据库中没有用户 / No users in database.", ephemeral=True
-                )
-
-            for u in all_users:
-                cur.execute(
-                    "UPDATE users SET score=? WHERE discord_id=?",
-                    (amount, u["discord_id"]),
-                )
-                cur.execute(
-                    "INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                    (u["discord_id"], 0,
-                     f"Admin mass reset coins to {amount} by {interaction.user.display_name} / 管理员批量重置金币"),
-                )
-
-            conn.commit()
-            conn.close()
-
-            embed = discord.Embed(
-                title="金币重置 / Reset Coins",
-                description=f"✅ 已将所有 **{len(all_users)}** 名用户的金币重置为 **{amount}**\nReset all **{len(all_users)}** users' coins to **{amount}**.",
-                color=discord.Color.green(),
-            )
-            embed.set_footer(text=f"执行者 / By: {interaction.user.display_name}")
-            await interaction.response.send_message(embed=embed)
+        return await interaction.response.send_message(
+            "此命令已弃用，请使用 `/gmpt-admin-coins` 管理面板。\nThis command is deprecated, use `/gmpt-admin-coins`.", ephemeral=True)
 
     # ========== 管理员金币面板 ==========
     @app_commands.command(name="gmpt-admin-coins", description="Admin coin management panel / 管理员金币管理面板")

@@ -2,14 +2,12 @@
 GMPT Bot — Queue/LFG 排队匹配系统
 """
 import asyncio
-import random
 import discord
 from discord import app_commands
 from discord.ext import commands
 from database import get_db
 from datetime import datetime, timezone
 
-import logging
 logger = logging.getLogger(__name__)
 
 VALID_POSITIONS = ["Top", "JG", "Mid", "ADC", "Support", "Any"]
@@ -88,6 +86,7 @@ class QueueCog(commands.Cog):
         name="gmpt-queue-status",
         description="查看匹配池状态 / View queue status",
     )
+    @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
     async def queue_status(self, interaction: discord.Interaction):
         async with self._lock:
             count = len(self.queue)

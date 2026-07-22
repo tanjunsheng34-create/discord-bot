@@ -163,6 +163,7 @@ class Daily(commands.Cog):
         name="status",
         description="Check your daily voice reward progress / 查看每日语音进度",
     )
+    @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
     async def status_cmd(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
         today_str = datetime.now(UTC8).strftime("%Y-%m-%d")

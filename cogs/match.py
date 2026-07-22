@@ -24,6 +24,9 @@ class Match(commands.Cog):
     )
     @app_commands.describe(name="Match name / 比赛名称")
     async def create_match_cmd(self, interaction: discord.Interaction, name: str):
+        return await interaction.response.send_message(
+            "此命令已迁移到控制面板 /dashboard，请使用控制面板操作。",
+            ephemeral=True)
         uid = str(interaction.user.id)
         conn = get_db()
         cur = conn.cursor()
@@ -54,6 +57,9 @@ class Match(commands.Cog):
     )
     @app_commands.describe(match_id="Match ID (default: latest pending match) / 比赛ID（默认：最近未开始的比赛）")
     async def signup_cmd(self, interaction: discord.Interaction, match_id: int = None):
+        return await interaction.response.send_message(
+            "此命令已迁移到控制面板 /dashboard，请使用控制面板操作。",
+            ephemeral=True)
         uid = str(interaction.user.id)
         conn = get_db()
         cur = conn.cursor()
@@ -118,6 +124,9 @@ class Match(commands.Cog):
     )
     @app_commands.describe(match_id="Match ID (default: latest pending) / 比赛ID")
     async def random_teams_cmd(self, interaction: discord.Interaction, match_id: int = None):
+        return await interaction.response.send_message(
+            "此命令已迁移到控制面板 /dashboard，请使用控制面板操作。",
+            ephemeral=True)
         conn = get_db()
         cur = conn.cursor()
         if match_id is None:
@@ -162,6 +171,9 @@ class Match(commands.Cog):
     )
     @app_commands.describe(match_id="Match ID (default: latest pending) / 比赛ID")
     async def assign_ab_cmd(self, interaction: discord.Interaction, match_id: int = None):
+        return await interaction.response.send_message(
+            "此命令已迁移到控制面板 /dashboard，请使用控制面板操作。",
+            ephemeral=True)
         uid = str(interaction.user.id)
         conn = get_db()
         cur = conn.cursor()
@@ -247,6 +259,9 @@ class Match(commands.Cog):
     @app_commands.describe(match_id="Match ID (default: latest pending) / 比赛ID")
     @app_commands.default_permissions(administrator=True)
     async def start_match_cmd(self, interaction: discord.Interaction, match_id: int = None):
+        return await interaction.response.send_message(
+            "此命令已迁移到控制面板 /dashboard，请使用控制面板操作。",
+            ephemeral=True)
         conn = get_db()
         cur = conn.cursor()
 
@@ -352,114 +367,9 @@ class Match(commands.Cog):
         win_team: str,
         match_id: int = None,
     ):
-        conn = get_db()
-        cur = conn.cursor()
-
-        if match_id is None:
-            cur.execute("SELECT id, name FROM matches WHERE status='active' ORDER BY id DESC LIMIT 1")
-            m = cur.fetchone()
-            if not m:
-                conn.close()
-                return await interaction.response.send_message("没有进行中的比赛。", ephemeral=True)
-            match_id = m["id"]
-
-        cur.execute("SELECT id, name, status FROM matches WHERE id=?", (match_id,))
-        match_row = cur.fetchone()
-        if not match_row:
-            conn.close()
-            return await interaction.response.send_message(f"比赛 #{match_id} 不存在。", ephemeral=True)
-        if match_row["status"] != "active":
-            conn.close()
-            return await interaction.response.send_message(
-                f"比赛状态为 `{match_row['status']}`，无法结算。",
-                ephemeral=True,
-            )
-
-        cur.execute(
-            "SELECT discord_id, team FROM match_signups WHERE match_id=? AND team IS NOT NULL",
-            (match_id,),
-        )
-        signups = cur.fetchall()
-        winner_ids = [r["discord_id"] for r in signups if r["team"] == win_team]
-        loser_ids = [r["discord_id"] for r in signups if r["team"] != win_team]
-
-        if not winner_ids or not loser_ids:
-            conn.close()
-            return await interaction.response.send_message(
-                "分队数据不完整，请先 `/gmpt-assign-ab` 再 `/gmpt-start-match`。",
-                ephemeral=True,
-            )
-
-        # 发金币
-        for wid in winner_ids:
-            cur.execute(
-                "INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING",
-                (wid,),
-            )
-            cur.execute("UPDATE users SET score=score+? WHERE discord_id=?", (MATCH_WIN_COINS, wid))
-            cur.execute(
-                "INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                (wid, MATCH_WIN_COINS, f"Match win #{match_id}"),
-            )
-        for lid in loser_ids:
-            cur.execute(
-                "INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING",
-                (lid,),
-            )
-            cur.execute("UPDATE users SET score=score+? WHERE discord_id=?", (MATCH_PARTICIPATE_COINS, lid))
-            cur.execute(
-                "INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                (lid, MATCH_PARTICIPATE_COINS, f"Match participation #{match_id}"),
-            )
-
-        # 成就检查
-        all_pids = list(set(winner_ids + loser_ids))
-        if all_pids:
-            placeholders = ",".join("?" * len(all_pids))
-            cur.execute(
-                f"SELECT discord_id, COUNT(*) as cnt FROM match_signups WHERE discord_id IN ({placeholders}) GROUP BY discord_id",
-                all_pids,
-            )
-            cnt_map = {row["discord_id"]: row["cnt"] for row in cur.fetchall()}
-            for pid in all_pids:
-                match_cnt = cnt_map.get(pid, 0)
-                check_achievement(pid, "首次参赛")
-                if match_cnt >= 5:
-                    check_achievement(pid, "参加 5 场")
-                if match_cnt >= 10:
-                    check_achievement(pid, "参加 10 场")
-                if match_cnt >= 25:
-                    check_achievement(pid, "参加 25 场")
-        for wid in winner_ids:
-            check_achievement(wid, "首胜")
-
-        cur.execute("UPDATE matches SET status='finished' WHERE id=?", (match_id,))
-        conn.commit()
-        conn.close()
-
-        # 更新 MMR
-        _update_mmr(winner_ids, loser_ids, mvp_id=None, conn2=None)
-
-        # 发送结算通知
-        win_names = []
-        for wid in winner_ids:
-            m = interaction.guild.get_member(int(wid))
-            win_names.append(m.display_name if m else f"<@{wid}>")
-        lose_names = []
-        for lid in loser_ids:
-            m = interaction.guild.get_member(int(lid))
-            lose_names.append(m.display_name if m else f"<@{lid}>")
-
-        embed = discord.Embed(
-            title=f"比赛结算 / Settled — {match_row['name']} (ID:{match_id})",
-            description=(
-                f"🏆 **获胜方 Winner**: {' '.join(win_names)}\n"
-                f"🏳️ **败方 Loser**: {' '.join(lose_names)}\n\n"
-                f"🪙 胜方 +{MATCH_WIN_COINS} coins | 败方 +{MATCH_PARTICIPATE_COINS} coins"
-            ),
-            color=discord.Color.gold(),
-        )
-        await interaction.response.send_message(embed=embed)
+        return await interaction.response.send_message(
+            "此命令已迁移到控制面板 /dashboard，请使用控制面板操作。",
+            ephemeral=True)
 
     # ══════════ 7. 拉语音 ══════════
     @app_commands.command(
@@ -468,6 +378,9 @@ class Match(commands.Cog):
     )
     @app_commands.describe(match_id="Match ID (default: latest active) / 比赛ID")
     async def pull_vc_cmd(self, interaction: discord.Interaction, match_id: int = None):
+        return await interaction.response.send_message(
+            "此命令已迁移到控制面板 /dashboard，请使用控制面板操作。",
+            ephemeral=True)
         conn = get_db()
         cur = conn.cursor()
 
@@ -523,6 +436,9 @@ class Match(commands.Cog):
     )
     @app_commands.describe(match_id="Match ID (default: latest pending) / 比赛ID")
     async def pick_captain_cmd(self, interaction: discord.Interaction, match_id: int = None):
+        return await interaction.response.send_message(
+            "此命令已迁移到控制面板 /dashboard，请使用控制面板操作。",
+            ephemeral=True)
         conn = get_db()
         cur = conn.cursor()
 

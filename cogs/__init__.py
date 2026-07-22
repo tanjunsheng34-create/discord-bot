@@ -1,1 +1,17 @@
-
+__all__ = [
+    "announce",
+    "economy",
+    "tournament",
+    "lol",
+    "dashboard",
+    "giveaway",
+    "voice_tracker",
+    "queue",
+    "admin_backup",
+    "match",
+    "daily",
+    "help",
+    "peiwans",
+    "shared_views",
+    "match_autocomplete",
+]

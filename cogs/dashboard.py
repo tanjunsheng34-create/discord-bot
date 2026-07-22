@@ -7,6 +7,9 @@ from discord.ext import commands, tasks
 from database import get_db, db_context
 from cogs.match_autocomplete import match_id_autocomplete
 from utils.helpers import resolve_name
+from config import (POST_MATCH_VC_TEAM_A, POST_MATCH_VC_TEAM_B,
+                        RESULT_CHANNEL_ID, LOL_VOTE_CHANNEL_ID,
+                        MEMBER_LEAVE_LOG_CHANNEL_ID)
 
 # Try to import shared utilities from tournament cog
 from cogs.tournament import (
@@ -106,11 +109,8 @@ class CreateMatchModal(discord.ui.Modal, title="创建比赛 / Create Match"):
                     "创建比赛失败，请稍后再试 / Failed to create match, please try again later.",
                     ephemeral=True,
                 )
-            except Exception:
-                pass
-
-
-class CreateRoleMatchModal(discord.ui.Modal, title="创建选路比赛 / Create Role-Pick Match"):
+            except Exception as e:
+                print(f"[Dashboard] _create_match(blind) error: {e}")
     """选路比赛:创建时 role_pick=1,报名时需选 Top/JG/Mid/ADC/Support。"""
     match_name = discord.ui.TextInput(
         label="比赛名称 / Match Name",
@@ -179,8 +179,8 @@ class CreateRoleMatchModal(discord.ui.Modal, title="创建选路比赛 / Create 
                     "创建比赛失败，请稍后再试 / Failed to create match, please try again later.",
                     ephemeral=True,
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[Dashboard] _create_match(role-pick) error: {e}")
 
 
 class SelectModeView(discord.ui.View):
@@ -1222,8 +1222,8 @@ class ReShuffleView(discord.ui.View):
         if not interaction.user.guild_permissions.administrator and uid not in team_a_ids and uid not in team_b_ids:
             return await interaction.response.send_message("仅参赛者或管理员可操作", ephemeral=True)
         await interaction.response.defer(ephemeral=True)
-        lines = await self._do_pull(interaction, team_a_ids, 1438050912814895186, "A")
-        notify_channel = self.guild.get_channel(1453208983358935121)
+        lines = await self._do_pull(interaction, team_a_ids, POST_MATCH_VC_TEAM_B, "A")
+        notify_channel = self.guild.get_channel(POST_MATCH_VC_TEAM_A)
         if notify_channel and lines:
             try:
                 await notify_channel.send("\n".join(lines))
@@ -1244,7 +1244,7 @@ class ReShuffleView(discord.ui.View):
             return await interaction.response.send_message("仅参赛者或管理员可操作", ephemeral=True)
         await interaction.response.defer(ephemeral=True)
         lines = await self._do_pull(interaction, team_b_ids, 1437626921394372658, "B")
-        notify_channel = self.guild.get_channel(1453208983358935121)
+        notify_channel = self.guild.get_channel(POST_MATCH_VC_TEAM_A)
         if notify_channel and lines:
             try:
                 await notify_channel.send("\n".join(lines))
@@ -1357,10 +1357,10 @@ class RematchView(discord.ui.View):
 class VoicePullView(discord.ui.View):
     """赛前/赛后语音频道管理。从 A/B 队语音频道拉人。"""
 
-    TEAM_A_VC_ID = 1438050912814895186
+    TEAM_A_VC_ID = POST_MATCH_VC_TEAM_B
     TEAM_B_VC_ID = 1437626921394372658
     LIVE_ROOM_ID = 1442412877301416006
-    NOTIFY_CHANNEL_ID = 1453208983358935121
+    NOTIFY_CHANNEL_ID = POST_MATCH_VC_TEAM_A
 
     def __init__(self, team_a_ids: list, team_b_ids: list, guild: discord.Guild, timeout: float = 300):
         super().__init__(timeout=timeout)
@@ -1567,10 +1567,10 @@ class KillReportView(discord.ui.View):
 class PostMatchPullView(discord.ui.View):
     """赛后统一拉入按钮 — 将 A/B 两队语音频道中所有人拉入赛后集合频道。"""
 
-    VA_CHANNEL_ID = 1438050912814895186
+    VA_CHANNEL_ID = POST_MATCH_VC_TEAM_B
     VB_CHANNEL_ID = 1437626921394372658
     POST_MATCH_VC_ID = 1442412877301416006
-    NOTIFY_CHANNEL_ID = 1453208983358935121
+    NOTIFY_CHANNEL_ID = POST_MATCH_VC_TEAM_A
 
     def __init__(self, guild: discord.Guild, timeout: float = 600):
         super().__init__(timeout=timeout)
@@ -3521,7 +3521,6 @@ async def _post_settle_actions(match_id, match_name, guild, channel, analysis_em
     """Shared post-settle actions — merged into single rich embed + interactive buttons."""
     try:
         # Build consolidated post-settle embed
-        RESULT_CHANNEL_ID = 1442412993269731452
         conn = get_db(); cur = conn.cursor()
         cur.execute("SELECT id, name FROM teams WHERE tournament_id=?", (match_id,))
         teams = {row["id"]: row["name"] for row in cur.fetchall()}
@@ -4141,12 +4140,14 @@ class DashboardView(discord.ui.View):
         6: "🔧 管理工具 Admin Tools",
     }
 
-    def __init__(self, guild, session):
-        super().__init__(timeout=None)
+    def __init__(self, guild=None, session=None, *args, **kwargs):
+        super().__init__(timeout=None, *args, **kwargs)
         self.guild = guild
         self.session = session
         self.page = 1
-        self.build_page_buttons()
+        # Only build page buttons on initial creation (not during persistent view reconstruction)
+        if not args and not kwargs:
+            self.build_page_buttons()
 
     # ═══════════════════ Page Builder ═══════════════════
 
@@ -6510,7 +6511,7 @@ class Dashboard(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member):
-        log_channel = member.guild.get_channel(1435096093737222336)
+        log_channel = member.guild.get_channel(MEMBER_LEAVE_LOG_CHANNEL_ID)
         if log_channel:
             embed = discord.Embed(
                 title="👋 成员离开 | Member Left",
@@ -6524,7 +6525,7 @@ class Dashboard(commands.Cog):
     # ── LoL Vote: 发投票 ──
     async def _post_lol_vote(self):
         """Post daily LoL mode vote to channel."""
-        channel_id = 1397073481627340961
+        channel_id = LOL_VOTE_CHANNEL_ID
         channel = self.bot.get_channel(channel_id)
         if not channel:
             logger.warning(f"[LoLVote] Channel {channel_id} not found")
@@ -6576,7 +6577,7 @@ class Dashboard(commands.Cog):
     # ── LoL Vote: 结算投票 ──
     async def _close_lol_vote(self):
         """Close today's vote, determine winner, create match."""
-        channel_id = 1397073481627340961
+        channel_id = LOL_VOTE_CHANNEL_ID
         channel = self.bot.get_channel(channel_id)
         if not channel:
             logger.warning(f"[LoLVote] Channel {channel_id} not found")
@@ -7176,6 +7177,7 @@ class Dashboard(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(Dashboard(bot))
-    # 注册持久化 MatchView,使 Bot 重启后按钮仍可响应
+    # 注册持久化 View，使 Bot 重启后按钮仍可响应
+    bot.add_view(DashboardView(guild=None, session=None))
     bot.add_view(MatchView())
     bot.add_view(LolVoteView())

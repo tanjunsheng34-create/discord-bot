@@ -1,7 +1,6 @@
 """
 Gaming Planet Bot — LOL 比赛 + OP.GG 战绩查询
 """
-import random
 import asyncio
 import io
 import discord
@@ -496,6 +495,7 @@ class GMPT(commands.Cog):
         name="gmpt-list",
         description="List active matches / 列出活跃比赛 (分页, finished 通过历史入口查看)",
     )
+    @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
     async def list_matches(self, interaction: discord.Interaction):
         await interaction.response.defer()
         try:
@@ -606,6 +606,7 @@ class GMPT(commands.Cog):
         name="gmpt-lol-settle",
         description="Settle match / 结算积分",
     )
+    @app_commands.default_permissions(administrator=True)
     @app_commands.describe(match_id="Match ID", win_team_id="Winning team ID", mvp="MVP")
     @app_commands.autocomplete(match_id=match_id_autocomplete)
     async def settle(
@@ -797,6 +798,7 @@ class GMPT(commands.Cog):
         name="gmpt-match-history",
         description="Match history / 历史比赛",
     )
+    @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
     async def history(self, interaction: discord.Interaction):
         conn = get_db(); cur = conn.cursor()
         cur.execute("""
@@ -868,6 +870,7 @@ class GMPT(commands.Cog):
         name="gmpt-rank",
         description="Leaderboard / 排行榜",
     )
+    @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
     async def rank(self, interaction: discord.Interaction):
         conn = get_db(); cur = conn.cursor()
         cur.execute("SELECT username, score FROM users WHERE score>0 ORDER BY score DESC LIMIT 20")
@@ -898,6 +901,7 @@ class GMPT(commands.Cog):
         app_commands.Choice(name="SG (新加坡)", value="sg2"),
         app_commands.Choice(name="PH (菲律宾)", value="ph2"),
     ])
+    @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
     async def profile(
         self, interaction: discord.Interaction,
         name: str, tag: str, region: str,
@@ -960,6 +964,7 @@ class GMPT(commands.Cog):
         app_commands.Choice(name="VN", value="vn2"),
         app_commands.Choice(name="SG", value="sg2"),
     ])
+    @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
     async def match_history(
         self, interaction: discord.Interaction,
         name: str, tag: str, region: str, count: int = 5,
@@ -1112,6 +1117,7 @@ class GMPT(commands.Cog):
         name="gmpt-riot-status",
         description="Check Riot API Key status / 检测 API Key 是否有效",
     )
+    @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
     async def riot_status(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         if not RIOT_API_KEY:

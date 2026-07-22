@@ -318,6 +318,7 @@ class Giveaway(commands.Cog):
         await interaction.response.send_message(view=view, ephemeral=True)
 
     @giveaway_group.command(name="list", description="List all active giveaways / 列出所有进行中抽奖")
+    @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
     async def list_cmd(self, interaction: discord.Interaction):
         conn = get_db(); cur = conn.cursor()
         cur.execute(
