@@ -4252,23 +4252,40 @@ class DashboardView(discord.ui.View):
                 btn.callback = self.make_callback(cb_id)
                 self.add_item(btn)
 
-        # Navigation row — page tabs with current-page highlight
-        self.prev_btn = discord.ui.Button(label="◀", style=discord.ButtonStyle.primary, row=3, disabled=(page == 1))
+        # Navigation rows — page tabs split across 2 rows (Discord max 5 cols/row)
+        # Row 3: ◀ P1 P2 P3 P4 (5 cols)
+        self.prev_btn = discord.ui.Button(label="◀", style=discord.ButtonStyle.primary, row=3,
+                                           disabled=(page == 1), custom_id="dashboard_prev")
         self.prev_btn.callback = self.prev_page
         self.add_item(self.prev_btn)
 
-        for p in range(1, 7):
+        for p in range(1, 5):
             is_current = (p == page)
             btn = discord.ui.Button(
                 label=f"P{p}",
                 style=discord.ButtonStyle.success if is_current else discord.ButtonStyle.secondary,
                 row=3,
                 disabled=is_current,
+                custom_id=f"dashboard_page_{p}",
             )
             btn.callback = self.make_page_callback(p)
             self.add_item(btn)
 
-        self.next_btn = discord.ui.Button(label="▶", style=discord.ButtonStyle.primary, row=3, disabled=(page == 6))
+        # Row 4: P5 P6 ▶ (3 cols)
+        for p in range(5, 7):
+            is_current = (p == page)
+            btn = discord.ui.Button(
+                label=f"P{p}",
+                style=discord.ButtonStyle.success if is_current else discord.ButtonStyle.secondary,
+                row=4,
+                disabled=is_current,
+                custom_id=f"dashboard_page_{p}",
+            )
+            btn.callback = self.make_page_callback(p)
+            self.add_item(btn)
+
+        self.next_btn = discord.ui.Button(label="▶", style=discord.ButtonStyle.primary, row=4,
+                                           disabled=(page == 6), custom_id="dashboard_next")
         self.next_btn.callback = self.next_page
         self.add_item(self.next_btn)
 
