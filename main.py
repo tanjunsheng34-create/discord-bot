@@ -44,6 +44,11 @@ COGS = [
     "cogs.daily",
     "cogs.help",
     "cogs.peiwans",
+    "cogs.casino",
+    "cogs.trivia",
+    "cogs.guess_champion",
+    "cogs.predict",
+    "cogs.meme",
 ]
 
 

@@ -506,6 +506,31 @@ def _create_season_queue_tables(cursor):
     """)
 
 
+def _create_predict_tables(cursor):
+    """Create predict / match prediction tables."""
+    cursor.executescript("""
+        CREATE TABLE IF NOT EXISTS predict_games (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            team_a TEXT,
+            team_b TEXT,
+            match_time TEXT,
+            cutoff_time TEXT,
+            status TEXT DEFAULT 'open',
+            winner TEXT,
+            creator_id INTEGER,
+            created_at TEXT DEFAULT (datetime('now','+8 hours'))
+        );
+        CREATE TABLE IF NOT EXISTS predict_bets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            predict_id INTEGER,
+            user_id TEXT,
+            team TEXT,
+            amount INTEGER,
+            created_at TEXT DEFAULT (datetime('now','+8 hours'))
+        );
+    """)
+
+
 def _create_peiwans_tables(cursor):
     """Create companion system tables."""
     cursor.executescript("""
@@ -638,6 +663,7 @@ def init_db():
     _create_voice_giveaway_tables(cursor)
     _create_season_queue_tables(cursor)
     _create_peiwans_tables(cursor)
+    _create_predict_tables(cursor)
     _run_migrations(cursor)
     _create_performance_indexes(cursor)
 

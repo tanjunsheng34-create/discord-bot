@@ -3023,7 +3023,7 @@ class LolVoteView(discord.ui.View):
         rows = cur.fetchall()
         conn.close()
 
-        counts = {"ARAM": 0, "Summoner's Rift": 0, "TFT": 0, "URF": 0, "Arena": 0}
+        counts = {"ARAM": 0, "Summoner's Rift": 0, "TFT": 0, "URF": 0, "Arena": 0, "Spellbook": 0}
         for r in rows:
             mode_name = r["mode"]
             if mode_name in counts:
@@ -3032,6 +3032,7 @@ class LolVoteView(discord.ui.View):
         sr_votes = counts.get("Summoner's Rift", 0)
         urf_votes = counts.get("URF", 0)
         arena_votes = counts.get("Arena", 0)
+        spellbook_votes = counts.get("Spellbook", 0)
         embed = discord.Embed(
             title="🎮 今天玩什么？What to play today?",
             description=(
@@ -3042,7 +3043,8 @@ class LolVoteView(discord.ui.View):
                 f"⚔️ 召唤师峡谷 Summoner's Rift: **{sr_votes}** 票\n"
                 f"🎯 TFT 云顶: **{counts['TFT']}** 票\n"
                 f"🎪 无限火力 URF: **{urf_votes}** 票\n"
-                f"👊 斗魂竞技场 Arena: **{arena_votes}** 票"
+                f"👊 斗魂竞技场 Arena: **{arena_votes}** 票\n"
+                f"📖 道具赛 Spellbook: **{spellbook_votes}** 票"
             ),
             color=discord.Color.gold(),
         )
@@ -3107,6 +3109,71 @@ class LolVoteView(discord.ui.View):
         await self._record_vote(session["id"], str(interaction.user.id), "Arena")
         await self._update_embed(interaction, session)
         await interaction.followup.send("已投票 斗魂竞技场 Arena！Voted!", ephemeral=True)
+
+    @discord.ui.button(label="📖 道具赛 Spellbook", style=discord.ButtonStyle.primary, row=1, custom_id="lolvote_spellbook")
+    async def vote_spellbook(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        session = await self._get_session(interaction.message.id)
+        if not session:
+            return await interaction.followup.send("投票会话不存在。Vote session not found.", ephemeral=True)
+        if session["status"] != "pending":
+            return await interaction.followup.send("投票已结束。Vote closed.", ephemeral=True)
+        await self._record_vote(session["id"], str(interaction.user.id), "Spellbook")
+        await self._update_embed(interaction, session)
+        await interaction.followup.send("已投票 道具赛 Spellbook！Voted!", ephemeral=True)
+
+    @discord.ui.button(label="👀 查看谁投了票 / See Voters", style=discord.ButtonStyle.secondary, row=2, custom_id="lolvote_voters")
+    async def view_voters(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        session = await self._get_session(interaction.message.id)
+        if not session:
+            return await interaction.followup.send("投票会话不存在。Vote session not found.", ephemeral=True)
+
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT discord_id, mode FROM lol_vote_results WHERE session_id=?",
+            (session["id"],),
+        )
+        rows = cur.fetchall()
+        conn.close()
+
+        if not rows:
+            return await interaction.followup.send("暂无投票 / No votes yet", ephemeral=True)
+
+        mode_emoji = {
+            "ARAM": "🏹",
+            "Summoner's Rift": "⚔️",
+            "TFT": "🎯",
+            "URF": "🎪",
+            "Arena": "👊",
+            "Spellbook": "📖",
+        }
+        grouped: dict[str, list[str]] = {}
+        for r in rows:
+            grouped.setdefault(r["mode"], []).append(f"<@{r['discord_id']}>")
+
+        lines = []
+        for mode, voters in grouped.items():
+            emoji = mode_emoji.get(mode, "🎮")
+            lines.append(f"{emoji} {mode}: {', '.join(voters)}")
+
+        await interaction.followup.send("\n".join(lines), ephemeral=True)
+
+    @discord.ui.button(label="🏆 创建比赛 / Create Match", style=discord.ButtonStyle.success, row=2, custom_id="lolvote_create")
+    async def create_match(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        session = await self._get_session(interaction.message.id)
+        if not session:
+            return await interaction.followup.send("投票会话不存在。Vote session not found.", ephemeral=True)
+        if session["status"] != "pending":
+            return await interaction.followup.send("投票已结束。Vote closed.", ephemeral=True)
+
+        cog = interaction.client.get_cog("Dashboard")
+        if not cog:
+            return await interaction.followup.send("内部错误：找不到 Dashboard cog。", ephemeral=True)
+        await cog._close_lol_vote_for_message(interaction.message.id, interaction.channel)
+        await interaction.followup.send("比赛已创建！/ Match created!", ephemeral=True)
 
 # ══════════ 向后兼容别名══════════
 MatchView = MatchViewWithID
@@ -4125,8 +4192,9 @@ class DashboardView(discord.ui.View):
         2: discord.Color.gold(),
         3: discord.Color.green(),
         4: discord.Color.teal(),
-        5: discord.Color.purple(),
-        6: discord.Color.dark_purple(),
+        5: discord.Color.orange(),
+        6: discord.Color.purple(),
+        7: discord.Color.dark_purple(),
     }
 
     PAGE_TITLES = {
@@ -4134,8 +4202,9 @@ class DashboardView(discord.ui.View):
         2: "🏆 赛事 Tournament",
         3: "👤 玩家 Player",
         4: "🛒 经济 Economy",
-        5: "🧰 常用工具 Common Tools",
-        6: "🔧 管理工具 Admin Tools",
+        5: "🎮 小游戏 Mini Games",
+        6: "🧰 常用工具 Common Tools",
+        7: "🔧 管理工具 Admin Tools",
     }
 
     def __init__(self, guild=None, session=None, *args, **kwargs):
@@ -4206,6 +4275,18 @@ class DashboardView(discord.ui.View):
             while len(btns) < 8:
                 btns.append(None)
         elif page == 5:
+            # 小游戏 (Mini Games)
+            btns = [
+                ("🎰 老虎机\nSlots", "slots"),
+                ("🪙 猜硬币\nCoinflip", "coinflip"),
+                ("🧠 知识问答\nTrivia", "trivia"),
+                ("🦸 猜英雄\nGuess Champ", "guess_champion"),
+                ("🏆 比赛预测\nPredict", "predict"),
+                ("🖼️ 表情包\nMeme", "meme"),
+            ]
+            while len(btns) < 8:
+                btns.append(None)
+        elif page == 6:
             # 常用工具 (Common Tools)
             btns = [
                 ("🎤 语音排行\nVoice LB", "voice_lb"),
@@ -4216,7 +4297,7 @@ class DashboardView(discord.ui.View):
             ]
             while len(btns) < 8:
                 btns.append(None)
-        elif page == 6:
+        elif page == 7:
             # 管理工具 (Admin Tools)
             btns = [
                 ("📤 导出数据\nExport CSV", "export_data"),
@@ -4271,8 +4352,8 @@ class DashboardView(discord.ui.View):
             btn.callback = self.make_page_callback(p)
             self.add_item(btn)
 
-        # Row 4: P5 P6 ▶ (3 cols)
-        for p in range(5, 7):
+        # Row 4: P5 P6 P7 ▶ (4 cols)
+        for p in range(5, 8):
             is_current = (p == page)
             btn = discord.ui.Button(
                 label=f"P{p}",
@@ -4285,7 +4366,7 @@ class DashboardView(discord.ui.View):
             self.add_item(btn)
 
         self.next_btn = discord.ui.Button(label="▶", style=discord.ButtonStyle.primary, row=4,
-                                           disabled=(page == 6), custom_id="dashboard_next")
+                                           disabled=(page == 7), custom_id="dashboard_next")
         self.next_btn.callback = self.next_page
         self.add_item(self.next_btn)
 
@@ -4345,18 +4426,17 @@ class DashboardView(discord.ui.View):
         elif self.page == 4:
             desc = "🛒 **Economy / 经济** — 商店、背包、金币、抽奖、每日\ne.g. Shop、Balance、Achievements、Daily"
         elif self.page == 5:
-            desc = "🧰 **Common Tools / 常用工具** — 语音排行、排队、全部玩家、MMR、回放\ne.g. Voice LB、Queue、All Players、MMR、Replay"
+            desc = "🎮 **Mini Games / 小游戏** — 老虎机、猜硬币、问答、猜英雄、预测、表情包\nClick a button for details / 点击按钮查看详情"
         elif self.page == 6:
+            desc = "🧰 **Common Tools / 常用工具** — 语音排行、排队、全部玩家、MMR、回放\ne.g. Voice LB、Queue、All Players、MMR、Replay"
+        elif self.page == 7:
             desc = "🔧 **Admin Tools / 管理工具** — 导出、管理面板、公告、赛季重置、赛后拉语音\ne.g. Export、Admin、Announce、Season Reset、Post-Match VC"
-        # legacy page 5 fallback
-        elif self.page == 5:
-            desc = "🎧 **Tools / 工具** — 语音排行、排队、管理\ne.g. Voice LB、Queue、Admin"
 
         return discord.Embed(
             title=title,
             description=desc,
             color=color,
-        ).set_footer(text=f"GMPT Dashboard v3.2 | Page {self.page}/6")
+        ).set_footer(text=f"GMPT Dashboard v3.3 | Page {self.page}/7")
 
     # ═══════════════════ Page 1 — Match ═══════════════════
 
@@ -5777,7 +5857,85 @@ class DashboardView(discord.ui.View):
                 ephemeral=True,
             )
 
-    # ═══════════════════ Page 5 — Tools ═══════════════════
+    # ═══════════════════ Page 5 — Mini Games ═══════════════════
+
+    async def _slots(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        embed = discord.Embed(
+            title="🎰 老虎机 Slots",
+            description="试试手气！Use `/gmpt-slots <bet>` to play.\n赔付最高 50x | Up to 50x payout!",
+            color=0xE67E22,
+        )
+        embed.add_field(name="Usage", value="`/gmpt-slots <bet>`", inline=False)
+        embed.set_footer(text="5 秒冷却 | 5s cooldown")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    async def _coinflip(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        embed = discord.Embed(
+            title="🪙 猜硬币 Coinflip",
+            description="正面还是反面？Use `/gmpt-coinflip <bet> <正面/反面>`.\n猜对即赢 2x！Win 2x if correct!",
+            color=0xF1C40F,
+        )
+        embed.add_field(name="Usage", value="`/gmpt-coinflip <bet> <正面|反面>`", inline=False)
+        embed.set_footer(text="5 秒冷却 | 5s cooldown")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    async def _trivia(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        embed = discord.Embed(
+            title="🧠 知识问答 Trivia",
+            description="LOL/电竞知识问答！Use `/gmpt-trivia` to start a quiz.\n10 题 | 每题 +50 💰 | 前三名额外奖励",
+            color=0x3498DB,
+        )
+        embed.add_field(name="Usage", value="`/gmpt-trivia` — 开始游戏\n`/gmpt-trivia-stop` — 管理员终止", inline=False)
+        embed.set_footer(text="同时只允许一场 | One game at a time")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    async def _guess_champion(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        embed = discord.Embed(
+            title="🦸 猜英雄 Guess Champion",
+            description="根据 emoji 提示猜英雄！Use `/gmpt-guess-champion`.\n3 级提示逐步揭晓，越早猜对金币越多！",
+            color=0x9B59B6,
+        )
+        embed.add_field(
+            name="Usage", value="`/gmpt-guess-champion`", inline=False,
+        )
+        embed.add_field(
+            name="奖励", value="提示1猜对 +200 | 提示2 +100 | 提示3 +50", inline=False,
+        )
+        embed.set_footer(text="10 秒冷却 | 10s cooldown")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    async def _predict(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        embed = discord.Embed(
+            title="🏆 比赛预测 Predict",
+            description="预测职业赛结果，动态赔率！Use `/gmpt-predict` commands.",
+            color=0xE74C3C,
+        )
+        embed.add_field(
+            name="子命令", value=(
+                "`/gmpt-predict create <A> <B> <time>` — 创建盘口\n"
+                "`/gmpt-predict settle <id> <A|B>` — 结算\n"
+                "`/gmpt-predict list` — 列表"
+            ), inline=False,
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    async def _meme(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        embed = discord.Embed(
+            title="🖼️ 表情包 Meme",
+            description="生成自定义表情包！Use `/gmpt-meme <template> <top> <bottom>`.",
+            color=0x1ABC9C,
+        )
+        embed.add_field(name="Usage", value="`/gmpt-meme <template> <top_text> <bottom_text>`", inline=False)
+        embed.add_field(name="查看模板", value="`/gmpt-meme-templates`", inline=False)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # ═══════════════════ Page 6 — Tools ═══════════════════
 
     async def _voice_lb(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -6577,7 +6735,8 @@ class Dashboard(commands.Cog):
                 f"⚔️ 召唤师峡谷 Summoner's Rift: **0** 票\n"
                 f"🎯 TFT 云顶: **0** 票\n"
                 f"🎪 无限火力 URF: **0** 票\n"
-                f"👊 斗魂竞技场 Arena: **0** 票"
+                f"👊 斗魂竞技场 Arena: **0** 票\n"
+                f"📖 道具赛 Spellbook: **0** 票"
             ),
             color=discord.Color.gold(),
         )
@@ -6681,7 +6840,110 @@ class Dashboard(commands.Cog):
         conn2.commit()
         conn2.close()
 
+        # 通知所有投票者
+        conn3 = get_db()
+        cur3 = conn3.cursor()
+        cur3.execute(
+            "SELECT DISTINCT discord_id FROM lol_vote_results WHERE session_id=?",
+            (session["id"],),
+        )
+        voter_rows = cur3.fetchall()
+        conn3.close()
+        if voter_rows:
+            mentions = " ".join(f"<@{r['discord_id']}>" for r in voter_rows)
+            await channel.send(f"{mentions} 投票结果出来了：今天玩 {winner_mode}！点击上方报名 👆")
+
         logger.info(f"[LoLVote] Vote closed for {today}, winner: {winner_mode}, match #{tid}")
+
+    async def _close_lol_vote_for_message(self, message_id: int, channel):
+        """Close vote by message_id (for manual create button), determine winner, create match."""
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, vote_date FROM lol_vote_sessions WHERE message_id=? AND status='pending'",
+            (str(message_id),),
+        )
+        session = cur.fetchone()
+        if not session:
+            conn.close()
+            return
+
+        # 统计票数
+        cur.execute(
+            "SELECT mode, COUNT(*) as cnt FROM lol_vote_results WHERE session_id=? GROUP BY mode ORDER BY cnt DESC",
+            (session["id"],),
+        )
+        rows = cur.fetchall()
+
+        if not rows:
+            winner_mode = "ARAM"
+        else:
+            winner_mode = rows[0]["mode"]
+
+        # 更新 session 状态
+        cur.execute(
+            "UPDATE lol_vote_sessions SET status='closed', winner_mode=? WHERE id=?",
+            (winner_mode, session["id"]),
+        )
+        conn.commit()
+
+        # 创建比赛
+        match_name = f"[投票] {winner_mode} — {session['vote_date']}"
+        team_size = 5
+        cur.execute(
+            "INSERT INTO tournaments (name, max_teams, team_size, created_by, status) VALUES (?, 2, ?, 'system', 'open')",
+            (match_name, team_size),
+        )
+        tid = cur.lastrowid
+        conn.commit()
+        conn.close()
+
+        # 发送比赛报名 embed
+        embed = discord.Embed(
+            title=f"🏆 投票结束！Vote closed! 今天玩 {winner_mode}！点击报名 👇",
+            description=(
+                f"📅 {session['vote_date']}\n\n"
+                f"最高票模式 Winner: **{winner_mode}**\n"
+                f"比赛已自动创建，点击下方按钮报名 Match created, click below to sign up 👇"
+            ),
+            color=discord.Color.green(),
+        ).set_footer(text=f"Match ID: {tid}")
+
+        view = MatchView()
+        msg = await channel.send(embed=embed, view=view)
+        save_match_view_state(tid, msg.id, channel.id)
+
+        # 发送初始报名列表
+        list_embed = discord.Embed(
+            title="已报名玩家 / Signed Up (0/10)",
+            description="暂无玩家 / No signups yet",
+            color=discord.Color.green(),
+        )
+        list_msg = await channel.send(embed=list_embed)
+        set_player_list_msg(tid, list_msg.id)
+        conn2 = get_db()
+        cur2 = conn2.cursor()
+        cur2.execute(
+            "UPDATE match_view_state SET player_list_msg_id=? WHERE message_id=?",
+            (str(list_msg.id), str(msg.id)),
+        )
+        conn2.commit()
+        conn2.close()
+
+        # 通知所有投票者
+        conn3 = get_db()
+        cur3 = conn3.cursor()
+        cur3.execute(
+            "SELECT DISTINCT discord_id FROM lol_vote_results WHERE session_id=?",
+            (session["id"],),
+        )
+        voter_rows = cur3.fetchall()
+        conn3.close()
+        if voter_rows:
+            mentions = " ".join(f"<@{r['discord_id']}>" for r in voter_rows)
+            await channel.send(f"{mentions} 投票结果出来了：今天玩 {winner_mode}！点击上方报名 👆")
+
+        logger.info(f"[LoLVote] Vote closed manually for {session['vote_date']}, winner: {winner_mode}, match #{tid}")
 
 
     @app_commands.command(
@@ -6774,6 +7036,18 @@ class Dashboard(commands.Cog):
     @tasks.loop(minutes=1)
     async def scheduled_event_loop(self):
         """每分钟检查一次 cron 表达式，触发到期的定时赛事。"""
+        from datetime import datetime as dt, timezone, timedelta
+        MYT = timezone(timedelta(hours=8))
+        now = dt.now(MYT)
+
+        # ── LoL Vote: 每天 早上9点发投票 (马来西亚时间) ──
+        if now.hour == 9 and now.minute == 0:
+            await self._post_lol_vote()
+
+        # ── LoL Vote: 每天 下午1点结算 (马来西亚时间) ──
+        if now.hour == 13 and now.minute == 0:
+            await self._close_lol_vote()
+
         if not HAS_CRONITER:
             if not Dashboard._croniter_warned:
                 logger.warning("[ScheduledEventLoop] croniter not installed, scheduled events disabled")
@@ -6781,19 +7055,7 @@ class Dashboard(commands.Cog):
             return
 
         try:
-            from datetime import datetime as dt, timezone, timedelta
             import json as _json
-
-            MYT = timezone(timedelta(hours=8))
-            now = dt.now(MYT)
-
-            # ── LoL Vote: 每天 早上9点发投票 (马来西亚时间) ──
-            if now.hour == 9 and now.minute == 0:
-                await self._post_lol_vote()
-
-            # ── LoL Vote: 每天 下午1点结算 (马来西亚时间) ──
-            if now.hour == 13 and now.minute == 0:
-                await self._close_lol_vote()
             conn = get_db()
             try:
                 cur = conn.cursor()

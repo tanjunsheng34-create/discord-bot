@@ -91,6 +91,19 @@ class HelpCog(commands.Cog):
         )
 
         embed.add_field(
+            name="🎮 小游戏 | Mini Games",
+            value=(
+                "`/gmpt-slots` — 老虎机\n"
+                "`/gmpt-coinflip` — 猜硬币\n"
+                "`/gmpt-trivia` — 知识问答\n"
+                "`/gmpt-guess-champion` — 猜英雄\n"
+                "`/gmpt-predict` — 比赛预测竞猜\n"
+                "`/gmpt-meme` — 表情包生成"
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
             name="📊 其他 | Other",
             value=(
                 "`/gmpt-dashboard` — 控制面板\n"
