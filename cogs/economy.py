@@ -1587,7 +1587,7 @@ class Economy(commands.Cog):
         )
 
     # ========== 金币下注 / Betting ==========
-    @app_commands.command(name="gmpt-bet", description="对比赛下注 / Place a bet on a match")
+    @app_commands.command(name="gmpt-bet", description="[DEPRECATED] 对比赛下注 — 请使用比赛消息中的按钮 / Use bet buttons on match message")
     @app_commands.describe(
         match_id="比赛 ID / Match ID",
         amount="下注金额 / Bet amount (max 500)",
@@ -2607,6 +2607,136 @@ class CoinPaginationView(discord.ui.View):
             self.page += 1
             self._update_buttons()
             await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+
+# ══════════ BetView — 按钮下注 / Button Betting ══════════
+
+class BetModal(discord.ui.Modal, title="下注 / Place Bet"):
+    """Modal for entering bet amount via button click."""
+    amount_input = discord.ui.TextInput(
+        label="下注金额 / Bet Amount (1-500)",
+        placeholder="输入金额...",
+        max_length=4,
+        required=True,
+    )
+
+    def __init__(self, match_id: int, team: str, team_label: str):
+        super().__init__()
+        self.match_id = match_id
+        self.team = team
+        self.team_label = team_label
+
+    async def on_submit(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        try:
+            amount = int(self.amount_input.value)
+        except ValueError:
+            return await interaction.response.send_message(
+                "请输入有效数字 / Please enter a valid number.", ephemeral=True,
+            )
+        if amount < 1 or amount > 500:
+            return await interaction.response.send_message(
+                "下注金额需在 1-500 之间 / Bet amount must be 1-500.", ephemeral=True,
+            )
+
+        conn = get_db(); cur = conn.cursor()
+
+        # Check match exists and not finished
+        cur.execute("SELECT id, status FROM tournaments WHERE id=?", (self.match_id,))
+        match = cur.fetchone()
+        if not match:
+            conn.close()
+            return await interaction.response.send_message(
+                "比赛不存在 / Match not found.", ephemeral=True,
+            )
+        if match["status"] == "finished":
+            conn.close()
+            return await interaction.response.send_message(
+                "比赛已结算，无法下注 / Match already settled.", ephemeral=True,
+            )
+
+        # Verify teams exist
+        cur.execute(
+            "SELECT id, name FROM teams WHERE tournament_id=? ORDER BY id",
+            (self.match_id,),
+        )
+        teams = cur.fetchall()
+        if len(teams) < 2:
+            conn.close()
+            return await interaction.response.send_message(
+                "比赛尚未分队，请等待管理员分队后再下注 / Teams not assigned yet.", ephemeral=True,
+            )
+
+        # Check balance
+        cur.execute(
+            "INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING",
+            (uid,),
+        )
+        cur.execute("SELECT score FROM users WHERE discord_id=?", (uid,))
+        user = cur.fetchone()
+        balance = user["score"] if user and user["score"] is not None else 0
+
+        if balance < amount:
+            conn.close()
+            return await interaction.response.send_message(
+                f"金币不足 / Insufficient coins. 余额: 🪙 {balance}", ephemeral=True,
+            )
+
+        # Check duplicate bet
+        cur.execute(
+            "SELECT id FROM bets WHERE match_id=? AND discord_id=?",
+            (self.match_id, uid),
+        )
+        if cur.fetchone():
+            conn.close()
+            return await interaction.response.send_message(
+                "你已在本场比赛下注 / Already placed a bet on this match.", ephemeral=True,
+            )
+
+        # Deduct coins and place bet
+        cur.execute("UPDATE users SET score=score-? WHERE discord_id=?", (amount, uid))
+        cur.execute(
+            "INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+            (uid, -amount, f"下注比赛 #{self.match_id} — {self.team_label}"),
+        )
+        cur.execute(
+            "INSERT INTO bets (match_id, discord_id, amount, team) VALUES (?,?,?,?)",
+            (self.match_id, uid, amount, self.team),
+        )
+        conn.commit(); conn.close()
+
+        await interaction.response.send_message(
+            f"✅ {interaction.user.mention} 下注 🪙 **{amount}** → "
+            f"比赛 #{self.match_id} **{self.team_label}** (Team {self.team})\n"
+            f"投对得 2x 返还 / Win = 2x payout!"
+        )
+
+
+class BetView(discord.ui.View):
+    """Two-button view for betting on Team A or Team B. Placed below match messages."""
+
+    def __init__(self, match_id: int):
+        super().__init__(timeout=None)
+        self.match_id = match_id
+
+    async def _get_team_labels(self):
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT name FROM teams WHERE tournament_id=? ORDER BY id", (self.match_id,))
+        rows = cur.fetchall()
+        conn.close()
+        if len(rows) >= 2:
+            return rows[0]["name"], rows[1]["name"]
+        return "Team A", "Team B"
+
+    @discord.ui.button(label="下注 Team A", style=discord.ButtonStyle.primary, emoji="🔵", row=0, custom_id="betv_team_a")
+    async def bet_a_btn(self, interaction: discord.Interaction, button):
+        team_a_label, _ = await self._get_team_labels()
+        await interaction.response.send_modal(BetModal(self.match_id, "A", team_a_label))
+
+    @discord.ui.button(label="下注 Team B", style=discord.ButtonStyle.danger, emoji="🔴", row=0, custom_id="betv_team_b")
+    async def bet_b_btn(self, interaction: discord.Interaction, button):
+        _, team_b_label = await self._get_team_labels()
+        await interaction.response.send_modal(BetModal(self.match_id, "B", team_b_label))
 
 
 async def setup(bot):
