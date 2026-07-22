@@ -40,7 +40,6 @@ COGS = [
     "cogs.match",
     "cogs.daily",
     "cogs.help",
-    "cogs.music",
     "cogs.peiwans",
 ]
 
@@ -109,13 +108,10 @@ import subprocess
 import sys
 
 def ensure_deps():
-    """Auto-install missing Python and system dependencies.
-    Returns the path to the ffmpeg binary directory.
-    """
+    """Auto-install missing Python dependencies."""
     pkgs = {
         "nacl": "PyNaCl",
         "croniter": "croniter",
-        "yt_dlp": "yt-dlp",
     }
     for import_name, pip_name in pkgs.items():
         try:
@@ -188,19 +184,7 @@ def ensure_deps():
                 print("davey unavailable — voice features may not work.")
                 print("To fix: downgrade discord.py to 2.6.0 in requirements.txt")
 
-    # Install imageio-ffmpeg (bundled FFmpeg binary, no root/apt required)
-    try:
-        import imageio_ffmpeg
-    except ImportError:
-        print("Installing imageio-ffmpeg ...")
-        subprocess.check_call(
-            [sys.executable, "-m", "pip", "install", "imageio-ffmpeg"]
-        )
-        import imageio_ffmpeg
-
-    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-    print(f"imageio-ffmpeg 提供的 FFmpeg: {ffmpeg_exe}")
-    return ffmpeg_exe
+    # All dependencies installed
 
 # 在 bot.run() 之前调用，保存路径到 bot.ffmpeg_path
 bot.ffmpeg_path = ensure_deps()
