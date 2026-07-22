@@ -342,6 +342,12 @@ class MatchListView(discord.ui.View):
 class GMPT(commands.Cog):
     """Gaming Planet 全能 Bot"""
 
+    async def cog_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        try:
+            await interaction.followup.send(f"❌ 错误: {error}", ephemeral=True)
+        except Exception:
+            pass
+
     def __init__(self, bot):
         self.bot = bot
         self.session = None
@@ -1267,6 +1273,7 @@ class GMPT(commands.Cog):
     @app_commands.autocomplete(match_id=match_id_autocomplete)
     async def custom_team(self, interaction: discord.Interaction, match_id: int):
         conn = get_db(); cur = conn.cursor()
+        await interaction.response.defer()
         cur.execute("SELECT * FROM tournaments WHERE id=?", (match_id,))
         t = cur.fetchone()
         if not t:

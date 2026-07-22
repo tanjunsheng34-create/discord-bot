@@ -10,6 +10,7 @@ import asyncio
 import discord
 from discord.ext import commands
 from database import get_db, init_db
+from utils.logger import log_error
 from config import TOKEN, BACKUP_CHANNEL_ID, BACKUP_INTERVAL, BACKUP_TABLES
 
 logging.basicConfig(
@@ -420,8 +421,8 @@ async def on_message(message):
         update_weekly_progress(uid, "send_message")
         if message.attachments:
             update_weekly_progress(uid, "send_attachment", len(message.attachments))
-    except Exception:
-        pass
+    except Exception as e:
+        log_error("main", "on_message_weekly", e)
 
 
 @bot.event
@@ -431,8 +432,8 @@ async def on_reaction_add(reaction, user):
     try:
         from cogs.economy import update_weekly_progress
         update_weekly_progress(str(user.id), "react")
-    except Exception:
-        pass
+    except Exception as e:
+        log_error("main", "on_reaction_weekly", e)
 
 
 # =============================================================================

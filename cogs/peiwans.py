@@ -15,17 +15,24 @@ GMPT Bot — 陪玩系统 / Companion System
 /pw-earnings                              — 我的收益 | My earnings
 /pw-orders                                — 我的订单 | My orders
 """
-from datetime import datetime
+from datetime import datetime, timezone
 import discord
 from discord import app_commands
 from discord.ext import commands
 from database import get_db
+from utils.logger import log_error
 
 
 PW_GREEN = 0x2ECC71
 
 
 class Peiwan(commands.Cog):
+    async def cog_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        try:
+            await interaction.followup.send(f"❌ 错误: {error}", ephemeral=True)
+        except Exception:
+            pass
+
     def __init__(self, bot):
         self.bot = bot
 
@@ -120,7 +127,7 @@ class Peiwan(commands.Cog):
     )
     async def apply(self, interaction: discord.Interaction, game: str, rank: str, price: int, intro: str):
         uid = interaction.user.id
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(datetime.timezone.utc).isoformat()
 
         conn = get_db()
         cur = conn.cursor()
@@ -308,7 +315,7 @@ class Peiwan(commands.Cog):
             return
 
         price = profile["price"]
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(datetime.timezone.utc).isoformat()
 
         cur.execute(
             "INSERT INTO peiwans_orders (customer_id, peiwans_id, game, price, status, created_at) "
@@ -335,8 +342,8 @@ class Peiwan(commands.Cog):
                 f"订单 #{order_id} | 客户: {interaction.user.mention} | 游戏: {game} | {price} 金币\n"
                 f"使用 /pw-accept {order_id} 或 /pw-reject {order_id}"
             )
-        except Exception:
-            pass
+        except Exception as e:
+            log_error("peiwans", "dm_notify_apply", e)
 
     # ─────────────────────────────────────────────
     # /pw-order-match
@@ -366,7 +373,7 @@ class Peiwan(commands.Cog):
         profile = dict(pw_row)
         pw_id = profile["user_id"]
         price = profile["price"]
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(datetime.timezone.utc).isoformat()
 
         cur.execute(
             "INSERT INTO peiwans_orders (customer_id, peiwans_id, game, price, status, created_at) "
@@ -400,8 +407,8 @@ class Peiwan(commands.Cog):
                     f"订单 #{order_id} | 客户: {interaction.user.mention} | 游戏: {game} | {price} 金币\n"
                     f"使用 /pw-accept {order_id} 或 /pw-reject {order_id}"
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("peiwans", "dm_notify_order_match", e)
 
     # ─────────────────────────────────────────────
     # /pw-accept
@@ -451,8 +458,8 @@ class Peiwan(commands.Cog):
                     f"你的订单已被接单！| Your order has been accepted!\n"
                     f"订单 #{order_id} | 陪玩: {interaction.user.mention}"
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("peiwans", "dm_notify_accept", e)
 
     # ─────────────────────────────────────────────
     # /pw-reject
@@ -500,8 +507,8 @@ class Peiwan(commands.Cog):
                 await customer.send(
                     f"你的订单已被拒绝 | Your order was rejected\n订单 #{order_id} | by {interaction.user.mention}"
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("peiwans", "dm_notify_reject", e)
 
     # ─────────────────────────────────────────────
     # /pw-complete
@@ -537,7 +544,7 @@ class Peiwan(commands.Cog):
             )
             return
 
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(datetime.timezone.utc).isoformat()
 
         cur.execute(
             "UPDATE peiwans_orders SET status='completed', completed_at=? WHERE order_id=?",
@@ -572,8 +579,8 @@ class Peiwan(commands.Cog):
                     f"陪玩: {interaction.user.mention}\n"
                     f"使用 /pw-rate {order_id} <1-5> [评价] 给陪玩打分"
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("peiwans", "dm_notify_complete", e)
 
     # ─────────────────────────────────────────────
     # /pw-cancel
@@ -679,7 +686,7 @@ class Peiwan(commands.Cog):
             await interaction.response.send_message("你已经评价过此订单 | You already rated this order", ephemeral=True)
             return
 
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(datetime.timezone.utc).isoformat()
 
         cur.execute(
             "INSERT INTO peiwans_reviews (order_id, reviewer_id, peiwans_id, rating, comment, created_at) "
@@ -754,6 +761,7 @@ class Peiwan(commands.Cog):
     @app_commands.command(name="pw-orders", description="我的订单 | My orders")
     async def orders(self, interaction: discord.Interaction):
         uid = interaction.user.id
+        await interaction.response.defer()
         conn = get_db()
         cur = conn.cursor()
 

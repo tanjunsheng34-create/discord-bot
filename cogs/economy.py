@@ -950,6 +950,12 @@ def _check_completionist(cur, user_id: str, just_unlocked_id: int):
 # ---------- Cog ----------
 
 class Economy(commands.Cog):
+    async def cog_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        try:
+            await interaction.followup.send(f"❌ 错误: {error}", ephemeral=True)
+        except Exception:
+            pass
+
     def __init__(self, bot):
         self.bot = bot
         _find_fonts()
@@ -1044,6 +1050,7 @@ class Economy(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
     # ========== 已报名玩家 ==========
+    @app_commands.checks.cooldown(2, 5.0, key=lambda i: (i.guild_id, i.user.id))
     @app_commands.command(name="gmpt-allplayers", description="List all registered players / 列出所有已报名玩家")
     async def players_cmd(self, interaction: discord.Interaction):
         conn = get_db(); cur = conn.cursor()
@@ -1518,6 +1525,7 @@ class Economy(commands.Cog):
         )
 
     # ========== 金币下注 / Betting ==========
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     @app_commands.command(name="gmpt-bet", description="[DEPRECATED] 对比赛下注 — 请使用比赛消息中的按钮 / Use bet buttons on match message")
     @app_commands.describe(
         match_id="比赛 ID / Match ID",
@@ -1849,6 +1857,7 @@ class Economy(commands.Cog):
     @app_commands.command(name="gmpt-weekly", description="View this week's challenges / 查看本周挑战")
     async def weekly_cmd(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
+        await interaction.response.defer()
         conn = get_db(); cur = conn.cursor()
         now_str = datetime.now().strftime("%Y-%m-%d")
 

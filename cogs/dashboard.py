@@ -2947,8 +2947,8 @@ class MatchViewWithID(discord.ui.View):
                 embed.color = discord.Color.orange()
                 embed.set_footer(text=embed.footer.text + " | 已开始/Started" if embed.footer.text else "已开始/Started")
                 await interaction.message.edit(embed=embed)
-        except Exception:
-            pass
+        except Exception as e:
+            log_error("dashboard", "message_edit", e)
 
         await self._refresh_list(interaction, mid)
 
@@ -4303,8 +4303,8 @@ class DashboardView(discord.ui.View):
                     except Exception:
                         try:
                             await interaction.response.send_message("❌ 操作失败，请重试 / Error, please try again.", ephemeral=True)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            log_error("dashboard", "fallback_send", e)
         return inner
 
     def make_page_callback(self, target_page: int):
@@ -6365,8 +6365,8 @@ class DashboardView(discord.ui.View):
                         await modal_int.channel.send(
                             f"📢 **新赛季开启**: {label}\n所有玩家 MMR 已重置，历史数据已归档。"
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log_error("dashboard", "season_announce", e)
                 except Exception as e:
                     log_error("dashboard", "season_reset", e)
                     await modal_int.followup.send(
@@ -6502,6 +6502,12 @@ class Dashboard(commands.Cog):
     """统一控制面板 / Unified Control Panel — 一个界面完成所有操作"""
 
     _croniter_warned = False
+
+    async def cog_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        try:
+            await interaction.followup.send(f"❌ 错误: {error}", ephemeral=True)
+        except Exception:
+            pass
 
     def __init__(self, bot):
         self.bot = bot
@@ -7186,8 +7192,8 @@ class Dashboard(commands.Cog):
             logger.error(f"[gmpt_recover] unexpected error: {e}", exc_info=True)
             try:
                 await interaction.followup.send(f"恢复失败 / Recovery failed: {e}", ephemeral=True)
-            except Exception:
-                pass
+            except Exception as e:
+                log_error("dashboard", "followup_send", e)
 
 
 async def setup(bot):
