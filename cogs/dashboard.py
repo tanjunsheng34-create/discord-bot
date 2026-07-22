@@ -1042,112 +1042,16 @@ class ReShuffleView(discord.ui.View):
         state = SettleState()
 
         async def _do_settle(s_int, mid, win_tid, mvp_uid):
-            from cogs.economy import MATCH_WIN_COINS, MATCH_PARTICIPATE_COINS
-            conn3 = get_db(); cur3 = conn3.cursor()
-            cur3.execute("SELECT discord_id FROM registrations WHERE tournament_id=? AND team_id=?", (mid, win_tid))
-            for r in cur3.fetchall():
-                wid = r["discord_id"]
-                cur3.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (wid,))
-                cur3.execute("UPDATE users SET score=score+? WHERE discord_id=?", (MATCH_WIN_COINS, wid))
-                cur3.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)", (wid, MATCH_WIN_COINS, f"比赛胜利 #{mid}"))
-            cur3.execute("INSERT INTO results (tournament_id,team_id,rank,score_awarded) VALUES (?,?,1,?)", (mid, win_tid, MATCH_WIN_COINS))
-
-            cur3.execute("SELECT discord_id FROM registrations WHERE tournament_id=? AND team_id!=?", (mid, win_tid))
-            for r in cur3.fetchall():
-                lid = r["discord_id"]
-                cur3.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (lid,))
-                cur3.execute("UPDATE users SET score=score+? WHERE discord_id=?", (MATCH_PARTICIPATE_COINS, lid))
-                cur3.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)", (lid, MATCH_PARTICIPATE_COINS, f"比赛参与 #{mid}"))
-
-            if mvp_uid:
-                cur3.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (mvp_uid,))
-                cur3.execute("UPDATE users SET score=score+? WHERE discord_id=?", (MATCH_PARTICIPATE_COINS, mvp_uid))
-                cur3.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)", (mvp_uid, MATCH_PARTICIPATE_COINS, f"MVP #{mid}"))
-
-            cur3.execute("UPDATE tournaments SET status='finished' WHERE id=?", (mid,))
-            conn3.commit()
-
-            # ── MMR update ──
-            cur3.execute("SELECT discord_id, team_id FROM registrations WHERE tournament_id=?", (mid,))
-            all_regs = cur3.fetchall()
-            w_ids = [r["discord_id"] for r in all_regs if r["team_id"] == win_tid]
-            l_ids = [r["discord_id"] for r in all_regs if r["team_id"] != win_tid]
-            cur3.close()
-
-            # ── 道具效果处理 / Active Item Effects ──
-            effect_msgs = []
-            conn_eff = get_db(); cur_eff = conn_eff.cursor()
-            all_pids = w_ids + l_ids
-            placeholders = ",".join("?" * len(all_pids)) if all_pids else "?"
-            cur_eff.execute(
-                f"SELECT id, user_id, effect_type FROM active_effects WHERE user_id IN ({placeholders}) AND consumed=0",
-                all_pids,
-            )
-            active_map = {}
-            for row in cur_eff.fetchall():
-                active_map.setdefault(row["user_id"], set()).add(row["effect_type"])
-
-            double_mmr_ids = set()
-            for wid in w_ids:
-                if "double_mmr" in active_map.get(wid, set()):
-                    double_mmr_ids.add(wid)
-                    cur_eff.execute("UPDATE active_effects SET consumed=1 WHERE user_id=? AND effect_type='double_mmr' AND consumed=0", (wid,))
-                    effect_msgs.append(f"⚡ <@{wid}> 双倍MMR生效! / Double MMR active!")
-
-            protect_ids = set()
-            for lid in l_ids:
-                if "mmr_protect" in active_map.get(lid, set()):
-                    protect_ids.add(lid)
-                    cur_eff.execute("UPDATE active_effects SET consumed=1 WHERE user_id=? AND effect_type='mmr_protect' AND consumed=0", (lid,))
-                    effect_msgs.append(f"🛡️ <@{lid}> MMR保护生效! / MMR protected!")
-
-            for wid in w_ids:
-                if "steal_coins" in active_map.get(wid, set()):
-                    cur_eff.execute("UPDATE active_effects SET consumed=1 WHERE user_id=? AND effect_type='steal_coins' AND consumed=0", (wid,))
-                    stolen_total = 0
-                    for lid in l_ids:
-                        cur_eff.execute("UPDATE users SET score=MAX(0, score-30) WHERE discord_id=?", (lid,))
-                        stolen_total += 30
-                        cur_eff.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                                        (lid, -30, f"Coin stolen by <@{wid}> in match #{mid}"))
-                    cur_eff.execute("UPDATE users SET score=score+? WHERE discord_id=?", (stolen_total, wid))
-                    cur_eff.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                                    (wid, stolen_total, f"Stole coins in match #{mid}"))
-                    effect_msgs.append(f"🥷 <@{wid}> 偷了 {stolen_total} coins! / Stole {stolen_total} coins!")
-
-            for pid in all_pids:
-                if "xp_boost" in active_map.get(pid, set()):
-                    cur_eff.execute("UPDATE active_effects SET consumed=1 WHERE user_id=? AND effect_type='xp_boost' AND consumed=0", (pid,))
-                    bonus = 75 if pid in w_ids else 25
-                    cur_eff.execute("UPDATE users SET score=score+? WHERE discord_id=?", (bonus, pid))
-                    cur_eff.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                                    (pid, bonus, f"XP Boost bonus in match #{mid}"))
-                    effect_msgs.append(f"📈 <@{pid}> 经验加成 +{bonus} coins! / XP Boost +{bonus} coins!")
-
-            conn_eff.commit(); conn_eff.close()
-
-            _update_mmr(w_ids, l_ids, mvp_uid, conn2=None, double_mmr_ids=double_mmr_ids, protect_ids=protect_ids)
-
-            # ── 竞猜结算 / Vote Resolution ──
-            try:
-                vote_winners = _resolve_vote_bets(mid, win_tid)
-                if vote_winners:
-                    effect_msgs.append(f"\U0001f4ca 竞猜: {len(vote_winners)} 人猜对,各 +5 MMR")
-            except Exception as e:
-                logger.error(f"[_do_settle] _resolve_vote_bets error: {e}", exc_info=True)
-
-            # ── 刷新实时排行榜 ──
-            try:
-                await _refresh_mmr_board(interaction.client, self.guild)
-            except Exception as e:
-                logger.error(f"[_do_settle] _refresh_mmr_board failed: {e}", exc_info=True)
-
-            conn3 = get_db(); cur3 = conn3.cursor()
-            cur3.execute("SELECT name FROM tournaments WHERE id=?", (mid,))
-            name_row = cur3.fetchone()
+            conn_name = get_db(); cur_name = conn_name.cursor()
+            cur_name.execute("SELECT name FROM tournaments WHERE id=?", (mid,))
+            name_row = cur_name.fetchone()
             match_name = name_row["name"] if name_row else f"Match #{mid}"
-            conn3.close()
-            analysis_embed = _generate_match_analysis(mid, match_name, w_ids, l_ids, mvp_uid, self.guild)
+            conn_name.close()
+
+            analysis_embed = await _execute_settle(
+                match_id=mid, win_team_id=win_tid, mvp_id=mvp_uid,
+                guild=self.guild, match_name=match_name, bot=interaction.client,
+            )
 
             for child in self.children:
                 if isinstance(child, discord.ui.Button) and child.label == "结算":
@@ -1157,97 +1061,7 @@ class ReShuffleView(discord.ui.View):
             except Exception as e:
                 log_error("dashboard", "_do_settle", e)
 
-            # Send AI analysis
-            if analysis_embed:
-                try:
-                    await interaction.channel.send(embed=analysis_embed)
-                except Exception as e:
-                    log_error("dashboard", "_do_settle", e)
-
-            # Send MVP vote
-            try:
-                await MvpVoteView.send_vote(
-                    match_id=mid, match_name=match_name,
-                    channel=interaction.channel, guild=self.guild,
-                )
-            except Exception as e:
-                logger.error(f"[MatchView] MvpVoteView error: {e}")
-
-            # Settle bets
-            try:
-                from cogs.economy import settle_bets
-                bet_lines = settle_bets(mid, win_tid)
-                if bet_lines:
-                    bet_embed = discord.Embed(
-                        title=f"🎲 金币下注结算 / Betting Results — {match_name}",
-                        description="\n".join(bet_lines),
-                        color=discord.Color.blurple(),
-                    )
-                    bet_embed.set_footer(text=f"Match ID: {mid}")
-                    await interaction.channel.send(embed=bet_embed)
-            except Exception as e:
-                logger.error(f"[MatchView] settle_bets error: {e}")
-
-            # ── 发送结算结果到 result-room ──
-            RESULT_CHANNEL_ID = 1442412993269731452
-            try:
-                conn_r = get_db(); cur_r = conn_r.cursor()
-                cur_r.execute("SELECT name FROM teams WHERE id=?", (win_tid,))
-                win_row = cur_r.fetchone()
-                cur_r.execute("SELECT name FROM teams WHERE tournament_id=? AND id!=?", (mid, win_tid))
-                lose_row = cur_r.fetchone()
-                conn_r.close()
-                win_name = win_row["name"] if win_row else "胜方"
-                lose_name = lose_row["name"] if lose_row else "败方"
-                mvp_mention = f"<@{mvp_uid}>" if mvp_uid else "无"
-                result_embed = discord.Embed(
-                    title=f"🏆 结算结果 / Match Result — {match_name}",
-                    description=(
-                        f"**胜方 Winner:** {win_name}\n"
-                        f"**败方 Loser:** {lose_name}\n"
-                        f"🏅 **MVP:** {mvp_mention}\n\n"
-                        f"胜方 +25 MMR | 败方 -25 MMR\n"
-                        f"胜方 +150 coins | 参与 +50 coins | MVP +50 coins"
-                    ),
-                    color=discord.Color.gold(),
-                )
-                result_embed.set_footer(text=f"Match ID: {mid}")
-                result_channel = self.guild.get_channel(RESULT_CHANNEL_ID)
-                if result_channel:
-                    await result_channel.send(embed=result_embed)
-            except Exception as e:
-                logger.error(f"[MatchView] result-room send error: {e}")
-
-            # ── 重新分队按钮 ──
-            try:
-                reshuffle_view = ReShuffleView(match_id=mid, guild=self.guild)
-                reshuffle_embed = reshuffle_view._build_player_list_embed()
-                await interaction.channel.send(
-                    embed=reshuffle_embed,
-                    view=reshuffle_view,
-                )
-            except Exception as e:
-                logger.error(f"[MatchView] ReShuffleView send error: {e}")
-
-            # ── 赛后统一拉入按钮 ──
-            try:
-                post_match_view = PostMatchPullView(guild=self.guild)
-                await interaction.channel.send(
-                    content=f"📢 **{match_name}** 结算完成!点击下方按钮将队员拉入赛后集合频道:",
-                    view=post_match_view,
-                )
-            except Exception as e:
-                logger.error(f"[MatchView] PostMatchPullView send error: {e}")
-
-            # ── 重赛 / 结束按钮 ──
-            try:
-                rematch_view = RematchView(match_id=mid, guild=self.guild, match_name=match_name)
-                await interaction.channel.send(
-                    content="比赛已结束！是否再来一局？ / Match finished! Rematch?",
-                    view=rematch_view,
-                )
-            except Exception as e:
-                logger.error(f"[MatchView] RematchView send error: {e}")
+            await _post_settle_actions(mid, match_name, self.guild, interaction.channel, analysis_embed, interaction.client)
 
             mvp_text = f"\n🏅 MVP: <@{mvp_uid}> +50" if mvp_uid else ""
             await s_int.response.send_message(
@@ -2629,74 +2443,7 @@ class MatchViewWithID(discord.ui.View):
                         content="✅ 结算完成! / Settle complete!", embed=None, view=None
                     )
 
-                    # Send AI analysis
-                    try:
-                        if analysis_embed:
-                            await interaction.channel.send(embed=analysis_embed)
-                    except Exception as e:
-                        logger.error(f"[MatchViewWithID] AI analysis send error: {e}")
-
-                    # Send MVP vote
-                    try:
-                        await MvpVoteView.send_vote(
-                            match_id=mid, match_name=t["name"],
-                            channel=interaction.channel, guild=guild,
-                        )
-                    except Exception as e:
-                        logger.error(f"[MatchView] MvpVoteView error: {e}")
-
-                    # Send public re-shuffle button with player list
-                    try:
-                        reshuffle_view = ReShuffleView(match_id=mid, guild=guild)
-                        reshuffle_embed = reshuffle_view._build_player_list_embed()
-                        await interaction.channel.send(
-                            embed=reshuffle_embed,
-                            view=reshuffle_view,
-                        )
-                    except Exception as e:
-                        logger.error(f"[MatchViewWithID] ReShuffleView send error: {e}")
-
-                    # ── 发送结算结果到 result-room ──
-                    RESULT_CHANNEL_ID = 1442412993269731452
-                    try:
-                        mvp_mention = f"<@{flow.mvp_id}>" if flow.mvp_id else "无"
-                        result_embed = discord.Embed(
-                            title=f"🏆 结算结果 / Match Result — {t['name']}",
-                            description=(
-                                f"**胜方 Winner:** {win_name}\n"
-                                f"**败方 Loser:** {lose_name}\n"
-                                f"🏅 **MVP:** {mvp_mention}\n\n"
-                                f"胜方 +25 MMR | 败方 -25 MMR\n"
-                                f"胜方 +150 coins | 参与 +50 coins | MVP +50 coins"
-                            ),
-                            color=discord.Color.gold(),
-                        )
-                        result_embed.set_footer(text=f"Match ID: {mid}")
-                        result_channel = guild.get_channel(RESULT_CHANNEL_ID)
-                        if result_channel:
-                            await result_channel.send(embed=result_embed)
-                    except Exception as e:
-                        logger.error(f"[MatchViewWithID] result-room send error: {e}")
-
-                    # ── 赛后统一拉入按钮 ──
-                    try:
-                        post_match_view = PostMatchPullView(guild=guild)
-                        await interaction.channel.send(
-                            content=f"📢 **{t['name']}** 结算完成!点击下方按钮将队员拉入赛后集合频道:",
-                            view=post_match_view,
-                        )
-                    except Exception as e:
-                        logger.error(f"[MatchViewWithID] PostMatchPullView send error: {e}")
-
-                    # ── 重赛 / 结束按钮 ──
-                    try:
-                        rematch_view = RematchView(match_id=mid, guild=guild, match_name=t["name"])
-                        await interaction.channel.send(
-                            content="比赛已结束！是否再来一局？ / Match finished! Rematch?",
-                            view=rematch_view,
-                        )
-                    except Exception as e:
-                        logger.error(f"[MatchViewWithID] RematchView send error: {e}")
+                    await _post_settle_actions(mid, t["name"], guild, interaction.channel, analysis_embed, interaction.client)
 
                 mvp_select.callback = mvp_callback
                 mvp_view = discord.ui.View(timeout=120)
@@ -3562,6 +3309,111 @@ async def _execute_settle(match_id, win_team_id, mvp_id, guild, match_name, bot=
     if analysis_embed and extra_lines:
         analysis_embed.description = (analysis_embed.description or "") + "\n".join(extra_lines)
     return analysis_embed
+
+
+# =============================================================================
+# Helper: post-settle actions (AI analysis, MVP vote, views, result-room)
+# =============================================================================
+async def _post_settle_actions(match_id, match_name, guild, channel, analysis_embed, bot,
+                               include_kill_report=False):
+    """Shared post-settle actions used by ReShuffleView, MatchViewWithID, and DashboardView."""
+    # AI analysis
+    try:
+        if analysis_embed:
+            await channel.send(embed=analysis_embed)
+    except Exception as e:
+        logger.error(f"[_post_settle] AI analysis send error: {e}")
+
+    # MVP vote
+    try:
+        await MvpVoteView.send_vote(
+            match_id=match_id, match_name=match_name,
+            channel=channel, guild=guild,
+        )
+    except Exception as e:
+        logger.error(f"[_post_settle] MvpVoteView error: {e}")
+
+    # ReShuffleView
+    try:
+        reshuffle_view = ReShuffleView(match_id=match_id, guild=guild)
+        reshuffle_embed = reshuffle_view._build_player_list_embed()
+        await channel.send(embed=reshuffle_embed, view=reshuffle_view)
+    except Exception as e:
+        logger.error(f"[_post_settle] ReShuffleView send error: {e}")
+
+    # KillReportView (dashboard only)
+    if include_kill_report:
+        try:
+            kill_report_view = KillReportView(match_id=match_id, guild=guild)
+            await channel.send(
+                content=f"⚔️ **{match_name}** 比赛回放 - 点击下方按钮上报击杀/死亡事件:",
+                view=kill_report_view,
+            )
+        except Exception as e:
+            logger.error(f"[_post_settle] KillReportView send error: {e}")
+
+    # result-room
+    RESULT_CHANNEL_ID = 1442412993269731452
+    try:
+        conn_r = get_db(); cur_r = conn_r.cursor()
+        cur_r.execute("SELECT id, name FROM teams WHERE tournament_id=?", (match_id,))
+        teams = {row["id"]: row["name"] for row in cur_r.fetchall()}
+        cur_r.execute("SELECT team_id FROM results WHERE tournament_id=? AND rank=1", (match_id,))
+        win_row = cur_r.fetchone()
+        conn_r.close()
+        win_tid = win_row["team_id"] if win_row else None
+        win_name = teams.get(win_tid, "胜方") if win_tid else "胜方"
+        lose_row = None
+        for tid, name in teams.items():
+            if tid != win_tid:
+                lose_row = name
+                break
+        lose_name = lose_row or "败方"
+
+        cur_r2 = get_db(); cur2 = cur_r2.cursor()
+        cur2.execute("SELECT mvp_id FROM match_mvp WHERE match_id=?", (match_id,))
+        mvp_row = cur2.fetchone()
+        mvp_uid = mvp_row["mvp_id"] if mvp_row else None
+        cur_r2.close()
+        mvp_mention = f"<@{mvp_uid}>" if mvp_uid else "无"
+
+        result_embed = discord.Embed(
+            title=f"🏆 结算结果 / Match Result - {match_name}",
+            description=(
+                f"**胜方 Winner:** {win_name}\n"
+                f"**败方 Loser:** {lose_name}\n"
+                f"🏅 **MVP:** {mvp_mention}\n\n"
+                f"胜方 +25 MMR | 败方 -25 MMR\n"
+                f"胜方 +150 coins | 参与 +50 coins | MVP +50 coins"
+            ),
+            color=discord.Color.gold(),
+        )
+        result_embed.set_footer(text=f"Match ID: {match_id}")
+        result_channel = guild.get_channel(RESULT_CHANNEL_ID)
+        if result_channel:
+            await result_channel.send(embed=result_embed)
+    except Exception as e:
+        logger.error(f"[_post_settle] result-room send error: {e}")
+
+    # PostMatchPullView
+    try:
+        post_match_view = PostMatchPullView(guild=guild)
+        await channel.send(
+            content=f"📢 **{match_name}** 结算完成! 点击下方按钮将队员拉入赛后集合频道:",
+            view=post_match_view,
+        )
+    except Exception as e:
+        logger.error(f"[_post_settle] PostMatchPullView send error: {e}")
+
+    # RematchView
+    try:
+        rematch_view = RematchView(match_id=match_id, guild=guild, match_name=match_name)
+        await channel.send(
+            content="比赛已结束！是否再来一局？ / Match finished! Rematch?",
+            view=rematch_view,
+        )
+    except Exception as e:
+        logger.error(f"[_post_settle] RematchView send error: {e}")
 
 
 # ══════════ MMR 排位系统 / MMR Ranking System ══════════
@@ -4695,68 +4547,12 @@ class DashboardView(discord.ui.View):
                     )
 
                     try:
-                        # Send AI analysis
-                        try:
-                            if analysis_embed:
-                                await interaction.channel.send(embed=analysis_embed)
-                        except Exception as e:
-                            logger.error(f"[DashboardView] AI analysis send error: {e}")
-
-                        # Send MVP vote
-                        try:
-                            await MvpVoteView.send_vote(
-                                match_id=mid, match_name=t["name"],
-                                channel=interaction.channel, guild=self.guild,
-                            )
-                        except Exception as e:
-                            logger.error(f"[DashboardView] MvpVoteView error: {e}")
-
-                        # ReShuffleView
-                        try:
-                            reshuffle_view = ReShuffleView(match_id=mid, guild=self.guild)
-                            reshuffle_embed = reshuffle_view._build_player_list_embed()
-                            await interaction.channel.send(
-                                embed=reshuffle_embed,
-                                view=reshuffle_view,
-                            )
-                        except Exception as e:
-                            logger.error(f"[DashboardView] ReShuffleView send error: {e}")
-
-                        # ── 击杀上报按钮 ──
-                        try:
-                            kill_report_view = KillReportView(match_id=mid, guild=self.guild)
-                            await interaction.channel.send(
-                                content=f"⚔️ **{t['name']}** 比赛回放 — 点击下方按钮上报击杀/死亡事件:",
-                                view=kill_report_view,
-                            )
-                        except Exception as e:
-                            logger.error(f"[DashboardView] KillReportView send error: {e}")
-
-                        # ── 赛后统一拉入按钮 ──
-                        try:
-                            post_match_view = PostMatchPullView(guild=self.guild)
-                            await interaction.channel.send(
-                                content=f"📢 **{t['name']}** 结算完成!点击下方按钮将队员拉入赛后集合频道:",
-                                view=post_match_view,
-                            )
-                        except Exception as e:
-                            logger.error(f"[DashboardView] PostMatchPullView send error: {e}")
-
-                        # Rematch / End buttons
-                        try:
-                            rematch_view = RematchView(match_id=mid, guild=self.guild, match_name=t["name"])
-                            await interaction.channel.send(
-                                content="比赛已结束！是否再来一局？ / Match finished! Rematch?",
-                                view=rematch_view,
-                            )
-                        except Exception as e:
-                            logger.error(f"[DashboardView] RematchView send error: {e}")
+                        await _post_settle_actions(
+                            mid, t["name"], self.guild, interaction.channel,
+                            analysis_embed, interaction.client, include_kill_report=True,
+                        )
                     except Exception as e:
                         logger.error(f"[DashboardView] mvp_callback_dash outer error: {e}")
-                        try:
-                            await interaction.followup.send("结算失败，请联系管理员。", ephemeral=True)
-                        except Exception:
-                            pass
 
                 mvp_select.callback = mvp_callback_dash
                 mvp_view = discord.ui.View(timeout=120)
@@ -6902,6 +6698,7 @@ class Dashboard(commands.Cog):
         name="gmpt-stats",
         description="View player MMR, rank, and win/loss stats / 查看玩家MMR/段位/胜负",
     )
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     @app_commands.describe(
         user="Target user / 目标用户 (default: yourself)",
     )
@@ -6945,6 +6742,7 @@ class Dashboard(commands.Cog):
         name="gmpt-leaderboard-mmr",
         description="View MMR leaderboard / 查看MMR排行榜",
     )
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     @app_commands.describe(
         limit="Number of players to show / 显示人数 (default: 10)",
     )

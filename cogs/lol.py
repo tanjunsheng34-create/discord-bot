@@ -427,7 +427,7 @@ class GMPT(commands.Cog):
         await asyncio.sleep(300)
         try:
             await ch.delete()
-        except:
+        except Exception:
             pass
 
     # ============ 设置自动监控 ============
@@ -530,7 +530,12 @@ class GMPT(commands.Cog):
             cur.execute("INSERT INTO registrations (tournament_id, discord_id) VALUES (?,?)", (match_id, uid))
             cur.execute("INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)", (uid, interaction.user.name))
             conn.commit()
-        except: conn.close(); return await interaction.response.send_message("已报名。", ephemeral=True)
+        except Exception as e:
+            conn.close()
+            if isinstance(e, __import__("sqlite3").IntegrityError):
+                return await interaction.response.send_message("已报名。", ephemeral=True)
+            logger.error(f"报名失败 match_id={match_id} uid={uid}: {e}", exc_info=True)
+            return await interaction.response.send_message("报名失败，请稍后重试。", ephemeral=True)
         conn.close()
         await interaction.response.send_message(f"{interaction.user.mention} 报名成功！({cnt+1}/{max_p})")
 
@@ -1098,7 +1103,7 @@ class GMPT(commands.Cog):
             if ch:
                 try:
                     await ch.delete()
-                except:
+                except Exception:
                     pass
 
     # ============ Riot API 状态检测 ============

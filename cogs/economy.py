@@ -958,6 +958,7 @@ class Economy(commands.Cog):
 
     # ========== 余额 ==========
     @app_commands.command(name="gmpt-balance", description="Check your coin balance / 查看余额")
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def balance_cmd(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
         bal = get_balance(uid)
@@ -993,6 +994,7 @@ class Economy(commands.Cog):
 
     # ========== 玩家资料卡 ==========
     @app_commands.command(name="gmpt-profile", description="View player profile / 查看玩家资料卡")
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     @app_commands.describe(user="Player to view (default: yourself) / 目标玩家（默认自己）")
     async def profile_cmd(self, interaction: discord.Interaction, user: discord.Member = None):
         target = user or interaction.user
@@ -1122,6 +1124,7 @@ class Economy(commands.Cog):
 
     # ========== 交易记录 ==========
     @app_commands.command(name="gmpt-transactions", description="View transaction history / 交易记录")
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     @app_commands.describe(count="Number of records (1-20) / 记录数")
     async def tx_cmd(self, interaction: discord.Interaction, count: int = 10):
         uid = str(interaction.user.id)
@@ -1147,6 +1150,7 @@ class Economy(commands.Cog):
 
     # ========== 商店 ==========
     @app_commands.command(name="gmpt-shop", description="Open the coin shop / 积分商店")
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def shop_cmd(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
         bal = get_balance(uid)
@@ -1196,6 +1200,7 @@ class Economy(commands.Cog):
 
     # ========== 背包 ==========
     @app_commands.command(name="gmpt-inventory", description="View your inventory / 查看背包")
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def inv_cmd(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
         conn = get_db(); cur = conn.cursor()
@@ -1361,6 +1366,7 @@ class Economy(commands.Cog):
 
     # ========== 成就 ==========
     @app_commands.command(name="gmpt-achievements", description="View achievements / 成就列表（分页版）")
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def ach_cmd(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
         conn = get_db(); cur = conn.cursor()
@@ -1701,6 +1707,7 @@ class Economy(commands.Cog):
         ][:25]
 
     @app_commands.command(name="gmpt-bet-stats", description="查看下注历史 / View bet history and stats")
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def bet_stats_cmd(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
         conn = get_db(); cur = conn.cursor()
@@ -1754,6 +1761,7 @@ class Economy(commands.Cog):
 
     # ========== 比赛历史 /gmpt-history ==========
     @app_commands.command(name="gmpt-history", description="View match history / 查看比赛历史")
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     @app_commands.describe(page="Page number (5 per page) / 页码（每页5场）")
     async def history_cmd(self, interaction: discord.Interaction, page: int = 1):
         uid = str(interaction.user.id)

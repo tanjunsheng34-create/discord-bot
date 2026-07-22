@@ -333,131 +333,68 @@ async def auto_restore():
     restored = {}
 
     try:
+        # Batched restore helpers
+        def _restore_batch(table_name, sql, rows_builder):
+            rows = [rows_builder(r) for r in data.get(table_name, [])]
+            if rows:
+                cur.executemany(sql, rows)
+                restored[table_name] = len(rows)
+
         # users
-        if "users" in data and data["users"]:
-            for u in data["users"]:
-                cur.execute(
-                    "INSERT OR REPLACE INTO users (discord_id, username, score, created_at) "
-                    "VALUES (?, ?, ?, ?)",
-                    (u.get("discord_id"), u.get("username", ""), u.get("score", 500),
-                     u.get("created_at", "")),
-                )
-            restored["users"] = len(data["users"])
-
+        _restore_batch("users",
+            "INSERT OR REPLACE INTO users (discord_id, username, score, created_at) VALUES (?, ?, ?, ?)",
+            lambda u: (u.get("discord_id"), u.get("username", ""), u.get("score", 500), u.get("created_at", "")),
+        )
         # voice_tracker
-        if "voice_tracker" in data and data["voice_tracker"]:
-            for v in data["voice_tracker"]:
-                cur.execute(
-                    "INSERT OR REPLACE INTO voice_tracker "
-                    "(user_id, total_seconds, login_days, total_joins, last_join_date, last_join_time) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
-                    (v.get("user_id"), v.get("total_seconds", 0), v.get("login_days", 0),
-                     v.get("total_joins", 0), v.get("last_join_date"), v.get("last_join_time")),
-                )
-            restored["voice_tracker"] = len(data["voice_tracker"])
-
+        _restore_batch("voice_tracker",
+            "INSERT OR REPLACE INTO voice_tracker (user_id, total_seconds, login_days, total_joins, last_join_date, last_join_time) VALUES (?, ?, ?, ?, ?, ?)",
+            lambda v: (v.get("user_id"), v.get("total_seconds", 0), v.get("login_days", 0), v.get("total_joins", 0), v.get("last_join_date"), v.get("last_join_time")),
+        )
         # daily_checkin
-        if "daily_checkin" in data and data["daily_checkin"]:
-            for c in data["daily_checkin"]:
-                cur.execute(
-                    "INSERT OR REPLACE INTO daily_checkin (discord_id, last_date, streak) "
-                    "VALUES (?, ?, ?)",
-                    (c.get("discord_id"), c.get("last_date", ""), c.get("streak", 0)),
-                )
-            restored["daily_checkin"] = len(data["daily_checkin"])
-
+        _restore_batch("daily_checkin",
+            "INSERT OR REPLACE INTO daily_checkin (discord_id, last_date, streak) VALUES (?, ?, ?)",
+            lambda c: (c.get("discord_id"), c.get("last_date", ""), c.get("streak", 0)),
+        )
         # giveaway
-        if "giveaway" in data and data["giveaway"]:
-            for g in data["giveaway"]:
-                cur.execute(
-                    "INSERT OR REPLACE INTO giveaway "
-                    "(id, guild_id, channel_id, message_id, prize, duration_minutes, "
-                    "winner_count, created_by, ends_at, status) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (g.get("id"), g.get("guild_id"), g.get("channel_id"), g.get("message_id"),
-                     g.get("prize"), g.get("duration_minutes"), g.get("winner_count"),
-                     g.get("created_by"), g.get("ends_at"), g.get("status", "active")),
-                )
-            restored["giveaway"] = len(data["giveaway"])
-
+        _restore_batch("giveaway",
+            "INSERT OR REPLACE INTO giveaway (id, guild_id, channel_id, message_id, prize, duration_minutes, winner_count, created_by, ends_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            lambda g: (g.get("id"), g.get("guild_id"), g.get("channel_id"), g.get("message_id"), g.get("prize"), g.get("duration_minutes"), g.get("winner_count"), g.get("created_by"), g.get("ends_at"), g.get("status", "active")),
+        )
         # giveaway_entries
-        if "giveaway_entries" in data and data["giveaway_entries"]:
-            for e in data["giveaway_entries"]:
-                cur.execute(
-                    "INSERT OR REPLACE INTO giveaway_entries (id, giveaway_id, user_id) "
-                    "VALUES (?, ?, ?)",
-                    (e.get("id"), e.get("giveaway_id"), e.get("user_id")),
-                )
-            restored["giveaway_entries"] = len(data["giveaway_entries"])
-
+        _restore_batch("giveaway_entries",
+            "INSERT OR REPLACE INTO giveaway_entries (id, giveaway_id, user_id) VALUES (?, ?, ?)",
+            lambda e: (e.get("id"), e.get("giveaway_id"), e.get("user_id")),
+        )
         # user_inventory
-        if "user_inventory" in data and data["user_inventory"]:
-            for inv in data["user_inventory"]:
-                cur.execute(
-                    "INSERT OR REPLACE INTO user_inventory (user_id, item_id, quantity) "
-                    "VALUES (?, ?, ?)",
-                    (inv.get("user_id"), inv.get("item_id"), inv.get("quantity", 1)),
-                )
-            restored["user_inventory"] = len(data["user_inventory"])
-
+        _restore_batch("user_inventory",
+            "INSERT OR REPLACE INTO user_inventory (user_id, item_id, quantity) VALUES (?, ?, ?)",
+            lambda inv: (inv.get("user_id"), inv.get("item_id"), inv.get("quantity", 1)),
+        )
         # giveaways (economy.py new system)
-        if "giveaways" in data and data["giveaways"]:
-            for g in data["giveaways"]:
-                cur.execute(
-                    "INSERT OR REPLACE INTO giveaways "
-                    "(id, channel_id, prize, created_by, drawn, winner_id, created_at, draw_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (g.get("id"), g.get("channel_id"), g.get("prize"), g.get("created_by"),
-                     g.get("drawn", 0), g.get("winner_id"), g.get("created_at"), g.get("draw_at")),
-                )
-            restored["giveaways"] = len(data["giveaways"])
-
+        _restore_batch("giveaways",
+            "INSERT OR REPLACE INTO giveaways (id, channel_id, prize, created_by, drawn, winner_id, created_at, draw_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            lambda g: (g.get("id"), g.get("channel_id"), g.get("prize"), g.get("created_by"), g.get("drawn", 0), g.get("winner_id"), g.get("created_at"), g.get("draw_at")),
+        )
         # giveaway_tickets
-        if "giveaway_tickets" in data and data["giveaway_tickets"]:
-            for t in data["giveaway_tickets"]:
-                cur.execute(
-                    "INSERT OR REPLACE INTO giveaway_tickets (discord_id, tickets) "
-                    "VALUES (?, ?)",
-                    (t.get("discord_id"), t.get("tickets", 0)),
-                )
-            restored["giveaway_tickets"] = len(data["giveaway_tickets"])
-
+        _restore_batch("giveaway_tickets",
+            "INSERT OR REPLACE INTO giveaway_tickets (discord_id, tickets) VALUES (?, ?)",
+            lambda t: (t.get("discord_id"), t.get("tickets", 0)),
+        )
         # tournaments
-        if "tournaments" in data and data["tournaments"]:
-            for t in data["tournaments"]:
-                cur.execute(
-                    "INSERT OR REPLACE INTO tournaments "
-                    "(id, name, max_teams, team_size, status, created_by, created_at, "
-                    "format, max_players, rounds, tier_restriction, role_pick) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (t.get("id"), t.get("name"), t.get("max_teams"), t.get("team_size"),
-                     t.get("status", "open"), t.get("created_by"), t.get("created_at"),
-                     t.get("format", "swiss"), t.get("max_players", 32), t.get("rounds", 3),
-                     t.get("tier_restriction"), t.get("role_pick", 0)),
-                )
-            restored["tournaments"] = len(data["tournaments"])
-
+        _restore_batch("tournaments",
+            "INSERT OR REPLACE INTO tournaments (id, name, max_teams, team_size, status, created_by, created_at, format, max_players, rounds, tier_restriction, role_pick) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            lambda t: (t.get("id"), t.get("name"), t.get("max_teams"), t.get("team_size"), t.get("status", "open"), t.get("created_by"), t.get("created_at"), t.get("format", "swiss"), t.get("max_players", 32), t.get("rounds", 3), t.get("tier_restriction"), t.get("role_pick", 0)),
+        )
         # match_signups
-        if "match_signups" in data and data["match_signups"]:
-            for s in data["match_signups"]:
-                cur.execute(
-                    "INSERT OR REPLACE INTO match_signups (id, match_id, discord_id, team) "
-                    "VALUES (?, ?, ?, ?)",
-                    (s.get("id"), s.get("match_id"), s.get("discord_id"), s.get("team")),
-                )
-            restored["match_signups"] = len(data["match_signups"])
-
+        _restore_batch("match_signups",
+            "INSERT OR REPLACE INTO match_signups (id, match_id, discord_id, team) VALUES (?, ?, ?, ?)",
+            lambda s: (s.get("id"), s.get("match_id"), s.get("discord_id"), s.get("team")),
+        )
         # matches
-        if "matches" in data and data["matches"]:
-            for m in data["matches"]:
-                cur.execute(
-                    "INSERT OR REPLACE INTO matches "
-                    "(id, name, status, created_by, channel_id, created_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
-                    (m.get("id"), m.get("name"), m.get("status", "pending"),
-                     m.get("created_by"), m.get("channel_id"), m.get("created_at")),
-                )
-            restored["matches"] = len(data["matches"])
+        _restore_batch("matches",
+            "INSERT OR REPLACE INTO matches (id, name, status, created_by, channel_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            lambda m: (m.get("id"), m.get("name"), m.get("status", "pending"), m.get("created_by"), m.get("channel_id"), m.get("created_at")),
+        )
 
         conn.commit()
 
