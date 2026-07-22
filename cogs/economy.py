@@ -1591,12 +1591,16 @@ class Economy(commands.Cog):
     @app_commands.describe(
         match_id="比赛 ID / Match ID",
         amount="下注金额 / Bet amount (max 500)",
-        team="下注队伍 ID / Team ID to bet on",
+        team="选择队伍 / Choose team",
     )
+    @app_commands.choices(team=[
+        app_commands.Choice(name="Team A", value="A"),
+        app_commands.Choice(name="Team B", value="B"),
+    ])
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def bet_cmd(
         self, interaction: discord.Interaction,
-        match_id: int, amount: int, team: int,
+        match_id: int, amount: int, team: str,
     ):
         uid = str(interaction.user.id)
 
@@ -1621,17 +1625,19 @@ class Economy(commands.Cog):
                 "比赛已结算，无法下注 / Match already settled.", ephemeral=True,
             )
 
-        # Check team exists
+        # Resolve "A"/"B" to actual team
         cur.execute(
-            "SELECT id, name FROM teams WHERE id=? AND tournament_id=?",
-            (team, match_id),
+            "SELECT id, name FROM teams WHERE tournament_id=? ORDER BY id",
+            (match_id,),
         )
-        team_row = cur.fetchone()
-        if not team_row:
+        teams = cur.fetchall()
+        if len(teams) < 2:
             conn.close()
             return await interaction.response.send_message(
-                "队伍不存在 / Team not found.", ephemeral=True,
+                "比赛队伍不足 / Not enough teams in match.", ephemeral=True,
             )
+        team_idx = 0 if team == "A" else 1
+        team_row = teams[team_idx]
 
         # Check balance
         cur.execute(
@@ -1681,30 +1687,6 @@ class Economy(commands.Cog):
     async def bet_match_id_autocomplete(self, interaction: discord.Interaction, current: str):
         from cogs.match_autocomplete import match_id_autocomplete
         return await match_id_autocomplete(interaction, current)
-
-    @bet_cmd.autocomplete("team")
-    async def bet_team_autocomplete(self, interaction: discord.Interaction, current: str):
-        """Autocomplete team_id from the already selected match_id."""
-        try:
-            match_id_str = interaction.namespace.get("match_id")
-            if not match_id_str:
-                return []
-            match_id = int(match_id_str)
-        except (ValueError, TypeError):
-            return []
-
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT id, name FROM teams WHERE tournament_id=?", (match_id,))
-        teams = cur.fetchall(); conn.close()
-
-        return [
-            app_commands.Choice(
-                name=f"{t['name'][:80]} (ID:{t['id']})",
-                value=t["id"],
-            )
-            for t in teams
-            if current.lower() in str(t["id"]) or current.lower() in (t["name"] or "").lower()
-        ][:25]
 
     @app_commands.command(name="gmpt-bet-stats", description="查看下注历史 / View bet history and stats")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
@@ -2035,6 +2017,16 @@ def update_weekly_progress(user_id: str, task_type: str, amount: int = 1):
 def settle_bets(match_id: int, winning_team_id: int) -> list:
     """结算指定比赛的所有下注。投对的 2x 返还，投错的没收。返回结果摘要行列表。"""
     conn = get_db(); cur = conn.cursor()
+
+    # Map winning_team_id to "A"/"B" (teams ORDER BY id)
+    cur.execute("SELECT id FROM teams WHERE tournament_id=? ORDER BY id", (match_id,))
+    match_teams = cur.fetchall()
+    winning_team = None
+    for idx, t in enumerate(match_teams):
+        if t["id"] == winning_team_id:
+            winning_team = "A" if idx == 0 else "B"
+            break
+
     cur.execute(
         "SELECT id, discord_id, amount, team FROM bets WHERE match_id=? AND settled=0",
         (match_id,),
@@ -2046,7 +2038,7 @@ def settle_bets(match_id: int, winning_team_id: int) -> list:
     result_lines = []
 
     for b in bets:
-        won_flag = 1 if str(b["team"]) == str(winning_team_id) else 0
+        won_flag = 1 if b["team"] == winning_team else 0
         cur.execute(
             "UPDATE bets SET settled=1, won=? WHERE id=?",
             (won_flag, b["id"]),
