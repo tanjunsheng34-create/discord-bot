@@ -94,7 +94,7 @@ class GiveawayModal(discord.ui.Modal, title="创建抽奖 / Create Giveaway"):
         conn.commit(); conn.close()
 
         # Schedule auto-end
-        asyncio.create_task(auto_end_giveaway(gid, duration_mins))
+        self._scheduled_tasks.append(asyncio.create_task(auto_end_giveaway(gid, duration_mins)))
 
         # 持久化到 scheduled_giveaways（重启后恢复）
         conn = get_db(); cur = conn.cursor()
@@ -172,11 +172,6 @@ class GiveawayView(discord.ui.View):
             ephemeral=True,
         )
 
-
-# =============================================================================
-# Giveaway Cog
-# =============================================================================
-
     async def on_timeout(self):
         for child in self.children:
             if hasattr(child, 'disabled'):
@@ -187,9 +182,26 @@ class GiveawayView(discord.ui.View):
             except Exception as e:
                 log_error("giveaway", "on_timeout", e)
 
+
+# =============================================================================
+# Giveaway Cog
+# =============================================================================
+
 class Giveaway(commands.Cog):
+    async def cog_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        try:
+            await interaction.followup.send(f"❌ 错误: {error}", ephemeral=True)
+        except Exception:
+            pass
+
+    async def cog_unload(self):
+        for task in getattr(self, '_scheduled_tasks', []):
+            if not task.done():
+                task.cancel()
+
     def __init__(self, bot):
         self.bot = bot
+        self._scheduled_tasks = []
         global _bot_ref
         _bot_ref = bot
 
@@ -460,10 +472,10 @@ async def setup(bot):
                 gw = cur2.fetchone()
                 conn2.close()
                 if gw and gw["status"] == "active":
-                    asyncio.create_task(end_giveaway(row["gid"], bot))
+                    self._scheduled_tasks.append(asyncio.create_task(end_giveaway(row["gid"], bot)))
             else:
                 # 未过期，重新排期
                 remaining_mins = remaining_seconds / 60
-                asyncio.create_task(auto_end_giveaway(row["gid"], remaining_mins))
+                self._scheduled_tasks.append(asyncio.create_task(auto_end_giveaway(row["gid"], remaining_mins)))
         except Exception as e:
             log_error("giveaway", "reschedule", e)
