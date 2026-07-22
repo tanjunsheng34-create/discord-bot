@@ -13,6 +13,12 @@ from utils.logger import log_error
 
 
 class AdminBackup(commands.Cog):
+    async def cog_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        try:
+            await interaction.followup.send(f"❌ 错误: {error}", ephemeral=True)
+        except Exception:
+            pass
+
     def __init__(self, bot):
         self.bot = bot
 
@@ -70,6 +76,7 @@ class AdminBackup(commands.Cog):
         )
 
     @app_commands.command(name="gmpt-restore", description="Restore data from JSON backup file (admin only)")
+    @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
     @app_commands.describe(file="The gmpt_backup.json file to restore from")
     async def restore_cmd(self, interaction: discord.Interaction, file: discord.Attachment):
         """Restore data from a gmpt_backup.json file attachment."""
