@@ -8,6 +8,12 @@ from discord.ext import commands
 
 
 class Announce(commands.Cog):
+    async def cog_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        try:
+            await interaction.followup.send(f"❌ 错误: {error}", ephemeral=True)
+        except Exception:
+            pass
+
     def __init__(self, bot):
         self.bot = bot
 

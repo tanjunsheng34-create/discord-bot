@@ -42,6 +42,12 @@ class Daily(commands.Cog):
         description="Daily voice reward system / 每日语音奖励系统",
     )
 
+    async def cog_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        try:
+            await interaction.followup.send(f"❌ 错误: {error}", ephemeral=True)
+        except Exception:
+            pass
+
     def __init__(self, bot):
         self.bot = bot
         self._join_times: dict[str, datetime] = {}  # discord_id -> join_time (UTC+8)

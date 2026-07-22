@@ -13,6 +13,12 @@ DEPRECATED_MSG = "此命令已迁移到控制面板 /dashboard，请使用控制
 
 
 class Match(commands.Cog):
+    async def cog_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        try:
+            await interaction.followup.send(f"❌ 错误: {error}", ephemeral=True)
+        except Exception:
+            pass
+
     def __init__(self, bot):
         self.bot = bot
 
