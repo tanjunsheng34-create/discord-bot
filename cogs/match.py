@@ -20,7 +20,7 @@ class Match(commands.Cog):
     # ══════════ 1. 创建比赛 ══════════
     @app_commands.command(
         name="gmpt-create-match",
-        description="Create a new match room / 创建比赛房间"
+        description="[DEPRECATED] Create a new match room / 创建比赛房间 — 请使用控制面板"
     )
     @app_commands.describe(name="Match name / 比赛名称")
     async def create_match_cmd(self, interaction: discord.Interaction, name: str):
@@ -50,7 +50,7 @@ class Match(commands.Cog):
     # ══════════ 2. 报名 ══════════
     @app_commands.command(
         name="gmpt-signup",
-        description="Sign up for a match / 报名参赛"
+        description="[DEPRECATED] Sign up for a match / 报名参赛 — 请使用控制面板"
     )
     @app_commands.describe(match_id="Match ID (default: latest pending match) / 比赛ID（默认：最近未开始的比赛）")
     async def signup_cmd(self, interaction: discord.Interaction, match_id: int = None):
@@ -114,7 +114,7 @@ class Match(commands.Cog):
     # ══════════ 3. 随机洗牌 ══════════
     @app_commands.command(
         name="gmpt-random-teams",
-        description="Shuffle all signed-up players (no team split) / 随机打乱报名玩家"
+        description="[DEPRECATED] Shuffle / 随机打乱 — 请使用控制面板"
     )
     @app_commands.describe(match_id="Match ID (default: latest pending) / 比赛ID")
     async def random_teams_cmd(self, interaction: discord.Interaction, match_id: int = None):
@@ -158,7 +158,7 @@ class Match(commands.Cog):
     # ══════════ 4. A/B 分队 ══════════
     @app_commands.command(
         name="gmpt-assign-ab",
-        description="Randomly split players into Team A / B / 随机分为A/B两队"
+        description="[DEPRECATED] Split into A/B / 分为A/B队 — 请使用控制面板"
     )
     @app_commands.describe(match_id="Match ID (default: latest pending) / 比赛ID")
     async def assign_ab_cmd(self, interaction: discord.Interaction, match_id: int = None):
@@ -242,7 +242,7 @@ class Match(commands.Cog):
     # ══════════ 5. 开始比赛 ══════════
     @app_commands.command(
         name="gmpt-start-match",
-        description="Start a match (Admin) / 开始比赛（管理员）"
+        description="[DEPRECATED] Start a match / 开始比赛 — 请使用控制面板"
     )
     @app_commands.describe(match_id="Match ID (default: latest pending) / 比赛ID")
     @app_commands.default_permissions(administrator=True)
@@ -335,7 +335,7 @@ class Match(commands.Cog):
     # ══════════ 6. 结算 ══════════
     @app_commands.command(
         name="gmpt-settle",
-        description="Settle a match (Admin) / 结算比赛（管理员）"
+        description="[DEPRECATED] Settle a match / 结算比赛 — 请使用控制面板"
     )
     @app_commands.describe(
         match_id="Match ID (default: latest active) / 比赛ID",
@@ -464,7 +464,7 @@ class Match(commands.Cog):
     # ══════════ 7. 拉语音 ══════════
     @app_commands.command(
         name="gmpt-pull-vc",
-        description="Pull Team A/B into voice channels / 拉A/B队成员进入语音频道"
+        description="[DEPRECATED] Pull VC / 拉语音 — 请使用控制面板"
     )
     @app_commands.describe(match_id="Match ID (default: latest active) / 比赛ID")
     async def pull_vc_cmd(self, interaction: discord.Interaction, match_id: int = None):
@@ -519,7 +519,7 @@ class Match(commands.Cog):
     # ══════════ 8. 选队长 ══════════
     @app_commands.command(
         name="gmpt-pick-captain",
-        description="Randomly pick 2 captains for draft / 随机选出2位队长"
+        description="[DEPRECATED] Pick 2 captains / 选2位队长 — 请使用控制面板"
     )
     @app_commands.describe(match_id="Match ID (default: latest pending) / 比赛ID")
     async def pick_captain_cmd(self, interaction: discord.Interaction, match_id: int = None):

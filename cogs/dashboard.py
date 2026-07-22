@@ -2061,6 +2061,66 @@ class CaptainDraftView(discord.ui.View):
         return embed
 
 
+
+class BetModal(discord.ui.Modal, title="下注 / Place Bet"):
+    """Modal for placing coin bets on a team."""
+    def __init__(self, match_id: int, team_id: int, guild: discord.Guild):
+        super().__init__(timeout=300)
+        self.match_id = match_id
+        self.team_id = team_id
+        self.guild = guild
+
+    amount = discord.ui.TextInput(
+        label="下注金额 / Bet Amount (coins)",
+        placeholder="1-500",
+        min_length=1,
+        max_length=5,
+        required=True,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            amount = int(self.amount.value.strip())
+        except ValueError:
+            return await interaction.response.send_message("请输入有效数字 / Enter a valid number.", ephemeral=True)
+
+        if amount < 1 or amount > 500:
+            return await interaction.response.send_message("金额需在 1-500 之间 / Amount must be 1-500.", ephemeral=True)
+
+        uid = str(interaction.user.id)
+        conn = get_db(); cur = conn.cursor()
+
+        cur.execute("SELECT score FROM users WHERE discord_id=?", (uid,))
+        row = cur.fetchone()
+        balance = row["score"] if row else 0
+        if balance < amount:
+            conn.close()
+            return await interaction.response.send_message(
+                f"余额不足 / Insufficient balance. You have {balance} coins.",
+                ephemeral=True,
+            )
+
+        cur.execute("UPDATE users SET score=score-? WHERE discord_id=?", (amount, uid))
+        cur.execute(
+            "INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+            (uid, -amount, f"Bet on match #{self.match_id} team #{self.team_id}"),
+        )
+        cur.execute(
+            "INSERT OR REPLACE INTO active_bets (match_id, discord_id, team_id, amount) VALUES (?,?,?,?)",
+            (self.match_id, uid, self.team_id, amount),
+        )
+        conn.commit()
+        conn.close()
+
+        await interaction.response.send_message(
+            f"已下注 {amount} coins! / Bet placed: {amount} coins on team #{self.team_id}",
+            ephemeral=True,
+        )
+
+    async def on_error(self, interaction: discord.Interaction, error):
+        logger.error(f"[BetModal] error: {error}", exc_info=True)
+        await interaction.response.send_message("下注失败 / Bet failed.", ephemeral=True)
+
 class MatchViewWithID(discord.ui.View):
     """
     持久化比赛视图:通过 message_id → DB 反查 match_id,Bot 重启后按钮仍可响应。
@@ -2076,6 +2136,23 @@ class MatchViewWithID(discord.ui.View):
             return (None, None, interaction.guild)
         t = get_match_row(mid)
         return (mid, t, interaction.guild)
+
+    async def _get_betting_stats(self, match_id: int):
+        """Return (a_count, a_total, b_count, b_total) for betting display."""
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT id FROM teams WHERE tournament_id=? ORDER BY id ASC", (match_id,))
+        team_ids = [r["id"] for r in cur.fetchall()]
+        cur.execute(
+            "SELECT team_id, COUNT(*) as cnt, SUM(amount) as total FROM active_bets WHERE match_id=? GROUP BY team_id",
+            (match_id,),
+        )
+        rows = {r["team_id"]: (r["cnt"], r["total"] or 0) for r in cur.fetchall()}
+        conn.close()
+        a_id = team_ids[0] if len(team_ids) > 0 else None
+        b_id = team_ids[1] if len(team_ids) > 1 else None
+        a_cnt, a_total = rows.get(a_id, (0, 0))
+        b_cnt, b_total = rows.get(b_id, (0, 0))
+        return a_cnt, a_total, b_cnt, b_total
 
     # ── 辅助:更新报名列表 ──
     async def _refresh_list(self, interaction: discord.Interaction, match_id: int):
@@ -2409,13 +2486,34 @@ class MatchViewWithID(discord.ui.View):
                         mvp_member = guild.get_member(int(flow.mvp_id))
                         mvp_text = f"\n🏅 MVP: {mvp_member.mention if mvp_member else flow.mvp_id}"
 
+                    # AI MVP recommendation
+                    conn_ai = get_db(); cur_ai = conn_ai.cursor()
+                    cur_ai.execute(
+                        "SELECT r.discord_id FROM registrations r WHERE r.tournament_id=? AND r.team_id=? AND (r.is_sub IS NULL OR r.is_sub=0)",
+                        (mid, flow.win_team_id),
+                    )
+                    win_players = [r["discord_id"] for r in cur_ai.fetchall()]
+                    ai_mvp_id = None; highest_mmr = 0
+                    for pid in win_players:
+                        cur_ai.execute("SELECT mmr FROM mmr WHERE discord_id=?", (pid,))
+                        row = cur_ai.fetchone()
+                        if row and row["mmr"] > highest_mmr:
+                            highest_mmr = row["mmr"]
+                            ai_mvp_id = pid
+                    conn_ai.close()
+                    ai_mvp_text = ""
+                    if ai_mvp_id:
+                        ai_member = guild.get_member(int(ai_mvp_id))
+                        ai_mvp_text = f"\n🤖 AI推荐MVP: {ai_member.mention if ai_member else f'<@{ai_mvp_id}>'} (MMR:{highest_mmr})"
+
                     embed = discord.Embed(
                         title="确认结算 / Confirm Settle",
                         description=(
                             f"Match: **{t['name']}** (ID:{mid})\n"
                             f"🏆 胜方 Winner: **{win_name}**\n"
                             f"💔 败方 Loser: **{lose_name}**"
-                            f"{mvp_text}\n\n"
+                            f"{mvp_text}"
+                            f"{ai_mvp_text}\n\n"
                             f"胜方 +150 / 败方 +50 / MVP +50\n"
                             f"Click Confirm to proceed / 点击确认执行"
                         ),
@@ -2505,6 +2603,34 @@ class MatchViewWithID(discord.ui.View):
         except Exception as e:
             logger.error(f"[MatchView] leave error: {e}", exc_info=True)
             await interaction.followup.send("退赛失败 / Leave failed, please try again.", ephemeral=True)
+
+    @discord.ui.button(label="下注 A队", style=discord.ButtonStyle.primary, emoji="🔵", row=3, custom_id="matchv2_bet_a")
+    async def bet_a_btn(self, interaction: discord.Interaction, button):
+        mid, t, guild = await self._get_context(interaction)
+        if not mid:
+            return await interaction.response.send_message("比赛不存在", ephemeral=True)
+        if not t or t["status"] not in ("active", "closed"):
+            return await interaction.response.send_message("下注已关闭", ephemeral=True)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT id FROM teams WHERE tournament_id=? ORDER BY id ASC LIMIT 1", (mid,))
+        ta = cur.fetchone(); conn.close()
+        if not ta:
+            return await interaction.response.send_message("A队不存在", ephemeral=True)
+        await interaction.response.send_modal(BetModal(mid, ta["id"], guild))
+
+    @discord.ui.button(label="下注 B队", style=discord.ButtonStyle.danger, emoji="🔴", row=3, custom_id="matchv2_bet_b")
+    async def bet_b_btn(self, interaction: discord.Interaction, button):
+        mid, t, guild = await self._get_context(interaction)
+        if not mid:
+            return await interaction.response.send_message("比赛不存在", ephemeral=True)
+        if not t or t["status"] not in ("active", "closed"):
+            return await interaction.response.send_message("下注已关闭", ephemeral=True)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT id FROM teams WHERE tournament_id=? ORDER BY id ASC LIMIT 1 OFFSET 1", (mid,))
+        tb = cur.fetchone(); conn.close()
+        if not tb:
+            return await interaction.response.send_message("B队不存在", ephemeral=True)
+        await interaction.response.send_modal(BetModal(mid, tb["id"], guild))
 
     @discord.ui.button(label="踢出 Kick", style=discord.ButtonStyle.danger, emoji="👢", row=1, custom_id="matchv2_kick")
     async def kick_btn(self, interaction: discord.Interaction, button):
@@ -3311,109 +3437,145 @@ async def _execute_settle(match_id, win_team_id, mvp_id, guild, match_name, bot=
     return analysis_embed
 
 
+class PostSettleView(discord.ui.View):
+    """Consolidated post-settle actions as buttons in a single view."""
+    def __init__(self, match_id: int, match_name: str, guild: discord.Guild, include_kill_report: bool = False):
+        super().__init__(timeout=600)
+        self.match_id = match_id
+        self.match_name = match_name
+        self.guild = guild
+        self.include_kill_report = include_kill_report
+
+    @discord.ui.button(label="MVP 投票", style=discord.ButtonStyle.primary, emoji="🏅", row=0)
+    async def mvp_vote(self, interaction: discord.Interaction, button):
+        try:
+            await MvpVoteView.send_vote(
+                match_id=self.match_id, match_name=self.match_name,
+                channel=interaction.channel, guild=self.guild,
+            )
+            await interaction.response.send_message("MVP投票已开启 / MVP vote started!", ephemeral=True)
+        except Exception as e:
+            logger.error(f"[PostSettleView] mvp_vote error: {e}")
+            await interaction.response.send_message("MVP投票失败 / MVP vote failed.", ephemeral=True)
+
+    @discord.ui.button(label="重新分队", style=discord.ButtonStyle.secondary, emoji="🔄", row=0)
+    async def reshuffle(self, interaction: discord.Interaction, button):
+        try:
+            reshuffle_view = ReShuffleView(match_id=self.match_id, guild=self.guild)
+            reshuffle_embed = reshuffle_view._build_player_list_embed()
+            await interaction.channel.send(embed=reshuffle_embed, view=reshuffle_view)
+            await interaction.response.send_message("重新分队面板已发送 / Reshuffle panel sent!", ephemeral=True)
+        except Exception as e:
+            logger.error(f"[PostSettleView] reshuffle error: {e}")
+            await interaction.response.send_message("重新分队失败 / Reshuffle failed.", ephemeral=True)
+
+    @discord.ui.button(label="再来一局", style=discord.ButtonStyle.success, emoji="🔁", row=0)
+    async def rematch(self, interaction: discord.Interaction, button):
+        try:
+            rematch_view = RematchView(match_id=self.match_id, guild=self.guild, match_name=self.match_name)
+            await interaction.channel.send(
+                content="比赛已结束！是否再来一局？ / Match finished! Rematch?",
+                view=rematch_view,
+            )
+            await interaction.response.send_message("已发送 / Sent!", ephemeral=True)
+        except Exception as e:
+            logger.error(f"[PostSettleView] rematch error: {e}")
+            await interaction.response.send_message("失败 / Failed.", ephemeral=True)
+
+    @discord.ui.button(label="赛后拉语音", style=discord.ButtonStyle.secondary, emoji="🎙️", row=1)
+    async def pull_vc(self, interaction: discord.Interaction, button):
+        try:
+            post_match_view = PostMatchPullView(guild=self.guild)
+            await interaction.channel.send(
+                content=f"📢 **{self.match_name}** 结算完成! 点击下方按钮将队员拉入赛后集合频道:",
+                view=post_match_view,
+            )
+            await interaction.response.send_message("已发送 / Sent!", ephemeral=True)
+        except Exception as e:
+            logger.error(f"[PostSettleView] pull_vc error: {e}")
+            await interaction.response.send_message("失败 / Failed.", ephemeral=True)
+
+    if include_kill_report:
+        @discord.ui.button(label="比赛回放", style=discord.ButtonStyle.primary, emoji="⚔️", row=1)
+        async def kill_report(self, interaction: discord.Interaction, button):
+            try:
+                kill_report_view = KillReportView(match_id=self.match_id, guild=self.guild)
+                await interaction.channel.send(
+                    content=f"⚔️ **{self.match_name}** 比赛回放 - 点击下方按钮上报击杀/死亡事件:",
+                    view=kill_report_view,
+                )
+                await interaction.response.send_message("已发送 / Sent!", ephemeral=True)
+            except Exception as e:
+                logger.error(f"[PostSettleView] kill_report error: {e}")
+                await interaction.response.send_message("失败 / Failed.", ephemeral=True)
+    else:
+        class _dummy:
+            pass
+
+
 # =============================================================================
 # Helper: post-settle actions (AI analysis, MVP vote, views, result-room)
 # =============================================================================
 async def _post_settle_actions(match_id, match_name, guild, channel, analysis_embed, bot,
                                include_kill_report=False):
-    """Shared post-settle actions used by ReShuffleView, MatchViewWithID, and DashboardView."""
-    # AI analysis
+    """Shared post-settle actions — merged into single rich embed + interactive buttons."""
     try:
-        if analysis_embed:
-            await channel.send(embed=analysis_embed)
-    except Exception as e:
-        logger.error(f"[_post_settle] AI analysis send error: {e}")
-
-    # MVP vote
-    try:
-        await MvpVoteView.send_vote(
-            match_id=match_id, match_name=match_name,
-            channel=channel, guild=guild,
-        )
-    except Exception as e:
-        logger.error(f"[_post_settle] MvpVoteView error: {e}")
-
-    # ReShuffleView
-    try:
-        reshuffle_view = ReShuffleView(match_id=match_id, guild=guild)
-        reshuffle_embed = reshuffle_view._build_player_list_embed()
-        await channel.send(embed=reshuffle_embed, view=reshuffle_view)
-    except Exception as e:
-        logger.error(f"[_post_settle] ReShuffleView send error: {e}")
-
-    # KillReportView (dashboard only)
-    if include_kill_report:
-        try:
-            kill_report_view = KillReportView(match_id=match_id, guild=guild)
-            await channel.send(
-                content=f"⚔️ **{match_name}** 比赛回放 - 点击下方按钮上报击杀/死亡事件:",
-                view=kill_report_view,
-            )
-        except Exception as e:
-            logger.error(f"[_post_settle] KillReportView send error: {e}")
-
-    # result-room
-    RESULT_CHANNEL_ID = 1442412993269731452
-    try:
-        conn_r = get_db(); cur_r = conn_r.cursor()
-        cur_r.execute("SELECT id, name FROM teams WHERE tournament_id=?", (match_id,))
-        teams = {row["id"]: row["name"] for row in cur_r.fetchall()}
-        cur_r.execute("SELECT team_id FROM results WHERE tournament_id=? AND rank=1", (match_id,))
-        win_row = cur_r.fetchone()
-        conn_r.close()
+        # Build consolidated post-settle embed
+        RESULT_CHANNEL_ID = 1442412993269731452
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT id, name FROM teams WHERE tournament_id=?", (match_id,))
+        teams = {row["id"]: row["name"] for row in cur.fetchall()}
+        cur.execute("SELECT team_id FROM results WHERE tournament_id=? AND rank=1", (match_id,))
+        win_row = cur.fetchone()
+        conn.close()
         win_tid = win_row["team_id"] if win_row else None
         win_name = teams.get(win_tid, "胜方") if win_tid else "胜方"
-        lose_row = None
-        for tid, name in teams.items():
-            if tid != win_tid:
-                lose_row = name
-                break
-        lose_name = lose_row or "败方"
+        lose_name = next((name for tid, name in teams.items() if tid != win_tid), "败方")
 
-        cur_r2 = get_db(); cur2 = cur_r2.cursor()
-        cur2.execute("SELECT mvp_id FROM match_mvp WHERE match_id=?", (match_id,))
-        mvp_row = cur2.fetchone()
-        mvp_uid = mvp_row["mvp_id"] if mvp_row else None
-        cur_r2.close()
-        mvp_mention = f"<@{mvp_uid}>" if mvp_uid else "无"
+        # Build merged embed
+        main_lines = [
+            f"🏆 **{match_name}** 结算完成！/ Match Settled!",
+            "",
+            f"**胜方 Winner:** {win_name}",
+            f"**败方 Loser:** {lose_name}",
+            "",
+            "💰 胜方 +150 coins / 败方 +50 coins / MVP +50 coins",
+            "📊 胜方 +25 MMR / 败方 -25 MMR",
+        ]
+        if analysis_embed and analysis_embed.description:
+            main_lines.append("")
+            main_lines.append("📈 **AI 分析 / Analysis:**")
+            # Truncate if too long
+            ai_text = analysis_embed.description[:800]
+            if len(analysis_embed.description) > 800:
+                ai_text += "..."
+            main_lines.append(ai_text)
 
-        result_embed = discord.Embed(
-            title=f"🏆 结算结果 / Match Result - {match_name}",
-            description=(
-                f"**胜方 Winner:** {win_name}\n"
-                f"**败方 Loser:** {lose_name}\n"
-                f"🏅 **MVP:** {mvp_mention}\n\n"
-                f"胜方 +25 MMR | 败方 -25 MMR\n"
-                f"胜方 +150 coins | 参与 +50 coins | MVP +50 coins"
-            ),
+        merged_embed = discord.Embed(
+            title=f"🏆 结算结果 / Match Result — {match_name}",
+            description="\n".join(main_lines),
             color=discord.Color.gold(),
         )
-        result_embed.set_footer(text=f"Match ID: {match_id}")
+        merged_embed.set_footer(text=f"Match ID: {match_id}")
+
+        # Create PostSettleView with all actions as buttons
+        post_view = PostSettleView(
+            match_id=match_id, match_name=match_name, guild=guild,
+            include_kill_report=include_kill_report,
+        )
+        await channel.send(embed=merged_embed, view=post_view)
+
+        # Send to result-room channel
         result_channel = guild.get_channel(RESULT_CHANNEL_ID)
         if result_channel:
-            await result_channel.send(embed=result_embed)
+            result_summary = discord.Embed(
+                title=f"🏆 {match_name}",
+                description=f"**胜方:** {win_name}\n**败方:** {lose_name}",
+                color=discord.Color.gold(),
+            ).set_footer(text=f"Match ID: {match_id}")
+            await result_channel.send(embed=result_summary)
     except Exception as e:
-        logger.error(f"[_post_settle] result-room send error: {e}")
-
-    # PostMatchPullView
-    try:
-        post_match_view = PostMatchPullView(guild=guild)
-        await channel.send(
-            content=f"📢 **{match_name}** 结算完成! 点击下方按钮将队员拉入赛后集合频道:",
-            view=post_match_view,
-        )
-    except Exception as e:
-        logger.error(f"[_post_settle] PostMatchPullView send error: {e}")
-
-    # RematchView
-    try:
-        rematch_view = RematchView(match_id=match_id, guild=guild, match_name=match_name)
-        await channel.send(
-            content="比赛已结束！是否再来一局？ / Match finished! Rematch?",
-            view=rematch_view,
-        )
-    except Exception as e:
-        logger.error(f"[_post_settle] RematchView send error: {e}")
+        logger.error(f"[_post_settle] merged actions error: {e}", exc_info=True)
 
 
 # ══════════ MMR 排位系统 / MMR Ranking System ══════════
@@ -3967,6 +4129,7 @@ class DashboardView(discord.ui.View):
         3: discord.Color.green(),
         4: discord.Color.teal(),
         5: discord.Color.purple(),
+        6: discord.Color.dark_purple(),
     }
 
     PAGE_TITLES = {
@@ -3974,7 +4137,8 @@ class DashboardView(discord.ui.View):
         2: "🏆 赛事 Tournament",
         3: "👤 玩家 Player",
         4: "🛒 经济 Economy",
-        5: "🎧 工具 Tools",
+        5: "🧰 常用工具 Common Tools",
+        6: "🔧 管理工具 Admin Tools",
     }
 
     def __init__(self, guild, session):
@@ -4043,16 +4207,23 @@ class DashboardView(discord.ui.View):
             while len(btns) < 8:
                 btns.append(None)
         elif page == 5:
+            # 常用工具 (Common Tools)
             btns = [
                 ("🎤 语音排行\nVoice LB", "voice_lb"),
                 ("🔊 排队状态\nQueue Status", "queue_status"),
                 ("📊 全部玩家\nAll Players", "all_players"),
+                ("🏅 MMR排行\nMMR LB", "mmr_lb"),
+                ("🎬 比赛回放\nReplay", "replay"),
+            ]
+            while len(btns) < 8:
+                btns.append(None)
+        elif page == 6:
+            # 管理工具 (Admin Tools)
+            btns = [
                 ("📤 导出数据\nExport CSV", "export_data"),
                 ("🔒 管理面板\nAdmin", "admin"),
-                ("🏅 MMR排行\nMMR LB", "mmr_lb"),
                 ("📢 发送公告\nAnnounce", "announce"),
                 ("🔄 赛季重置\nSeason Reset", "season_reset"),
-                ("🎬 比赛回放\nReplay", "replay"),
                 ("🎙️ 赛后拉入\nPost-Match VC", "post_match_pull"),
             ]
             while len(btns) < 8:
@@ -4082,15 +4253,23 @@ class DashboardView(discord.ui.View):
                 btn.callback = self.make_callback(cb_id)
                 self.add_item(btn)
 
-        # Navigation row
-        self.prev_btn = discord.ui.Button(label="◀ 上一页 Prev", style=discord.ButtonStyle.primary, row=3, disabled=(page == 1))
+        # Navigation row — page tabs with current-page highlight
+        self.prev_btn = discord.ui.Button(label="◀", style=discord.ButtonStyle.primary, row=3, disabled=(page == 1))
         self.prev_btn.callback = self.prev_page
         self.add_item(self.prev_btn)
 
-        self.page_label = discord.ui.Button(label=f"Page {page}/5", style=discord.ButtonStyle.secondary, row=3, disabled=True)
-        self.add_item(self.page_label)
+        for p in range(1, 7):
+            is_current = (p == page)
+            btn = discord.ui.Button(
+                label=f"P{p}",
+                style=discord.ButtonStyle.success if is_current else discord.ButtonStyle.secondary,
+                row=3,
+                disabled=is_current,
+            )
+            btn.callback = self.make_page_callback(p)
+            self.add_item(btn)
 
-        self.next_btn = discord.ui.Button(label="下一页 Next ▶", style=discord.ButtonStyle.primary, row=3, disabled=(page == 5))
+        self.next_btn = discord.ui.Button(label="▶", style=discord.ButtonStyle.primary, row=3, disabled=(page == 6))
         self.next_btn.callback = self.next_page
         self.add_item(self.next_btn)
 
@@ -4112,6 +4291,15 @@ class DashboardView(discord.ui.View):
                             pass
         return inner
 
+    def make_page_callback(self, target_page: int):
+        """Factory for page-tab navigation buttons (highlights current page)."""
+        async def go_page(interaction: discord.Interaction):
+            self.page = target_page
+            self.build_page_buttons()
+            embed = self._build_page_embed()
+            await interaction.response.edit_message(embed=embed, view=self)
+        return go_page
+
     # ═══════════════════ Navigation ═══════════════════
 
     async def prev_page(self, interaction: discord.Interaction):
@@ -4122,7 +4310,7 @@ class DashboardView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=self)
 
     async def next_page(self, interaction: discord.Interaction):
-        if self.page < 5:
+        if self.page < 6:
             self.page += 1
         self.build_page_buttons()
         embed = self._build_page_embed()
@@ -4141,13 +4329,18 @@ class DashboardView(discord.ui.View):
         elif self.page == 4:
             desc = "🛒 **Economy / 经济** — 商店、背包、金币、抽奖、每日\ne.g. Shop、Balance、Achievements、Daily"
         elif self.page == 5:
+            desc = "🧰 **Common Tools / 常用工具** — 语音排行、排队、全部玩家、MMR、回放\ne.g. Voice LB、Queue、All Players、MMR、Replay"
+        elif self.page == 6:
+            desc = "🔧 **Admin Tools / 管理工具** — 导出、管理面板、公告、赛季重置、赛后拉语音\ne.g. Export、Admin、Announce、Season Reset、Post-Match VC"
+        # legacy page 5 fallback
+        elif self.page == 5:
             desc = "🎧 **Tools / 工具** — 语音排行、排队、管理\ne.g. Voice LB、Queue、Admin"
 
         return discord.Embed(
             title=title,
             description=desc,
             color=color,
-        ).set_footer(text=f"GMPT Dashboard v3.1 | Page {self.page}/5")
+        ).set_footer(text=f"GMPT Dashboard v3.2 | Page {self.page}/6")
 
     # ═══════════════════ Page 1 — Match ═══════════════════
 
@@ -4513,13 +4706,34 @@ class DashboardView(discord.ui.View):
                         mvp_member = self.guild.get_member(int(flow.mvp_id))
                         mvp_text = f"\n🅠MVP: {mvp_member.mention if mvp_member else flow.mvp_id}"
 
+                    # AI MVP recommendation
+                    conn_ai = get_db(); cur_ai = conn_ai.cursor()
+                    cur_ai.execute(
+                        "SELECT r.discord_id FROM registrations r WHERE r.tournament_id=? AND r.team_id=? AND (r.is_sub IS NULL OR r.is_sub=0)",
+                        (mid, flow.win_team_id),
+                    )
+                    win_players = [r["discord_id"] for r in cur_ai.fetchall()]
+                    ai_mvp_id = None; highest_mmr = 0
+                    for pid in win_players:
+                        cur_ai.execute("SELECT mmr FROM mmr WHERE discord_id=?", (pid,))
+                        row = cur_ai.fetchone()
+                        if row and row["mmr"] > highest_mmr:
+                            highest_mmr = row["mmr"]
+                            ai_mvp_id = pid
+                    conn_ai.close()
+                    ai_mvp_text = ""
+                    if ai_mvp_id:
+                        ai_member = guild.get_member(int(ai_mvp_id))
+                        ai_mvp_text = f"\n🤖 AI推荐MVP: {ai_member.mention if ai_member else f'<@{ai_mvp_id}>'} (MMR:{highest_mmr})"
+
                     embed = discord.Embed(
                         title="确认结算 / Confirm Settle",
                         description=(
                             f"Match: **{t['name']}** (ID:{mid})\n"
                             f"🏆 胜方 Winner: **{win_name}**\n"
                             f"💔 败方 Loser: **{lose_name}**"
-                            f"{mvp_text}\n\n"
+                            f"{mvp_text}"
+                            f"{ai_mvp_text}\n\n"
                             f"胜方 +150 / 败方 +50 / MVP +50\n"
                             f"Click Confirm to proceed / 点击确认执行"
                         ),
@@ -6636,7 +6850,7 @@ class Dashboard(commands.Cog):
             title="🎮 GMPT 控制面板 Control Panel | ⚔️ 比赛 Match",
             description="⚔️ **Match System / 比赛系统** — 创建、报名、分队、结算\nClick a button below / 点击下方按钮",
             color=discord.Color.blue(),
-        ).set_footer(text="GMPT Dashboard v3.1 | Page 1/5")
+        ).set_footer(text="GMPT Dashboard v3.2 | Page 1/6")
 
     async def cog_unload(self):
         if self.session:

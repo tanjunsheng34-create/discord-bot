@@ -490,13 +490,6 @@ class GMPT(commands.Cog):
         list_msg = await interaction.followup.send(embed=list_embed)
         set_player_list_msg(tid, list_msg.id)
 
-        # Send BetView for button-based betting
-        bet_embed = discord.Embed(
-            title="🎲 金币下注 / Betting",
-            description="点击下方按钮下注 (1-500 coins) / Click to bet",
-            color=discord.Color.orange(),
-        ).set_footer(text=f"Match ID: {tid} | 投对 2x 返还 / Win = 2x")
-        await interaction.followup.send(embed=bet_embed, view=BetView(tid))
 
     # ============ 列出比赛 ============
     @app_commands.command(
