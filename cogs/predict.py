@@ -363,7 +363,10 @@ class Predict(commands.Cog):
     async def predict_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         log_error("predict", interaction.command.name if interaction.command else "unknown", error)
         try:
-            await interaction.response.send_message("发生错误 / An error occurred.", ephemeral=True)
+            if not interaction.response.is_done():
+                await interaction.response.send_message("发生错误 / An error occurred.", ephemeral=True)
+            else:
+                await interaction.followup.send("发生错误 / An error occurred.", ephemeral=True)
         except Exception:
             pass
 

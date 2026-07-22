@@ -4184,6 +4184,198 @@ async def _refresh_mmr_board(bot, guild: discord.Guild):
 # =============================================================================
 # DashboardView — 5-page button-based control panel / 全按钮分页控制面板
 # =============================================================================
+# =============================================================================
+# Mini-game Modals & Views (for Dashboard Page 5 direct-call)
+# =============================================================================
+
+SLOT_EMOJIS = ["🍒", "🍋", "🍊", "🍇", "💎", "7️⃣", "⭐"]
+SLOT_WEIGHTS = [20, 20, 20, 15, 10, 3, 2]
+SLOT_PAYOUTS = {
+    ("⭐", "⭐", "⭐"): 50,
+    ("7️⃣", "7️⃣", "7️⃣"): 25,
+    ("💎", "💎", "💎"): 15,
+    ("🍇", "🍇", "🍇"): 8,
+    ("🍒", "🍒", "🍒"): 5,
+    ("🍋", "🍋", "🍋"): 3,
+    ("🍊", "🍊", "🍊"): 3,
+}
+
+
+def _get_balance(uid: str) -> int:
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("INSERT INTO users (discord_id, username) VALUES (?, 'unknown') ON CONFLICT(discord_id) DO NOTHING", (uid,))
+    cur.execute("SELECT score FROM users WHERE discord_id=?", (uid,))
+    row = cur.fetchone()
+    conn.close()
+    return row["score"] if row and row["score"] is not None else 0
+
+
+def _add_coins(uid: str, amount: int, reason: str):
+    conn = get_db(); cur = conn.cursor()
+    cur.execute("INSERT INTO users (discord_id, username) VALUES (?, 'unknown') ON CONFLICT(discord_id) DO NOTHING", (uid,))
+    cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (amount, uid))
+    cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)", (uid, amount, reason))
+    conn.commit(); conn.close()
+
+
+def _spin_slots() -> tuple[list[str], int]:
+    reels = random.choices(SLOT_EMOJIS, weights=SLOT_WEIGHTS, k=3)
+    result = tuple(reels)
+    multiplier = SLOT_PAYOUTS.get(result, 0)
+    if multiplier == 0:
+        if reels.count("⭐") >= 2:
+            multiplier = 2
+    return reels, multiplier
+
+
+class SlotsBetModal(discord.ui.Modal, title="🎰 老虎机下注 | Slots Bet"):
+    bet = discord.ui.TextInput(
+        label="下注金额 | Bet amount",
+        placeholder="1 - 10000",
+        required=True,
+        min_length=1,
+        max_length=6,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        try:
+            amount = int(self.bet.value)
+        except ValueError:
+            return await interaction.response.send_message("请输入有效数字 / Enter a valid number.", ephemeral=True)
+
+        if amount <= 0 or amount > 10000:
+            return await interaction.response.send_message("下注金额需在 1-10000 之间 / Bet must be 1-10000.", ephemeral=True)
+
+        balance = _get_balance(uid)
+        if balance < amount:
+            return await interaction.response.send_message(f"金币不足 / Insufficient coins. 余额: 🪙 {balance}", ephemeral=True)
+
+        _add_coins(uid, -amount, "Slots bet / 老虎机下注")
+        reels, multiplier = _spin_slots()
+        win_amount = amount * multiplier
+        net = win_amount - amount
+
+        if win_amount > 0:
+            _add_coins(uid, win_amount, f"Slots win / 老虎机获胜 x{multiplier}")
+        new_balance = _get_balance(uid)
+
+        embed = discord.Embed(
+            title="🎰 老虎机 | Slots",
+            color=discord.Color.gold(),
+            description=f"**{reels[0]}  {reels[1]}  {reels[2]}**",
+        )
+        embed.add_field(name="下注 / Bet", value=f"🪙 {amount}", inline=True)
+        if multiplier > 0:
+            embed.add_field(name="赢取 / Win", value=f"🪙 {win_amount} (x{multiplier})", inline=True)
+            embed.add_field(name="净收益 / Net", value=f"🪙 +{net}", inline=True)
+        else:
+            embed.add_field(name="结果 / Result", value="❌ 未中奖 / No win", inline=True)
+            embed.add_field(name="亏损 / Loss", value=f"🪙 -{amount}", inline=True)
+        embed.add_field(name="新余额 / New Balance", value=f"🪙 {new_balance}", inline=False)
+        await interaction.response.send_message(embed=embed)
+
+
+class CoinflipBetModal(discord.ui.Modal, title="🪙 猜硬币下注 | Coinflip Bet"):
+    bet = discord.ui.TextInput(
+        label="下注金额 | Bet amount",
+        placeholder="1 - 10000",
+        required=True,
+        min_length=1,
+        max_length=6,
+    )
+    target = discord.ui.TextInput(
+        label="下注目标 @用户（留空=自己）| Target @user (blank=self)",
+        placeholder="@username 或留空",
+        required=False,
+        max_length=40,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        try:
+            amount = int(self.bet.value)
+        except ValueError:
+            return await interaction.response.send_message("请输入有效数字 / Enter a valid number.", ephemeral=True)
+
+        if amount <= 0 or amount > 10000:
+            return await interaction.response.send_message("下注金额需在 1-10000 之间 / Bet must be 1-10000.", ephemeral=True)
+
+        # Resolve target
+        target_id = uid
+        target_name = interaction.user.display_name
+        raw = (self.target.value or "").strip()
+        if raw:
+            resolved = resolve_name(raw)
+            if resolved:
+                target_id = str(resolved.id)
+                target_name = resolved.display_name
+            else:
+                return await interaction.response.send_message("找不到该用户 / User not found.", ephemeral=True)
+
+        balance = _get_balance(uid)
+        if balance < amount:
+            return await interaction.response.send_message(f"金币不足 / Insufficient coins. 余额: 🪙 {balance}", ephemeral=True)
+
+        _add_coins(uid, -amount, f"Coinflip bet for {target_name} / 猜硬币下注")
+
+        embed = discord.Embed(
+            title="🪙 猜硬币下注盘 | Coinflip Panel",
+            color=discord.Color.orange(),
+            description=(
+                f"💰 **{interaction.user.mention}** 为 **{target_name}** 下注 🪙 {amount}\n"
+                f"点击下方按钮选择正反（仅 {target_name} 可点）\n"
+                f"Click below to pick Heads/Tails (only {target_name} can click)"
+            ),
+        )
+        view = CoinflipPanelView(better_id=uid, target_id=target_id, bet=amount, target_name=target_name)
+        await interaction.response.send_message(embed=embed, view=view)
+
+
+class CoinflipPanelView(discord.ui.View):
+    def __init__(self, better_id: str, target_id: str, bet: int, target_name: str):
+        super().__init__(timeout=120)
+        self.better_id = better_id
+        self.target_id = target_id
+        self.bet = bet
+        self.target_name = target_name
+
+    async def _handle_pick(self, interaction: discord.Interaction, choice: str):
+        if str(interaction.user.id) != self.target_id:
+            return await interaction.response.send_message(
+                f"只有 {self.target_name} 可以选正反 / Only {self.target_name} can pick.", ephemeral=True
+            )
+
+        result = random.choice(["正面", "反面"])
+        won = (choice == result)
+        payout = self.bet * 2 if won else 0
+
+        if won:
+            _add_coins(self.better_id, payout, f"Coinflip win / 猜硬币获胜 x2")
+        new_balance = _get_balance(self.better_id)
+        coin_emoji = "🪙 正面" if result == "正面" else "🪙 反面"
+
+        embed = discord.Embed(
+            title="🪙 猜硬币 | Coinflip",
+            color=discord.Color.green() if won else discord.Color.red(),
+            description=f"硬币结果: **{coin_emoji}**\n下注方选择: **{choice}**",
+        )
+        if won:
+            embed.add_field(name="结果", value=f"✅ 猜对了！+🪙 {payout} (净赚 +{self.bet})", inline=False)
+        else:
+            embed.add_field(name="结果", value=f"❌ 猜错了！-🪙 {self.bet}", inline=False)
+        embed.add_field(name="下注人新余额 / Better New Balance", value=f"🪙 {new_balance}", inline=False)
+        await interaction.response.edit_message(embed=embed, view=None)
+
+    @discord.ui.button(label="🪙 正面 Heads", style=discord.ButtonStyle.primary)
+    async def heads(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._handle_pick(interaction, "正面")
+
+    @discord.ui.button(label="🪙 反面 Tails", style=discord.ButtonStyle.secondary)
+    async def tails(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._handle_pick(interaction, "反面")
+
+
 class DashboardView(discord.ui.View):
     """Unified control panel with 5 pages + navigation buttons."""
 
@@ -5860,35 +6052,19 @@ class DashboardView(discord.ui.View):
     # ═══════════════════ Page 5 — Mini Games ═══════════════════
 
     async def _slots(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        embed = discord.Embed(
-            title="🎰 老虎机 Slots",
-            description="试试手气！Use `/gmpt-slots <bet>` to play.\n赔付最高 50x | Up to 50x payout!",
-            color=0xE67E22,
-        )
-        embed.add_field(name="Usage", value="`/gmpt-slots <bet>`", inline=False)
-        embed.set_footer(text="5 秒冷却 | 5s cooldown")
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.response.send_modal(SlotsBetModal())
 
     async def _coinflip(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        embed = discord.Embed(
-            title="🪙 猜硬币 Coinflip",
-            description="正面还是反面？Use `/gmpt-coinflip <bet> <正面/反面>`.\n猜对即赢 2x！Win 2x if correct!",
-            color=0xF1C40F,
-        )
-        embed.add_field(name="Usage", value="`/gmpt-coinflip <bet> <正面|反面>`", inline=False)
-        embed.set_footer(text="5 秒冷却 | 5s cooldown")
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.response.send_modal(CoinflipBetModal())
 
     async def _trivia(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         embed = discord.Embed(
             title="🧠 知识问答 Trivia",
-            description="LOL/电竞知识问答！Use `/gmpt-trivia` to start a quiz.\n10 题 | 每题 +50 💰 | 前三名额外奖励",
+            description="LOL/电竞知识问答（中英双语）！Use `/gmpt-trivia` to start.\n10 题 | 每题 +50 💰 | 前三名额外奖励",
             color=0x3498DB,
         )
-        embed.add_field(name="Usage", value="`/gmpt-trivia` — 开始游戏\n`/gmpt-trivia-stop` — 管理员终止", inline=False)
+        embed.add_field(name="使用方式", value="`/gmpt-trivia [题数]` — 开始游戏\n`/gmpt-trivia-stop` — 管理员终止", inline=False)
         embed.set_footer(text="同时只允许一场 | One game at a time")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -5899,12 +6075,8 @@ class DashboardView(discord.ui.View):
             description="根据 emoji 提示猜英雄！Use `/gmpt-guess-champion`.\n3 级提示逐步揭晓，越早猜对金币越多！",
             color=0x9B59B6,
         )
-        embed.add_field(
-            name="Usage", value="`/gmpt-guess-champion`", inline=False,
-        )
-        embed.add_field(
-            name="奖励", value="提示1猜对 +200 | 提示2 +100 | 提示3 +50", inline=False,
-        )
+        embed.add_field(name="使用方式", value="`/gmpt-guess-champion`", inline=False)
+        embed.add_field(name="奖励", value="提示1猜对 +200 | 提示2 +100 | 提示3 +50", inline=False)
         embed.set_footer(text="10 秒冷却 | 10s cooldown")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -5916,7 +6088,7 @@ class DashboardView(discord.ui.View):
             color=0xE74C3C,
         )
         embed.add_field(
-            name="子命令", value=(
+            name="子命令 / Subcommands", value=(
                 "`/gmpt-predict create <A> <B> <time>` — 创建盘口\n"
                 "`/gmpt-predict settle <id> <A|B>` — 结算\n"
                 "`/gmpt-predict list` — 列表"
@@ -5931,7 +6103,7 @@ class DashboardView(discord.ui.View):
             description="生成自定义表情包！Use `/gmpt-meme <template> <top> <bottom>`.",
             color=0x1ABC9C,
         )
-        embed.add_field(name="Usage", value="`/gmpt-meme <template> <top_text> <bottom_text>`", inline=False)
+        embed.add_field(name="使用方式", value="`/gmpt-meme <template> <top_text> <bottom_text>`", inline=False)
         embed.add_field(name="查看模板", value="`/gmpt-meme-templates`", inline=False)
         await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -6663,7 +6835,19 @@ class Dashboard(commands.Cog):
 
     async def cog_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         try:
-            await interaction.followup.send(f"❌ 错误: {error}", ephemeral=True)
+            if isinstance(error, app_commands.CommandOnCooldown):
+                remaining = int(error.retry_after)
+                msg = f"⏳ 冷却中，请等 {remaining} 秒 / Cooldown, wait {remaining}s."
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(msg, ephemeral=True)
+                else:
+                    await interaction.followup.send(msg, ephemeral=True)
+            else:
+                err_msg = f"❌ 错误: {error}"
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(err_msg, ephemeral=True)
+                else:
+                    await interaction.followup.send(err_msg, ephemeral=True)
         except Exception:
             pass
 

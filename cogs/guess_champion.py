@@ -175,13 +175,18 @@ class GuessChampion(commands.Cog):
     async def guess_champ_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         if isinstance(error, app_commands.CommandOnCooldown):
             remaining = int(error.retry_after)
-            await interaction.response.send_message(
-                f"⏳ 冷却中，请等 {remaining} 秒 / Cooldown, wait {remaining}s.", ephemeral=True
-            )
+            msg = f"⏳ 冷却中，请等 {remaining} 秒 / Cooldown, wait {remaining}s."
+            if not interaction.response.is_done():
+                await interaction.response.send_message(msg, ephemeral=True)
+            else:
+                await interaction.followup.send(msg, ephemeral=True)
         else:
             log_error("guess_champion", interaction.command.name if interaction.command else "unknown", error)
             try:
-                await interaction.response.send_message("发生错误 / An error occurred.", ephemeral=True)
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("发生错误 / An error occurred.", ephemeral=True)
+                else:
+                    await interaction.followup.send("发生错误 / An error occurred.", ephemeral=True)
             except Exception:
                 pass
 

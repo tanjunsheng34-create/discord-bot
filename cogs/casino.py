@@ -67,7 +67,6 @@ class Casino(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name="gmpt-slots", description="Play the slot machine / 玩老虎机")
-    @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
     @app_commands.describe(bet="Bet amount / 下注金额（正整数）")
     async def slots_cmd(self, interaction: discord.Interaction, bet: int):
         uid = str(interaction.user.id)
@@ -110,7 +109,6 @@ class Casino(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="gmpt-coinflip", description="Flip a coin / 猜硬币正反面")
-    @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
     @app_commands.describe(
         bet="Bet amount / 下注金额（正整数）",
         choice="正面 or 反面 / Heads or Tails",
@@ -164,13 +162,18 @@ class Casino(commands.Cog):
     async def casino_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         if isinstance(error, app_commands.CommandOnCooldown):
             remaining = int(error.retry_after)
-            await interaction.response.send_message(
-                f"⏳ 冷却中，请等 {remaining} 秒 / Cooldown, wait {remaining}s.", ephemeral=True
-            )
+            msg = f"⏳ 冷却中，请等 {remaining} 秒 / Cooldown, wait {remaining}s."
+            if not interaction.response.is_done():
+                await interaction.response.send_message(msg, ephemeral=True)
+            else:
+                await interaction.followup.send(msg, ephemeral=True)
         else:
             log_error("casino", interaction.command.name if interaction.command else "unknown", error)
             try:
-                await interaction.response.send_message("发生错误 / An error occurred.", ephemeral=True)
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("发生错误 / An error occurred.", ephemeral=True)
+                else:
+                    await interaction.followup.send("发生错误 / An error occurred.", ephemeral=True)
             except Exception:
                 pass
 

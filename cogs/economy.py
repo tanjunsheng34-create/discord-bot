@@ -952,7 +952,19 @@ def _check_completionist(cur, user_id: str, just_unlocked_id: int):
 class Economy(commands.Cog):
     async def cog_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         try:
-            await interaction.followup.send(f"❌ 错误: {error}", ephemeral=True)
+            if isinstance(error, app_commands.CommandOnCooldown):
+                remaining = int(error.retry_after)
+                msg = f"⏳ 冷却中，请等 {remaining} 秒 / Cooldown, wait {remaining}s."
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(msg, ephemeral=True)
+                else:
+                    await interaction.followup.send(msg, ephemeral=True)
+            else:
+                err_msg = f"❌ 错误: {error}"
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(err_msg, ephemeral=True)
+                else:
+                    await interaction.followup.send(err_msg, ephemeral=True)
         except Exception:
             pass
 
