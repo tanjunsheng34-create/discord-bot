@@ -1,6 +1,7 @@
 """
 Shared Discord UI Views — imported by multiple cogs to avoid circular imports.
 """
+import logging
 import discord
 
 logger = logging.getLogger(__name__)
