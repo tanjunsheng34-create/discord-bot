@@ -3495,22 +3495,20 @@ class PostSettleView(discord.ui.View):
             logger.error(f"[PostSettleView] pull_vc error: {e}")
             await interaction.response.send_message("失败 / Failed.", ephemeral=True)
 
-    if include_kill_report:
-        @discord.ui.button(label="比赛回放", style=discord.ButtonStyle.primary, emoji="⚔️", row=1)
-        async def kill_report(self, interaction: discord.Interaction, button):
-            try:
-                kill_report_view = KillReportView(match_id=self.match_id, guild=self.guild)
-                await interaction.channel.send(
-                    content=f"⚔️ **{self.match_name}** 比赛回放 - 点击下方按钮上报击杀/死亡事件:",
-                    view=kill_report_view,
-                )
-                await interaction.response.send_message("已发送 / Sent!", ephemeral=True)
-            except Exception as e:
-                logger.error(f"[PostSettleView] kill_report error: {e}")
-                await interaction.response.send_message("失败 / Failed.", ephemeral=True)
-    else:
-        class _dummy:
-            pass
+    @discord.ui.button(label="比赛回放", style=discord.ButtonStyle.primary, emoji="⚔️", row=1)
+    async def kill_report(self, interaction: discord.Interaction, button):
+        if not self.include_kill_report:
+            return await interaction.response.send_message("此功能未启用 / This feature is disabled.", ephemeral=True)
+        try:
+            kill_report_view = KillReportView(match_id=self.match_id, guild=self.guild)
+            await interaction.channel.send(
+                content=f"⚔️ **{self.match_name}** 比赛回放 - 点击下方按钮上报击杀/死亡事件:",
+                view=kill_report_view,
+            )
+            await interaction.response.send_message("已发送 / Sent!", ephemeral=True)
+        except Exception as e:
+            logger.error(f"[PostSettleView] kill_report error: {e}")
+            await interaction.response.send_message("失败 / Failed.", ephemeral=True)
 
 
 # =============================================================================

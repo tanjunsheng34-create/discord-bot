@@ -2,6 +2,7 @@
 GMPT Bot — Queue/LFG 排队匹配系统
 """
 import asyncio
+import logging
 import discord
 from discord import app_commands
 from discord.ext import commands
