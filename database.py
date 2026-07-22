@@ -316,26 +316,6 @@ def _create_voice_giveaway_tables(cursor):
             last_join_time  TEXT
         );
 
-        CREATE TABLE IF NOT EXISTS giveaway (
-            id                INTEGER PRIMARY KEY AUTOINCREMENT,
-            guild_id          TEXT NOT NULL,
-            channel_id        TEXT NOT NULL,
-            message_id        TEXT,
-            prize             TEXT NOT NULL,
-            duration_minutes  INTEGER NOT NULL,
-            winner_count      INTEGER NOT NULL DEFAULT 1,
-            created_by        TEXT NOT NULL,
-            ends_at           TEXT,
-            status            TEXT DEFAULT 'active'
-        );
-
-        CREATE TABLE IF NOT EXISTS giveaway_entries (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            giveaway_id   INTEGER NOT NULL,
-            user_id       TEXT NOT NULL,
-            UNIQUE(giveaway_id, user_id)
-        );
-
         CREATE TABLE IF NOT EXISTS giveaway_tickets (
             discord_id TEXT PRIMARY KEY,
             tickets INTEGER DEFAULT 0
@@ -598,13 +578,21 @@ def _run_migrations(cursor):
     except sqlite3.OperationalError:
         pass
 
-    # users.mmr / win_streak
+    # users.mmr / win_streak / xp / level
     try:
         cursor.execute("ALTER TABLE users ADD COLUMN mmr INTEGER DEFAULT 1000")
     except sqlite3.OperationalError:
         pass
     try:
         cursor.execute("ALTER TABLE users ADD COLUMN win_streak INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN xp INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN level INTEGER DEFAULT 1")
     except sqlite3.OperationalError:
         pass
 
@@ -632,13 +620,26 @@ def _run_migrations(cursor):
     except sqlite3.OperationalError:
         pass
 
+    # daily_tasks table for daily task system
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS daily_tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            date TEXT,
+            task_type INTEGER,
+            progress INTEGER DEFAULT 0,
+            target INTEGER,
+            claimed INTEGER DEFAULT 0
+        )
+    """)
+
 
 def _create_performance_indexes(cursor):
     """Create performance indexes."""
     for idx_sql in [
         "CREATE INDEX IF NOT EXISTS idx_registrations_discord_id ON registrations(discord_id)",
         "CREATE INDEX IF NOT EXISTS idx_registrations_tournament_team ON registrations(tournament_id, team_id)",
-        "CREATE INDEX IF NOT EXISTS idx_giveaway_entries_giveaway ON giveaway_entries(giveaway_id)",
+        "CREATE INDEX IF NOT EXISTS idx_daily_tasks_user_date ON daily_tasks(user_id, date)",
         "CREATE INDEX IF NOT EXISTS idx_transactions_discord_id ON transactions(discord_id)",
         "CREATE INDEX IF NOT EXISTS idx_match_signups_match ON match_signups(match_id)",
         "CREATE INDEX IF NOT EXISTS idx_queue_status ON queue(status)",

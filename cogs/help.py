@@ -37,36 +37,6 @@ class HelpCog(commands.Cog):
         )
 
         embed.add_field(
-            name="🏆 比赛 | Match",
-            value=(
-                "`/gmpt-create-match` — 创建比赛\n"
-                "`/gmpt-signup` — 报名\n"
-                "`/gmpt-start-match` — 开始\n"
-                "`/gmpt-lol-settle` — 结算（锦标赛）\n"
-                "`/gmpt-settle` — 结算（比赛）\n"
-                "`/gmpt-pull-vc` — 拉语音\n"
-                "`/gmpt-players` — 名单\n"
-                "`/gmpt-random-teams` — 随机分队\n"
-                "`/gmpt-pick-captain` — 队长选人"
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
-            name="🎮 LoL",
-            value=(
-                "`/gmpt-create` — 创建房间\n"
-                "`/gmpt-join` — 加入\n"
-                "`/gmpt-rank` — 排行榜\n"
-                "`/gmpt-profile-lol` — 个人主页\n"
-                "`/gmpt-live-game` — 当前对局\n"
-                "`/gmpt-link-riot` — 绑定Riot\n"
-                "`/gmpt-zone` — 大区设置"
-            ),
-            inline=False,
-        )
-
-        embed.add_field(
             name="🏅 锦标赛 | Tournament",
             value=(
                 "`/gmpt-tournament create` — 创建\n"
@@ -94,10 +64,11 @@ class HelpCog(commands.Cog):
         )
 
         embed.add_field(
-            name="🎪 抽奖 | Giveaway",
+            name="🎪 升级 | Level",
             value=(
-                "`/gmpt-giveaway` — 参与抽奖\n"
-                "`/gmpt-giveaway-admin create` — 创建抽奖"
+                "`/gmpt-level` — 我的等级\n"
+                "`/gmpt-level-leaderboard` — 等级排行\n"
+                "`/gmpt-daily-tasks` — 每日任务"
             ),
             inline=False,
         )

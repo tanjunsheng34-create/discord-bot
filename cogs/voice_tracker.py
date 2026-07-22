@@ -124,6 +124,23 @@ class VoiceTracker(commands.Cog):
                 "UPDATE voice_tracker SET total_seconds = total_seconds + ? WHERE user_id=?",
                 (elapsed, uid),
             )
+            # ── XP gain: +5 per minute ──
+            xp_gain = max(1, elapsed // 60) * 5
+            cur.execute(
+                "UPDATE users SET xp = xp + ? WHERE discord_id=?",
+                (xp_gain, uid),
+            )
+            # Check level-up
+            cur.execute("SELECT xp, level FROM users WHERE discord_id=?", (uid,))
+            xp_row = cur.fetchone()
+            if xp_row:
+                current_xp = xp_row["xp"]
+                current_level = xp_row["level"] or 1
+                while current_xp >= int(current_level ** 1.5 * 100):
+                    current_xp -= int(current_level ** 1.5 * 100)
+                    current_level += 1
+                if current_level != xp_row["level"]:
+                    cur.execute("UPDATE users SET level = ?, xp = ? WHERE discord_id=?", (current_level, current_xp, uid))
             conn.commit()
             conn.close()
 

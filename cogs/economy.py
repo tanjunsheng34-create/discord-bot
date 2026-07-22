@@ -1059,6 +1059,83 @@ class Economy(commands.Cog):
         embed.add_field(name="⭐ Achievements / 成就", value=f"{ach_ct}/{len(ACHIEVEMENTS)}", inline=True)
         embed.add_field(name="🎒 Items / 道具", value=str(inv_ct), inline=True)
 
+        # XP & Level
+        cur = conn.cursor()
+        cur.execute("SELECT xp, level FROM users WHERE discord_id=?", (uid,))
+        xp_row = cur.fetchone()
+        if xp_row:
+            lvl = xp_row["level"] or 1
+            xp = xp_row["xp"] or 0
+            xp_needed = int(lvl ** 1.5 * 100)
+            pct = min(100, xp * 100 // xp_needed)
+            bar_filled = "█" * (pct // 10)
+            bar_empty = "░" * (10 - len(bar_filled))
+            embed.add_field(
+                name=f"📊 Level {lvl} | XP: {xp}/{xp_needed} [{bar_filled}{bar_empty}] {pct}%",
+                value="",
+                inline=False,
+            )
+        conn.close()
+
+        await interaction.response.send_message(embed=embed)
+
+    # ========== 等级系统 ==========
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
+    @app_commands.command(name="gmpt-level", description="View your XP level and progress / 查看等级和XP进度")
+    async def level_cmd(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("SELECT xp, level FROM users WHERE discord_id=?", (uid,))
+        row = cur.fetchone()
+        conn.close()
+
+        lvl = row["level"] if row else 1
+        xp = row["xp"] if row else 0
+        xp_needed = int(lvl ** 1.5 * 100)
+        pct = min(100, xp * 100 // xp_needed)
+        bar_filled = "█" * (pct // 10)
+        bar_empty = "░" * (10 - len(bar_filled))
+
+        embed = discord.Embed(
+            title=f"📊 {interaction.user.display_name}'s Level / 等级",
+            color=discord.Color.blue(),
+        )
+        embed.add_field(name="Level", value=f"**{lvl}**", inline=True)
+        embed.add_field(name="XP", value=f"**{xp}** / {xp_needed}", inline=True)
+        embed.add_field(
+            name=f"Progress / 进度 [{bar_filled}{bar_empty}]",
+            value=f"{pct}%",
+            inline=False,
+        )
+        embed.set_thumbnail(url=interaction.user.display_avatar.url)
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
+    @app_commands.command(name="gmpt-level-leaderboard", description="XP level leaderboard / 等级排行榜")
+    async def level_leaderboard_cmd(self, interaction: discord.Interaction):
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT discord_id, username, xp, level FROM users WHERE xp > 0 ORDER BY xp DESC LIMIT 10"
+        )
+        rows = cur.fetchall()
+        conn.close()
+
+        if not rows:
+            return await interaction.response.send_message(
+                "No one has XP yet! Start chatting / 还没有人有XP！开始聊天吧！", ephemeral=True
+            )
+
+        embed = discord.Embed(
+            title="🏆 XP Level Leaderboard / 等级排行榜",
+            color=discord.Color.gold(),
+        )
+        medals = ["🥇", "🥈", "🥉"] + ["4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+        lines = []
+        for i, row in enumerate(rows):
+            name = row["username"] or row["discord_id"]
+            lines.append(f"{medals[i]} **Lv.{row['level']}** {name} — {row['xp']} XP")
+        embed.description = "\n".join(lines)
+        embed.set_footer(text="Earn XP by chatting and voice activity!")
         await interaction.response.send_message(embed=embed)
 
     # ========== 已报名玩家 ==========
@@ -1464,23 +1541,6 @@ class Economy(commands.Cog):
         await interaction.response.send_message(
             f"✅ {action} {abs(amount)} coins {prep} {player.mention}. New balance: {new_balance}"
         )
-
-    # ========== 管理员重置金币 [DEPRECATED - 重定向到 /gmpt-admin-coins] ==========
-    @app_commands.command(name="gmpt-reset-coins", description="[DEPRECATED] Use /gmpt-admin-coins instead / 已弃用，请用 /gmpt-admin-coins")
-    @app_commands.describe(
-        target="Target player / 目标玩家（与 all 二选一）",
-        all="Reset ALL existing users (True/False) / 重置所有用户（与 target 二选一）",
-        amount="New coin amount (default 500) / 新金币数量（默认 500）"
-    )
-    async def reset_coins_cmd(
-        self,
-        interaction: discord.Interaction,
-        target: discord.Member = None,
-        all: bool = False,
-        amount: int = 500,
-    ):
-        return await interaction.response.send_message(
-            "此命令已弃用，请使用 `/gmpt-admin-coins` 管理面板。\nThis command is deprecated, use `/gmpt-admin-coins`.", ephemeral=True)
 
     # ========== 管理员金币面板 ==========
     @app_commands.command(name="gmpt-admin-coins", description="Admin coin management panel / 管理员金币管理面板")

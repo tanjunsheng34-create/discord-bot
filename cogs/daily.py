@@ -14,6 +14,7 @@ from database import get_db
 import logging
 import sqlite3
 import time as time_mod
+import random
 from utils.logger import log_error
 
 logger = logging.getLogger(__name__)
@@ -200,15 +201,31 @@ class Daily(commands.Cog):
         )
         row = cur.fetchone()
 
-        # ── Fetch streak ──
-        cur.execute("SELECT last_date, streak FROM daily_checkin WHERE discord_id=?", (uid,))
+        # ── Fetch streak & total days ──
+        cur.execute("SELECT last_date, streak, total_days FROM daily_checkin WHERE discord_id=?", (uid,))
         streak_row = cur.fetchone()
         today_date = date.today().isoformat()
+        yesterday_date = date.today().fromordinal(date.today().toordinal() - 1).isoformat()
         current_streak = 0
+        total_days = 0
         if streak_row:
-            if streak_row["last_date"] == today_date or streak_row["last_date"] == date.today().fromordinal(date.today().toordinal() - 1).isoformat():
+            if streak_row["last_date"] == today_date or streak_row["last_date"] == yesterday_date:
                 current_streak = streak_row["streak"]
+            total_days = streak_row["total_days"] or 0
         conn.close()
+
+        # ── Next milestone preview ──
+        milestones = [7, 14, 21, 30, 60, 100]
+        next_ms = None
+        for ms in milestones:
+            if current_streak < ms:
+                next_ms = ms
+                break
+        if next_ms:
+            ms_reward = STREAK_REWARDS.get(next_ms, 0)
+            ms_preview = f"Day {next_ms} → +{ms_reward} 💰（还需 {next_ms - current_streak} 天）"
+        else:
+            ms_preview = "已达成全部里程碑！🏆"
 
         voice_minutes = row["voice_minutes"] if row else 0
         claimed = row["claimed"] if row else 0
@@ -226,6 +243,8 @@ class Daily(commands.Cog):
             )
             embed.add_field(name="Reward / 奖励", value=f"+**{reward}** coins")
             embed.add_field(name="Streak / 连胜", value=f"**{current_streak}** days")
+            embed.add_field(name="Total / 累计签到", value=f"**{total_days}** days")
+            embed.add_field(name="Next Milestone / 下个里程碑", value=ms_preview, inline=False)
             embed.set_footer(text="Come back tomorrow! / 明天再来吧！")
             await interaction.response.send_message(embed=embed, ephemeral=True)
 
@@ -262,6 +281,16 @@ class Daily(commands.Cog):
                 name="Streak / 连胜",
                 value=f"**{current_streak}** days",
                 inline=True,
+            )
+            embed.add_field(
+                name="Total / 累计",
+                value=f"**{total_days}** days",
+                inline=True,
+            )
+            embed.add_field(
+                name="Next Milestone / 下个里程碑",
+                value=ms_preview,
+                inline=False,
             )
             await interaction.response.send_message(embed=embed, ephemeral=True)
 
@@ -401,10 +430,50 @@ class Daily(commands.Cog):
             )
             # ── Update streak ──
             cur.execute(
-                "INSERT INTO daily_checkin (discord_id, last_date, streak) VALUES (?,?,?) "
-                "ON CONFLICT(discord_id) DO UPDATE SET last_date=?, streak=?",
+                "INSERT INTO daily_checkin (discord_id, last_date, streak, total_days) VALUES (?,?,?,1) "
+                "ON CONFLICT(discord_id) DO UPDATE SET last_date=?, streak=?, total_days=total_days+1",
                 (uid, today_date, new_streak, today_date, new_streak),
             )
+
+            # ── Easter egg 签到彩蛋 (15% chance) ──
+            easter_egg_msg = None
+            easter_bonus = 0
+            easter_ticket = 0
+            if random.random() < 0.15:
+                easter_eggs = [
+                    {"type": "double", "msg": "🎉 彩蛋！本日签到金币翻倍！", "fn": lambda: total_reward},
+                    {"type": "bonus", "msg": "✨ 彩蛋！额外获得 50💰 金币雨！", "fn": lambda: 50},
+                    {"type": "ticket", "msg": "🎟️ 彩蛋！获得 1 张抽奖券！", "fn": lambda: 1},
+                    {"type": "trivia_bonus", "msg": "🌟 彩蛋！额外获得 100💰 好彩头！", "fn": lambda: 100},
+                ]
+                egg = random.choice(easter_eggs)
+                egg_type = egg["type"]
+                egg_val = egg["fn"]()
+                if egg_type == "double":
+                    extra = total_reward  # double means add original again
+                    cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (extra, uid))
+                    cur.execute(
+                        "INSERT INTO transactions (discord_id, amount, reason) VALUES (?, ?, ?)",
+                        (uid, extra, f"Easter Egg: Double Reward / 彩蛋：翻倍"),
+                    )
+                    total_reward += extra
+                    easter_egg_msg = egg["msg"]
+                elif egg_type == "ticket":
+                    cur.execute(
+                        "INSERT INTO user_inventory (discord_id, item_name, quantity) VALUES (?, 'lottery_ticket', ?) "
+                        "ON CONFLICT(discord_id, item_name) DO UPDATE SET quantity = quantity + ?",
+                        (uid, egg_val, egg_val),
+                    )
+                    easter_egg_msg = egg["msg"]
+                else:
+                    cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (egg_val, uid))
+                    cur.execute(
+                        "INSERT INTO transactions (discord_id, amount, reason) VALUES (?, ?, ?)",
+                        (uid, egg_val, f"Easter Egg: Bonus / 彩蛋：额外金币"),
+                    )
+                    total_reward += egg_val
+                    easter_egg_msg = egg["msg"]
+
             conn.commit()
         except Exception as e:
             log_error("daily", "claim_cmd", e)
@@ -441,6 +510,12 @@ class Daily(commands.Cog):
             embed.add_field(
                 name="Milestone / 里程碑",
                 value=milestone_msg,
+                inline=False,
+            )
+        if easter_egg_msg:
+            embed.add_field(
+                name="Easter Egg / 彩蛋",
+                value=easter_egg_msg,
                 inline=False,
             )
         if extra_tomorrow != "+0":

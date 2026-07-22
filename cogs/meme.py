@@ -1,6 +1,7 @@
 """
 GMPT Bot — Meme Generator
 Generate image memes with top/bottom text using Pillow.
+Fixed: larger fonts, clear outline, proper contrast.
 """
 import asyncio
 import io
@@ -22,7 +23,6 @@ except ImportError:
     logger.warning("Pillow not installed — meme features disabled")
 
 # ── Meme template definitions ──
-# Each template defines a colored placeholder with a label
 TEMPLATE_DEFS = {
     "drake": {"label": "Drake Hotline Bling", "bg_color": (52, 73, 94)},
     "distracted_boyfriend": {"label": "Distracted Boyfriend", "bg_color": (231, 76, 60)},
@@ -37,36 +37,35 @@ TEMPLATE_DEFS = {
 TEMPLATE_LIST = list(TEMPLATE_DEFS.keys())
 
 # ── Font helpers ──
-FONT_CANDIDATES = [
-    "Impact",
-    "Arial Black",
-    "Arial Bold",
-    "Arial",
-    "Liberation Sans",
-    "DejaVu Sans",
+FONT_PATHS = [
+    "C:/Windows/Fonts/impact.ttf",
+    "C:/Windows/Fonts/arialbd.ttf",
+    "C:/Windows/Fonts/arial.ttf",
+    "C:/Windows/Fonts/timesbd.ttf",
+    "C:/Windows/Fonts/trebucbd.ttf",
+    "C:/Windows/Fonts/seguibl.ttf",
+    "C:/Windows/Fonts/verdanab.ttf",
+    "C:/Windows/Fonts/comicbd.ttf",
 ]
 
+_cached_fonts: dict[int, ImageFont.FreeTypeFont] = {}
 
-def _find_font(size: int = 48):
-    """Find an available bold font, fallback to default."""
-    for name in FONT_CANDIDATES:
-        try:
-            font = ImageFont.truetype(name, size)
-            return font
-        except (IOError, OSError):
-            continue
-    # Fallback: try system path on Windows
-    for path in [
-        "C:/Windows/Fonts/impact.ttf",
-        "C:/Windows/Fonts/arialbd.ttf",
-        "C:/Windows/Fonts/arial.ttf",
-    ]:
-        try:
-            font = ImageFont.truetype(path, size)
-            return font
-        except (IOError, OSError):
-            continue
-    return ImageFont.load_default()
+
+def _get_font(size: int) -> ImageFont.FreeTypeFont:
+    """Find a large, bold, highly legible font, with per-size caching."""
+    if size in _cached_fonts:
+        return _cached_fonts[size]
+    for path in FONT_PATHS:
+        if os.path.exists(path):
+            try:
+                font = ImageFont.truetype(path, size)
+                _cached_fonts[size] = font
+                return font
+            except Exception:
+                continue
+    font = ImageFont.load_default()
+    _cached_fonts[size] = font
+    return font
 
 
 def _wrap_text(draw, text: str, font, max_width: int) -> list[str]:
@@ -78,8 +77,7 @@ def _wrap_text(draw, text: str, font, max_width: int) -> list[str]:
     for word in words:
         test_line = f"{current_line} {word}".strip()
         bbox = draw.textbbox((0, 0), test_line, font=font)
-        w = bbox[2] - bbox[0]
-        if w <= max_width:
+        if (bbox[2] - bbox[0]) <= max_width:
             current_line = test_line
         else:
             if current_line:
@@ -88,28 +86,26 @@ def _wrap_text(draw, text: str, font, max_width: int) -> list[str]:
 
     if current_line:
         lines.append(current_line)
-
     if not lines and text:
         lines = [text]
-
     return lines
 
 
-def _draw_text_with_outline(draw, text: str, position: tuple, font, text_color=(255, 255, 255), outline_color=(0, 0, 0), outline_width: int = 2):
-    """Draw text with an outline effect."""
-    x, y = position
-    # Draw outline
+def _draw_outlined_text(draw, text: str, pos: tuple, font, text_color=(255, 255, 255), outline_color=(0, 0, 0), outline_width: int = 4):
+    """Draw white text with thick black outline for maximum readability."""
+    x, y = pos
+    # Draw outline in all directions
     for dx in range(-outline_width, outline_width + 1):
         for dy in range(-outline_width, outline_width + 1):
             if dx == 0 and dy == 0:
                 continue
             draw.text((x + dx, y + dy), text, font=font, fill=outline_color)
-    # Draw main text
+    # Main text on top
     draw.text((x, y), text, font=font, fill=text_color)
 
 
 def generate_meme(template: str, top_text: str, bottom_text: str, output_path: str):
-    """Generate a meme image and save to output_path."""
+    """Generate a clear, readable meme image."""
     tpl = TEMPLATE_DEFS[template]
     width, height = 600, 500
     bg_color = tpl["bg_color"]
@@ -117,66 +113,55 @@ def generate_meme(template: str, top_text: str, bottom_text: str, output_path: s
     img = Image.new("RGB", (width, height), bg_color)
     draw = ImageDraw.Draw(img)
 
-    # Draw template label at center
-    label_font = _find_font(24)
-    label_bbox = draw.textbbox((0, 0), tpl["label"], font=label_font)
-    lw = label_bbox[2] - label_bbox[0]
-    lh = label_bbox[3] - label_bbox[1]
-    draw.text(
-        ((width - lw) // 2, (height - lh) // 2 - 20),
-        tpl["label"],
-        font=label_font,
-        fill=(255, 255, 255, 80),
-    )
-    draw.text(
-        ((width - lw) // 2, (height - lh) // 2 + 10),
-        "(Meme Template)",
-        font=_find_font(16),
-        fill=(255, 255, 255, 60),
-    )
+    # ── Draw template label at center ──
+    label_font = _get_font(36)
+    _draw_outlined_text(draw, tpl["label"], (30, 30), label_font)
 
-    # Draw top text
+    tag_font = _get_font(20)
+    _draw_outlined_text(draw, "<Meme Template>", (30, 78), tag_font)
+
+    # ── Draw top text ──
     if top_text:
-        top_font = _find_font(40)
         top_text = top_text.upper()
-        max_w = width - 40
+        max_w = width - 60
+        font_size = 48
+        top_font = _get_font(font_size)
         lines = _wrap_text(draw, top_text, top_font, max_w)
 
-        # Adjust font size if too many lines
-        font_size = 40
-        while len(lines) > 3 and font_size > 18:
-            font_size -= 2
-            top_font = _find_font(font_size)
+        # Shrink font if too many lines
+        while len(lines) > 3 and font_size > 22:
+            font_size -= 4
+            top_font = _get_font(font_size)
             lines = _wrap_text(draw, top_text, top_font, max_w)
 
-        y_start = 10
+        y_pos = 120
         for line in lines:
             bbox = draw.textbbox((0, 0), line, font=top_font)
             line_w = bbox[2] - bbox[0]
             x = (width - line_w) // 2
-            _draw_text_with_outline(draw, line, (x, y_start), top_font)
-            y_start += top_font.size + 5
+            _draw_outlined_text(draw, line, (x, y_pos), top_font)
+            y_pos += top_font.size + 8
 
-    # Draw bottom text
+    # ── Draw bottom text ──
     if bottom_text:
-        bottom_font = _find_font(40)
         bottom_text = bottom_text.upper()
-        max_w = width - 40
-        lines = _wrap_text(draw, bottom_text, bottom_font, max_w)
+        max_w = width - 60
+        font_size = 48
+        bot_font = _get_font(font_size)
+        lines = _wrap_text(draw, bottom_text, bot_font, max_w)
 
-        font_size = 40
-        while len(lines) > 3 and font_size > 18:
-            font_size -= 2
-            bottom_font = _find_font(font_size)
-            lines = _wrap_text(draw, bottom_text, bottom_font, max_w)
+        while len(lines) > 3 and font_size > 22:
+            font_size -= 4
+            bot_font = _get_font(font_size)
+            lines = _wrap_text(draw, bottom_text, bot_font, max_w)
 
-        y_start = height - (len(lines) * (bottom_font.size + 5)) - 10
+        y_start = height - (len(lines) * (bot_font.size + 8)) - 20
         for line in lines:
-            bbox = draw.textbbox((0, 0), line, font=bottom_font)
+            bbox = draw.textbbox((0, 0), line, font=bot_font)
             line_w = bbox[2] - bbox[0]
             x = (width - line_w) // 2
-            _draw_text_with_outline(draw, line, (x, y_start), bottom_font)
-            y_start += bottom_font.size + 5
+            _draw_outlined_text(draw, line, (x, y_start), bot_font)
+            y_start += bot_font.size + 8
 
     img.save(output_path, "PNG")
 
@@ -209,7 +194,7 @@ class Meme(commands.Cog):
 
         if template not in TEMPLATE_DEFS:
             return await interaction.response.send_message(
-                f"未知模板 / Unknown template. 可用: {', '.join(TEMPLATE_LIST)}\n使用 `/gmpt-meme templates` 查看详情",
+                f"未知模板 / Unknown template. 可用: {', '.join(TEMPLATE_LIST)}",
                 ephemeral=True,
             )
 
@@ -221,7 +206,6 @@ class Meme(commands.Cog):
 
         await interaction.response.defer()
 
-        # Generate to temp directory
         import tempfile
         tmp_dir = tempfile.gettempdir()
         output_path = os.path.join(tmp_dir, f"meme_{interaction.user.id}_{os.urandom(4).hex()}.png")
@@ -246,7 +230,6 @@ class Meme(commands.Cog):
             log_error("meme", "meme_cmd", e)
             await interaction.followup.send(f"生成失败 / Generation failed: {e}", ephemeral=True)
         finally:
-            # Clean up
             try:
                 if os.path.exists(output_path):
                     os.remove(output_path)

@@ -5,13 +5,18 @@ import os
 import sys
 import json
 import io
+import time
 import logging
 import asyncio
+import sqlite3
 import discord
 from discord.ext import commands
 from database import get_db, init_db
 from utils.logger import log_error
 from config import TOKEN, BACKUP_CHANNEL_ID, BACKUP_INTERVAL, BACKUP_TABLES
+
+# Text XP cooldown: user_id -> last_xp_time
+_msg_xp_cooldowns: dict[str, float] = {}
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,11 +41,9 @@ COGS = [
     "cogs.tournament",
     "cogs.lol",
     "cogs.dashboard",
-    "cogs.giveaway",
     "cogs.voice_tracker",
     "cogs.queue",
     "cogs.admin_backup",
-    "cogs.match",
     "cogs.daily",
     "cogs.help",
     "cogs.peiwans",
@@ -336,16 +339,6 @@ async def auto_restore():
             "INSERT OR REPLACE INTO daily_checkin (discord_id, last_date, streak) VALUES (?, ?, ?)",
             lambda c: (c.get("discord_id"), c.get("last_date", ""), c.get("streak", 0)),
         )
-        # giveaway
-        _restore_batch("giveaway",
-            "INSERT OR REPLACE INTO giveaway (id, guild_id, channel_id, message_id, prize, duration_minutes, winner_count, created_by, ends_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            lambda g: (g.get("id"), g.get("guild_id"), g.get("channel_id"), g.get("message_id"), g.get("prize"), g.get("duration_minutes"), g.get("winner_count"), g.get("created_by"), g.get("ends_at"), g.get("status", "active")),
-        )
-        # giveaway_entries
-        _restore_batch("giveaway_entries",
-            "INSERT OR REPLACE INTO giveaway_entries (id, giveaway_id, user_id) VALUES (?, ?, ?)",
-            lambda e: (e.get("id"), e.get("giveaway_id"), e.get("user_id")),
-        )
         # user_inventory
         _restore_batch("user_inventory",
             "INSERT OR REPLACE INTO user_inventory (user_id, item_id, quantity) VALUES (?, ?, ?)",
@@ -366,16 +359,7 @@ async def auto_restore():
             "INSERT OR REPLACE INTO tournaments (id, name, max_teams, team_size, status, created_by, created_at, format, max_players, rounds, tier_restriction, role_pick) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             lambda t: (t.get("id"), t.get("name"), t.get("max_teams"), t.get("team_size"), t.get("status", "open"), t.get("created_by"), t.get("created_at"), t.get("format", "swiss"), t.get("max_players", 32), t.get("rounds", 3), t.get("tier_restriction"), t.get("role_pick", 0)),
         )
-        # match_signups
-        _restore_batch("match_signups",
-            "INSERT OR REPLACE INTO match_signups (id, match_id, discord_id, team) VALUES (?, ?, ?, ?)",
-            lambda s: (s.get("id"), s.get("match_id"), s.get("discord_id"), s.get("team")),
-        )
-        # matches
-        _restore_batch("matches",
-            "INSERT OR REPLACE INTO matches (id, name, status, created_by, channel_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            lambda m: (m.get("id"), m.get("name"), m.get("status", "pending"), m.get("created_by"), m.get("channel_id"), m.get("created_at")),
-        )
+        # tournaments
 
         conn.commit()
 
@@ -428,6 +412,34 @@ async def on_message(message):
             update_weekly_progress(uid, "send_attachment", len(message.attachments))
     except Exception as e:
         log_error("main", "on_message_weekly", e)
+
+    # ── Text XP: +2 per message, 60s cooldown ──
+    try:
+        now = time.time()
+        last = _msg_xp_cooldowns.get(uid, 0)
+        if now - last >= 60:
+            _msg_xp_cooldowns[uid] = now
+            conn = sqlite3.connect(DB_PATH)
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO users (discord_id, username) VALUES (?, ?) ON CONFLICT(discord_id) DO NOTHING",
+                (uid, message.author.name),
+            )
+            cur.execute("UPDATE users SET xp = xp + 2 WHERE discord_id = ?", (uid,))
+            cur.execute("SELECT xp, level FROM users WHERE discord_id=?", (uid,))
+            xp_row = cur.fetchone()
+            if xp_row:
+                current_xp = xp_row["xp"]
+                current_level = xp_row["level"] or 1
+                while current_xp >= int(current_level ** 1.5 * 100):
+                    current_xp -= int(current_level ** 1.5 * 100)
+                    current_level += 1
+                if current_level != xp_row["level"]:
+                    cur.execute("UPDATE users SET level = ?, xp = ? WHERE discord_id=?", (current_level, current_xp, uid))
+            conn.commit()
+            conn.close()
+    except Exception as e:
+        log_error("main", "on_message_xp", e)
 
 
 @bot.event

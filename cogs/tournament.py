@@ -9,6 +9,7 @@ from config import RIOT_API_KEY
 from cogs.economy import add_coins
 from cogs.shared_views import ConfirmView
 import aiohttp
+import random
 from datetime import datetime
 from collections import defaultdict
 
@@ -143,6 +144,67 @@ def _display_name(guild, discord_id):
 
 # =============================================================================
 # DraftView — 队长选秀交互界面
+# =============================================================================
+class CaptainCoinflipView(discord.ui.View):
+    """抛硬币决定选人顺序 — 仅两队队长可点。"""
+
+    def __init__(self, captains_info, guild, start_draft_callback):
+        super().__init__(timeout=300)
+        self.captains = captains_info  # list of {captain_id, team_name, pick_order, tier_score}
+        self.guild = guild
+        self.start_draft_callback = start_draft_callback
+        self._done = False
+        self.captain_ids = {str(c["captain_id"]) for c in self.captains}
+
+    def _embed(self, result_text=""):
+        cap1 = self.captains[0]
+        cap2 = self.captains[1] if len(self.captains) > 1 else None
+        name1 = _display_name(self.guild, cap1["captain_id"])
+        name2 = _display_name(self.guild, cap2["captain_id"]) if cap2 else "?"
+        embed = discord.Embed(
+            title="🪙 抛硬币决定选人顺序 / Coinflip for Pick Order",
+            description=f"**{name1}** vs **{name2}**\n\n点击按钮选择你猜的正反面，随机决定谁先选！",
+            color=discord.Color.gold(),
+        )
+        if result_text:
+            embed.add_field(name="结果 / Result", value=result_text, inline=False)
+        return embed
+
+    async def _handle_pick(self, interaction: discord.Interaction, guess: str):
+        if self._done:
+            return await interaction.response.send_message("硬币已抛过。", ephemeral=True)
+        if str(interaction.user.id) not in self.captain_ids:
+            return await interaction.response.send_message("只有两队队长可以抛硬币！", ephemeral=True)
+
+        self._done = True
+        is_heads = random.choice([True, False])
+        result = "正面 Heads" if is_heads else "反面 Tails"
+
+        # captains[0] 默认先选；若反面，则交换 pick_order
+        if not is_heads and len(self.captains) > 1:
+            self.captains[0], self.captains[1] = self.captains[1], self.captains[0]
+        for i, c in enumerate(self.captains, 1):
+            c["pick_order"] = i
+
+        winner = _display_name(self.guild, self.captains[0]["captain_id"])
+        result_text = f"🪙 {result}！**{winner}** 先选！"
+
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(embed=self._embed(result_text), view=self)
+
+        # 进入选秀
+        await self.start_draft_callback(self.captains)
+
+    @discord.ui.button(label="🪙 正面 Heads", style=discord.ButtonStyle.primary, custom_id="coinflip_heads")
+    async def heads_btn(self, interaction: discord.Interaction, button):
+        await self._handle_pick(interaction, "heads")
+
+    @discord.ui.button(label="🪙 反面 Tails", style=discord.ButtonStyle.secondary, custom_id="coinflip_tails")
+    async def tails_btn(self, interaction: discord.Interaction, button):
+        await self._handle_pick(interaction, "tails")
+
+
 # =============================================================================
 class DraftView(discord.ui.View):
     def __init__(self, draft_id, captains_info, available_players, guild, timeout=600):
@@ -909,25 +971,41 @@ class DraftSetupView(discord.ui.View):
 
         # Prepare available players for DraftView (exclude captains)
         captain_ids = set(self.captains.keys())
-        draft_pool = [(p[0], p[3], p[1], p[2]) for p in self.available_players if p[0] not in captain_ids]
 
         conn = get_db(); cur = conn.cursor()
         cur.execute("SELECT captain_id, team_name, pick_order, tier_score FROM draft_captains WHERE draft_id=? ORDER BY pick_order", (draft_id,))
         captains_info = [dict(r) for r in cur.fetchall()]
         conn.close()
 
-        view = DraftView(draft_id, captains_info, draft_pool, interaction.guild)
-        embed = view.build_embed()
-        embed.description = (
-            f"队长选秀已开始！\n"
-            f"轮到: **{_display_name(interaction.guild, view.current_captain['captain_id'])}**\n\n"
-            f"使用下拉菜单选人 → 点击确认按钮\n"
-            f"Use dropdown to pick → click Confirm"
-        )
+        draft_pool = [(p[0], p[3], p[1], p[2]) for p in self.available_players if p[0] not in captain_ids]
 
+        # ── Coinflip callback: called after captains decide order ──
+        async def do_start_draft(final_captains):
+            # Update pick_order in DB
+            conn = get_db(); cur = conn.cursor()
+            for c in final_captains:
+                cur.execute("UPDATE draft_captains SET pick_order=? WHERE draft_id=? AND captain_id=?",
+                            (c["pick_order"], draft_id, c["captain_id"]))
+            conn.commit(); conn.close()
+
+            view = DraftView(draft_id, final_captains, draft_pool, interaction.guild)
+            embed = view.build_embed()
+            embed.description = (
+                f"队长选秀已开始！\n"
+                f"轮到: **{_display_name(interaction.guild, view.current_captain['captain_id'])}**\n\n"
+                f"使用下拉菜单选人 → 点击确认按钮\n"
+                f"Use dropdown to pick → click Confirm"
+            )
+
+            for child in self.children:
+                child.disabled = True
+            await interaction.edit_original_response(embed=embed, view=view)
+
+        # Show coinflip
+        coinflip = CaptainCoinflipView(captains_info, interaction.guild, do_start_draft)
         for child in self.children:
             child.disabled = True
-        await interaction.edit_original_response(embed=embed, view=view)
+        await interaction.edit_original_response(embed=coinflip._embed(), view=coinflip)
 
     def build_embed(self):
         embed = discord.Embed(
