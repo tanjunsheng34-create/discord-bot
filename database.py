@@ -673,6 +673,19 @@ def _run_migrations(cursor):
     """)
 
 
+def _seed_default_vc(cursor):
+    """Seed default voice channel IDs for match auto-assign (INSERT OR IGNORE)."""
+    # Default guild voice channel configuration
+    # A队语音 / B队语音 / 大厅（结算完）
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO match_vc_config
+            (guild_id, team_a_vc_id, team_b_vc_id, lobby_vc_id, enabled)
+        VALUES ('default', '1438050912814895186', '1437626921394372658', '1442412877301416006', 1)
+        """
+    )
+
+
 def _create_performance_indexes(cursor):
     """Create performance indexes."""
     for idx_sql in [
@@ -705,6 +718,7 @@ def init_db():
     _create_peiwans_tables(cursor)
     _create_predict_tables(cursor)
     _run_migrations(cursor)
+    _seed_default_vc(cursor)
     _create_performance_indexes(cursor)
 
     conn.commit()

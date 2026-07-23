@@ -4478,11 +4478,11 @@ class DashboardView(discord.ui.View):
     PAGE_TITLES = {
         1: "⚔️ 比赛 Match",
         2: "🏆 赛事 Tournament",
-        3: "👤 玩家 Player",
-        4: "🛒 经济 Economy",
+        3: "💰 经济 Economy",
+        4: "👤 玩家 Player",
         5: "🎮 小游戏 Mini Games",
-        6: "🧰 常用工具 Common Tools",
-        7: "🔧 管理工具 Admin Tools",
+        6: "🎮 LoL League",
+        7: "🔧 工具与设置 Tools",
     }
 
     def __init__(self, guild=None, session=None, *args, **kwargs):
@@ -4529,19 +4529,7 @@ class DashboardView(discord.ui.View):
             while len(btns) < 8:
                 btns.append(None)
         elif page == 3:
-            btns = [
-                ("👤 个人资料\nProfile", "profile"),
-                ("📜 比赛历史\nHistory", "history"),
-                ("📅 每周挑战\nWeekly", "weekly"),
-                ("📅 排位赛季\nSeason", "season"),
-                ("💎 MVP排行榜\nMVP LB", "mvp_lb"),
-                ("📊 数据总览\nStats", "stats"),
-                ("🎖️ 段位列表\nRanks", "ranks"),
-                ("🔥 连胜王\nWin Streak", "win_streak"),
-            ]
-            while len(btns) < 8:
-                btns.append(None)
-        elif page == 4:
+            # 经济系统 (Economy)
             btns = [
                 ("🛒 积分商店\nShop", "shop"),
                 ("🎒 我的背包\nInventory", "inventory"),
@@ -4551,6 +4539,20 @@ class DashboardView(discord.ui.View):
                 ("🏅 成就列表\nAchievements", "achievements"),
                 ("🎟️ 抽奖\nGiveaway", "giveaway"),
                 ("🗓️ 每日奖励\nDaily", "daily"),
+            ]
+            while len(btns) < 8:
+                btns.append(None)
+        elif page == 4:
+            # 玩家系统 (Player)
+            btns = [
+                ("👤 个人资料\nProfile", "profile"),
+                ("📜 比赛历史\nHistory", "history"),
+                ("📅 每周挑战\nWeekly", "weekly"),
+                ("📅 排位赛季\nSeason", "season"),
+                ("💎 MVP排行榜\nMVP LB", "mvp_lb"),
+                ("📊 数据总览\nStats", "stats"),
+                ("🎖️ 段位列表\nRanks", "ranks"),
+                ("🔥 连胜王\nWin Streak", "win_streak"),
             ]
             while len(btns) < 8:
                 btns.append(None)
@@ -4699,23 +4701,79 @@ class DashboardView(discord.ui.View):
         color = self.PAGE_COLORS.get(self.page, discord.Color.blurple())
 
         if self.page == 1:
-            desc = "⚔️ **Match System / 比赛系统** — 创建、报名、分队、结算\nClick a button below / 点击下方按钮"
+            desc = (
+                "⚔️ 比赛系统 Match System\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "🛠️ 创建比赛 Create Match — 新建内战\n"
+                "📝 报名 Sign Up — 选手加入比赛\n"
+                "🎲 随机分队 Random — 自动分配队伍\n"
+                "🔴🔵 手动分队 Manual — 手动分配AB队\n"
+                "💰 结算 Settle — 计算奖励\n"
+                "🔊 拉入语音 Pull VC — 自动分房\n"
+                "👑 选队长 Captains — 随机或手动选队长"
+            )
         elif self.page == 2:
             desc = (
-                "🏆 **Tournament System / 赛事系统**\n"
-                "① 创建赛事 Create  ② 报名 Sign Up  ③ 队长选秀 Draft  ④ 上报比分 Report\n"
-                "⑤ 对阵表 Bracket  ⑥ 排名 Standings  ⑦ 记录 History  ⑧ 定时赛事 Scheduled"
+                "🏆 赛事系统 Tournament System\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "① 创建赛事 Create → ② 报名 Sign Up → ③ 队长选秀 Draft\n"
+                "④ 上报比分 Report → ⑤ 对阵表 Bracket → ⑥ 排名 Standings\n"
+                "⑦ 记录 History → ⑧ 定时赛事 Scheduled"
             )
         elif self.page == 3:
-            desc = "👤 **Player / 玩家** — 资料、历史、挑战、排行\ne.g. 赛季、Profile、History、MVP"
+            desc = (
+                "💰 经济系统 Economy System\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "💳 余额 Balance — 查询金币\n"
+                "👤 个人档案 Profile — 查看数据\n"
+                "🏪 道具商店 Shop — 购买道具\n"
+                "📊 财务统计 Finance — 收支明细\n"
+                "🏆 成就 Achievements — 徽章展示"
+            )
         elif self.page == 4:
-            desc = "🛒 **Economy / 经济** — 商店、背包、金币、抽奖、每日\ne.g. Shop、Balance、Achievements、Daily"
+            desc = (
+                "👤 玩家系统 Player System\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "📊 个人资料 Profile — 比赛数据总览\n"
+                "📜 比赛历史 History — 历史战绩回顾\n"
+                "📅 每周挑战 Weekly — 周常任务\n"
+                "💎 MVP排行 MVP LB — 最有价值选手\n"
+                "🎖️ 段位 Ranks — 段位排行\n"
+                "🔥 连胜 Win Streak — 连胜记录"
+            )
         elif self.page == 5:
-            desc = "🎮 **Mini Games / 小游戏** — 老虎机、猜硬币、问答、猜英雄、预测、表情包\nClick a button for details / 点击按钮查看详情"
+            desc = (
+                "🎮 小游戏 Mini Games\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "🎰 老虎机 Slots — 试试手气\n"
+                "🪙 猜硬币 Coinflip — 正反下注\n"
+                "🧠 知识问答 Trivia — LOL知识竞赛\n"
+                "🦸 猜英雄 Guess Champ — 猜英雄挑战\n"
+                "🏆 比赛预测 Predict — 竞猜比赛\n"
+                "🖼️ 表情包 Meme — 生成梗图\n"
+                "💕 虚拟动作 Actions — 互动动作"
+            )
         elif self.page == 6:
-            desc = "🧰 **Common Tools / 常用工具** — 语音排行、排队、全部玩家、MMR、回放\ne.g. Voice LB、Queue、All Players、MMR、Replay"
+            desc = (
+                "🎮 LoL 系统 League System\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "🎤 语音排行 Voice LB — 语音频道排行\n"
+                "🔊 排队状态 Queue — 组队排队\n"
+                "👥 全部玩家 All Players — 玩家列表\n"
+                "🏅 MMR排行 MMR LB — MMR排行榜\n"
+                "🎬 比赛回放 Replay — 赛后回顾\n"
+                "🎙️ 赛后拉入 Post-Match VC — 结算后分房"
+            )
         elif self.page == 7:
-            desc = "🔧 **Admin Tools / 管理工具** — 导出、管理面板、公告、赛季重置、赛后拉语音\ne.g. Export、Admin、Announce、Season Reset、Post-Match VC"
+            desc = (
+                "🔧 工具与设置 Tools & Settings\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "📤 导出数据 Export CSV — 导出比赛数据\n"
+                "🔒 管理面板 Admin — 管理员功能\n"
+                "📢 发送公告 Announce — 全员推送\n"
+                "🔄 赛季重置 Season Reset — 重置赛季\n"
+                "🎙️ 赛后拉入 Post-Match VC — 赛后语音分房"
+            )
 
         return discord.Embed(
             title=title,

@@ -398,6 +398,47 @@ async def on_ready():
 
 
 # =============================================================================
+# 欢迎消息 — on_member_join
+# =============================================================================
+@bot.event
+async def on_member_join(member: discord.Member):
+    try:
+        # 尝试找到系统欢迎频道，否则发到第一个可见文字频道
+        target_channel = None
+        for ch in member.guild.text_channels:
+            if ch.name in ("welcome", "欢迎", "general", "综合", "大厅"):
+                target_channel = ch
+                break
+        if target_channel is None:
+            target_channel = member.guild.system_channel or next(
+                (c for c in member.guild.text_channels if c.permissions_for(member.guild.me).send_messages),
+                None,
+            )
+        if target_channel is None:
+            return
+
+        file = discord.File("assets/welcome_bg.png", filename="welcome.png")
+        embed = discord.Embed(
+            title="🎮 欢迎来到 G.M.P.T 游戏星球！",
+            description=(
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "🎮 欢迎来到 G.M.P.T 游戏星球！\n"
+                "🌍 Welcome to G.M.P.T Gaming Planet!\n\n"
+                "使用 /gmpt-dashboard 打开控制面板\n"
+                "Type /gmpt-dashboard to open the control panel\n\n"
+                "使用 /gmpt-help 查看所有命令\n"
+                "Type /gmpt-help to see all commands\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            ),
+            color=0x9B59B6,
+        )
+        embed.set_image(url="attachment://welcome.png")
+        await target_channel.send(embed=embed, file=file)
+    except Exception as e:
+        logger.warning(f"Welcome message failed (non-critical): {e}")
+
+
+# =============================================================================
 # 每周挑战进度监听 — messages / attachments / reactions
 # =============================================================================
 @bot.event

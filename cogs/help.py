@@ -20,9 +20,22 @@ class HelpCog(CogBase):
         )
 
         embed.add_field(
-            name="🏅 锦标赛 | Tournament",
+            name="⚔️ 比赛 / Match",
             value=(
-                "`/gmpt-tournament create` — 创建\n"
+                "`/gmpt-create` — 创建比赛\n"
+                "`/gmpt-join` — 报名\n"
+                "`/gmpt-shuffle` — 随机分队\n"
+                "`/gmpt-settle` — 结算\n"
+                "`/gmpt-pull-vc` — 拉入语音\n"
+                "`/gmpt-pick-captain` — 选队长"
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="🏆 赛事 / Tournament",
+            value=(
+                "`/gmpt-tournament create` — 创建赛事\n"
                 "`/gmpt-tournament signup` — 报名\n"
                 "`/gmpt-tournament captain` — 队长选秀\n"
                 "`/gmpt-tournament bracket` — 对阵图\n"
@@ -33,7 +46,7 @@ class HelpCog(CogBase):
         )
 
         embed.add_field(
-            name="💰 经济 | Economy",
+            name="💰 经济 / Economy",
             value=(
                 "`/gmpt-balance` — 余额\n"
                 "`/gmpt-shop` — 商店\n"
@@ -48,17 +61,21 @@ class HelpCog(CogBase):
         )
 
         embed.add_field(
-            name="🎪 升级 | Level",
+            name="💬 社交 / Social",
             value=(
+                "`/gmpt-hug <user>` — 拥抱\n"
+                "`/gmpt-slap <user>` — 拍打\n"
+                "`/gmpt-pat <user>` — 摸头\n"
+                "`/gmpt-kiss <user>` — 亲吻\n"
+                "`/gmpt-kill <user>` — 击杀\n"
                 "`/gmpt-level` — 我的等级\n"
-                "`/gmpt-level-leaderboard` — 等级排行\n"
-                "`/gmpt-daily-tasks` — 每日任务"
+                "`/gmpt-level-leaderboard` — 等级排行"
             ),
             inline=False,
         )
 
         embed.add_field(
-            name="🎮 小游戏 | Mini Games",
+            name="🎮 小游戏 / Mini Games",
             value=(
                 "`/gmpt-slots` — 老虎机\n"
                 "`/gmpt-coinflip` — 猜硬币\n"
@@ -71,19 +88,20 @@ class HelpCog(CogBase):
         )
 
         embed.add_field(
-            name="💕 虚拟动作 | Actions",
+            name="🎮 LoL / League",
             value=(
-                "`/gmpt-hug <user>` — 拥抱\n"
-                "`/gmpt-slap <user>` — 拍打\n"
-                "`/gmpt-pat <user>` — 摸头\n"
-                "`/gmpt-kiss <user>` — 亲吻\n"
-                "`/gmpt-kill <user>` — 击杀"
+                "`/gmpt-profile-lol` — 战绩查询\n"
+                "`/gmpt-rank` — 段位查询\n"
+                "`/gmpt-stream` — 直播通知\n"
+                "`/gmpt-match-history` — 比赛历史\n"
+                "`/gmpt-lol-settle` — 比赛结算\n"
+                "`/gmpt-vc-setup` — 语音分区配置"
             ),
             inline=False,
         )
 
         embed.add_field(
-            name="📊 其他 | Other",
+            name="🔧 工具 / Tools",
             value=(
                 "`/gmpt-dashboard` — 控制面板\n"
                 "`/gmpt-stats` — 数据统计\n"
@@ -91,6 +109,7 @@ class HelpCog(CogBase):
                 "`/gmpt-voicetime` — 语音时长\n"
                 "`/gmpt-queue` — 排队\n"
                 "`/gmpt-transactions` — 交易记录\n"
+                "`/gmpt-daily-tasks` — 每日任务\n"
                 "`/announce` — 公告(管理)"
             ),
             inline=False,
