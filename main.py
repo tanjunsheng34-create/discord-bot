@@ -407,36 +407,52 @@ async def on_member_join(member: discord.Member):
 
     try:
         file = discord.File("assets/welcome_bg.png", filename="welcome.png")
+
         embed = discord.Embed(
-            description=(
-                f"**{member.mention}** 加入了我们！\n"
-                f"**{member.mention}** just joined!\n\n"
-                f"━━━━━━━━━━━━━━━━━━━━━\n"
-                f"🚀 **快速开始 | Quick Start**\n"
-                f"💬 输入 `/gmpt-dashboard` 打开控制面板\n"
-                f"💬 Type `/gmpt-dashboard` to open the control panel\n\n"
-                f"📖 输入 `/gmpt-help` 查看所有功能\n"
-                f"📖 Type `/gmpt-help` to see all features"
-            ),
+            title="👋 Welcome to Gaming Planet! 🪐",
             color=0x9B59B6,
+            timestamp=datetime.datetime.now(),
         )
+
         embed.set_author(
-            name="🎉 欢迎来到 Gaming Planet!",
+            name=f"{member.name} 加入了我们！| just joined!",
             icon_url=member.display_avatar.url,
         )
+
+        embed.description = (
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "**🚀 🔥 ✨ What to expect here:**\n"
+            "🎮 Active members • Weekly custom matches\n"
+            "🏆 Monthly tournament & giveaways\n"
+            "🎙️ Voice chat & live streams\n"
+            "🌸 Friendly owner & admins\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "📖 **快速上手 | Quick Start**\n"
+            "💬 `/gmpt-help` — 查看所有功能 | See all features\n"
+            "🎮 `/gmpt-dashboard` — 控制面板 | Control Panel\n\n"
+            "👥 **找队友 | Find Teammates**\n"
+            "🔍 `/gmpt-queue` — 寻找队伍 | Looking for group\n"
+            "🤝 直接 @ 在线玩家组队 | Ping players to team up\n\n"
+            "📚 **教学 | Guides**\n"
+            "🧠 `/gmpt-trivia` — LOL 知识问答 | Quiz\n"
+            "🕵️ `/gmpt-guess-champion` — 猜英雄 | Guess champion\n\n"
+            "💜 **G.M.P.T Gaming Planet** — Have fun!"
+        )
+
         embed.set_image(url="attachment://welcome.png")
         embed.set_thumbnail(url=member.display_avatar.url)
-        embed.set_footer(text="G.M.P.T Gaming Planet | Made with 💜")
+        embed.set_footer(
+            text="G.M.P.T Gaming Planet | Made with 💜",
+            icon_url=member.guild.icon.url if member.guild.icon else None,
+        )
 
-        # 发送到 welcome 频道
         welcome_channel = discord.utils.get(member.guild.text_channels, name="welcome")
         if welcome_channel:
-            await welcome_channel.send(embed=embed, file=file)
+            await welcome_channel.send(content=member.mention, embed=embed, file=file)
         else:
-            # 没有 welcome 频道则发到第一个可用频道
             for channel in member.guild.text_channels:
                 if channel.permissions_for(member.guild.me).send_messages:
-                    await channel.send(embed=embed, file=file)
+                    await channel.send(content=member.mention, embed=embed, file=file)
                     break
     except Exception as e:
         logger.warning(f"Welcome message failed (non-critical): {e}")

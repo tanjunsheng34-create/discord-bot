@@ -2,9 +2,11 @@
 GMPT Bot — 虚拟互动动作
 
 /gmpt-hug, /gmpt-slap, /gmpt-pat, /gmpt-kiss, /gmpt-kill
-每次使用送 5💰 给目标用户，附带 Pillow 生成的 GIF 风格静态图。
+每次使用送 5💰 给目标用户，附带 Pillow 生成的渐变卡片图。
 """
+import io
 import os
+import random
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -18,89 +20,112 @@ logger = logging.getLogger(__name__)
 
 # 每个动作对应的配置
 ACTION_CONFIG = {
-    "hug":  {"emoji": "🤗", "verb_cn": "拥抱了", "color": (255, 182, 193)},
-    "slap": {"emoji": "👋", "verb_cn": "拍打了", "color": (255, 99, 71)},
-    "pat":  {"emoji": "🫳", "verb_cn": "摸了摸", "color": (255, 215, 0)},
-    "kiss": {"emoji": "💋", "verb_cn": "亲吻了", "color": (255, 105, 180)},
-    "kill": {"emoji": "💀", "verb_cn": "击杀了", "color": (139, 0, 0)},
+    "hug":  {"emoji": "🤗", "verb_cn": "拥抱了", "verb_en": "Hug"},
+    "slap": {"emoji": "👋", "verb_cn": "拍打了", "verb_en": "Slap"},
+    "pat":  {"emoji": "🫳", "verb_cn": "摸了摸", "verb_en": "Pat"},
+    "kiss": {"emoji": "💋", "verb_cn": "亲吻了", "verb_en": "Kiss"},
+    "kill": {"emoji": "💀", "verb_cn": "击杀了", "verb_en": "Kill"},
 }
 
+# 渐变配色方案
+_GRADIENT_PRESETS = [
+    ("#667eea", "#764ba2"),  # 紫蓝
+    ("#f093fb", "#f5576c"),  # 粉红
+    ("#4facfe", "#00f2fe"),  # 蓝青
+    ("#43e97b", "#38f9d7"),  # 绿
+    ("#fa709a", "#fee140"),  # 橙粉
+    ("#a18cd1", "#fbc2eb"),  # 薰衣草
+]
 
-def _generate_action_image(emoji: str, verb_cn: str, user1: str, user2: str) -> str:
-    """用 Pillow 生成一张静态动作图片（400x300），返回文件路径。"""
-    from PIL import Image, ImageDraw, ImageFont
 
-    width, height = 400, 300
-    r, g, b = 40, 40, 55
-    img = Image.new("RGB", (width, height), (r, g, b))
+def _find_font(size: int):
+    """自动搜索系统可用字体，返回 ImageFont 对象。"""
+    from PIL import ImageFont
 
-    # 画渐变高亮带
-    draw = ImageDraw.Draw(img)
-    for y in range(height):
-        ratio = y / height
-        cr = int(40 + 30 * ratio)
-        cg = int(40 + 25 * ratio)
-        cb = int(55 + 30 * ratio)
-        draw.line([(0, y), (width, y)], fill=(cr, cg, cb))
-
-    # 加载字体
     font_paths = [
         "C:\\Windows\\Fonts\\seguiemj.ttf",
         "C:\\Windows\\Fonts\\segoeui.ttf",
+        "C:\\Windows\\Fonts\\seguisb.ttf",
         "C:\\Windows\\Fonts\\arial.ttf",
-        "C:\\Windows\\Fonts\\msgothic.ttf",
+        "C:\\Windows\\Fonts\\msyh.ttc",
+        "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
+        "/usr/share/fonts/truetype/noto/NotoEmoji-Regular.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     ]
-    emoji_font = None
-    text_font = None
+
     for fp in font_paths:
         if os.path.exists(fp):
             try:
-                f = ImageFont.truetype(fp, 80)
-                emoji_font = f
-                break
+                return ImageFont.truetype(fp, size)
             except Exception:
-                pass
-    for fp in font_paths:
-        if os.path.exists(fp):
-            try:
-                f = ImageFont.truetype(fp, 28)
-                text_font = f
-                break
-            except Exception:
-                pass
-    if emoji_font is None:
-        emoji_font = ImageFont.load_default()
-    if text_font is None:
-        text_font = ImageFont.load_default()
+                continue
 
-    # 画 emoji
-    bbox = draw.textbbox((0, 0), emoji, font=emoji_font)
-    tw = bbox[2] - bbox[0]
-    th = bbox[3] - bbox[1]
-    ex = (width - tw) // 2
-    ey = (height - th) // 2 - 20
-    # 描边
-    for dx, dy in [(-2, 0), (2, 0), (0, -2), (0, 2), (-2, -2), (2, -2), (-2, 2), (2, 2)]:
-        draw.text((ex + dx, ey + dy), emoji, font=emoji_font, fill=(0, 0, 0))
-    draw.text((ex, ey), emoji, font=emoji_font, fill=(255, 255, 255))
+    try:
+        return ImageFont.load_default()
+    except Exception:
+        return None
 
-    # 画动作文字
-    action_text = f"{user1} {verb_cn} {user2}"
-    bbox2 = draw.textbbox((0, 0), action_text, font=text_font)
-    aw = bbox2[2] - bbox2[0]
-    ax = (width - aw) // 2
-    ay = ey + th + 15
-    # 描边
-    for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-        draw.text((ax + dx, ay + dy), action_text, font=text_font, fill=(0, 0, 0))
-    draw.text((ax, ay), action_text, font=text_font, fill=(255, 255, 255))
 
-    # 保存到 temp
-    import tempfile
-    fd, path = tempfile.mkstemp(suffix=".png", prefix="gmpt_action_")
-    os.close(fd)
-    img.save(path, "PNG")
-    return path
+def _hex_to_rgb(hex_str: str):
+    """#rrggbb → (r, g, b)"""
+    h = hex_str.lstrip("#")
+    return tuple(int(h[i : i + 2], 16) for i in (0, 2, 4))
+
+
+def _generate_action_image(action_type: str, user1: str, user2: str) -> discord.File:
+    """生成 600x200 渐变动作卡片，直接返回 discord.File。"""
+    from PIL import Image, ImageDraw
+
+    W, H = 600, 200
+
+    # 随机渐变背景
+    c1_hex, c2_hex = random.choice(_GRADIENT_PRESETS)
+    c1 = _hex_to_rgb(c1_hex)
+    c2 = _hex_to_rgb(c2_hex)
+
+    img = Image.new("RGBA", (W, H))
+    draw = ImageDraw.Draw(img)
+
+    # 竖向渐变填充
+    for y in range(H):
+        ratio = y / H
+        r = int(c1[0] + (c2[0] - c1[0]) * ratio)
+        g = int(c1[1] + (c2[1] - c1[1]) * ratio)
+        b = int(c1[2] + (c2[2] - c1[2]) * ratio)
+        draw.line([(0, y), (W, y)], fill=(r, g, b, 255))
+
+    cfg = ACTION_CONFIG[action_type]
+    emoji_text = cfg["emoji"]
+    action_label = f"{cfg['verb_cn']} {cfg['verb_en']}"
+    full_text = f"{user1} {action_label} {user2}"
+
+    # 字体
+    font_emoji = _find_font(52)
+    font_text = _find_font(26)
+
+    def _draw_text_centered(text, y, font, fill=(255, 255, 255, 255)):
+        """居中绘制文本，返回底部 y 坐标。"""
+        bbox = draw.textbbox((0, 0), text, font=font)
+        tw = bbox[2] - bbox[0]
+        th = bbox[3] - bbox[1]
+        x = (W - tw) // 2
+        # 轻微阴影
+        draw.text((x + 2, y + 2), text, font=font, fill=(0, 0, 0, 60))
+        draw.text((x, y), text, font=font, fill=fill)
+        return y + th
+
+    # 绘制 emoji（顶部居中）
+    _draw_text_centered(emoji_text, 18, font_emoji)
+
+    # 绘制文字（底部居中）
+    _draw_text_centered(full_text, 120, font_text)
+
+    # 保存到 BytesIO
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+
+    return discord.File(buf, filename=f"{action_type}.png")
 
 
 class ActionsCog(CogBase):
@@ -135,24 +160,17 @@ class ActionsCog(CogBase):
         conn.commit()
         conn.close()
 
-        # 生成图片
-        img_path = _generate_action_image(cfg["emoji"], cfg["verb_cn"], user1_name, user2_name)
+        # 生成图片 (discord.File)
+        file = _generate_action_image(action_name, user1_name, user2_name)
 
         embed = discord.Embed(
             title=title,
-            color=discord.Color.from_rgb(*cfg["color"]),
+            color=0x9B59B6,
         )
-        embed.set_image(url=f"attachment://{os.path.basename(img_path)}")
-        embed.set_footer(text=f"+5 💰 送给了 {user2_name}")
+        embed.set_image(url=f"attachment://{action_name}.png")
+        embed.set_footer(text=f"+5 💰 送给了 {user2_name} | +5 💰 sent to {user2_name}")
 
-        file = discord.File(img_path, filename=os.path.basename(img_path))
         await interaction.response.send_message(embed=embed, file=file)
-
-        # 清理临时图片
-        try:
-            os.remove(img_path)
-        except Exception:
-            pass
 
     # ── 命令定义 ──
 
