@@ -406,6 +406,13 @@ async def on_ready():
     dep_status.append("✅ 字体 OK" if font_ok else "❌ 字体缺失 → 图片文字可能乱码")
     print(" | ".join(dep_status))
 
+    # 字体缺失 → 关闭图片模式，所有图片功能走纯文字
+    global IMAGE_MODE
+    if not font_ok:
+        IMAGE_MODE = False
+        print("🔴 字体缺失 → 所有图片功能使用纯文字模式")
+    bot.IMAGE_MODE = IMAGE_MODE
+
     init_db()
     # Periodic database maintenance
     try:

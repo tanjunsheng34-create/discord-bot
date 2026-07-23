@@ -321,6 +321,30 @@ class Meme(commands.Cog):
         top_text: str = "",
         bottom_text: str = "",
     ):
+        # 全局图片模式关闭 → 直接发文字 embed，跳过所有图片生成
+        if not getattr(self.bot, "IMAGE_MODE", True):
+            if template not in TEMPLATE_DEFS:
+                return await interaction.response.send_message(
+                    f"未知模板 / Unknown template. 可用: {', '.join(TEMPLATE_LIST)}",
+                    ephemeral=True,
+                )
+            if not top_text and not bottom_text:
+                return await interaction.response.send_message(
+                    "请至少提供 top_text 或 bottom_text / Please provide at least one text.",
+                    ephemeral=True,
+                )
+            tpl = TEMPLATE_DEFS[template]
+            embed = discord.Embed(
+                title=f"📸 Meme — {tpl['label']}",
+                description=(
+                    f">>> **{top_text.upper() if top_text else '...'}**\n\n"
+                    f">>> **{bottom_text.upper() if bottom_text else '...'}**"
+                ),
+                color=discord.Color.from_rgb(*tpl["bg_color"]),
+            )
+            embed.set_footer(text="文字模式 | 安装字体后可开启图片模式")
+            return await interaction.response.send_message(embed=embed)
+
         if not PIL_AVAILABLE:
             return await interaction.response.send_message(
                 "Pillow 未安装，无法生成 Meme / Pillow not installed.", ephemeral=True

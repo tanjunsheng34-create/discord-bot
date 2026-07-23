@@ -157,8 +157,17 @@ class ActionsCog(CogBase):
         conn.commit()
         conn.close()
 
-        # 生成图片 (discord.File) — 失败则文字兜底
+        # 生成图片 (discord.File) — 全局图片模式关闭则直接文字兜底
         cfg = ACTION_CONFIG[action_name]
+        if not getattr(self.bot, "IMAGE_MODE", True):
+            embed = discord.Embed(
+                title=f"{user1_name} {cfg['verb_cn']} {user2_name}！",
+                description=f"# {cfg['emoji']}  {cfg['verb_en']}\n{user1_name} {cfg['verb_cn']} {user2_name}",
+                color=cfg["color"],
+            )
+            embed.set_footer(text=f"+5 💰 送给了 {user2_name} | +5 💰 sent to {user2_name} | 文字模式")
+            return await interaction.response.send_message(embed=embed)
+
         try:
             file = _generate_action_image(action_name, user1_name, user2_name)
             embed = discord.Embed(
