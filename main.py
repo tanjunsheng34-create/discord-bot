@@ -420,7 +420,7 @@ async def on_message(message):
         last = _msg_xp_cooldowns.get(uid, 0)
         if now - last >= 60:
             _msg_xp_cooldowns[uid] = now
-            conn = sqlite3.connect(DB_PATH)
+            conn = get_db()
             cur = conn.cursor()
             cur.execute(
                 "INSERT INTO users (discord_id, username) VALUES (?, ?) ON CONFLICT(discord_id) DO NOTHING",

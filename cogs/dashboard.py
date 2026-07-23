@@ -113,6 +113,8 @@ class CreateMatchModal(discord.ui.Modal, title="创建比赛 / Create Match"):
                 )
             except Exception as e:
                 print(f"[Dashboard] _create_match(blind) error: {e}")
+
+class CreateRoleMatchModal(discord.ui.Modal, title="创建选路比赛 / Create Role Match"):
     """选路比赛:创建时 role_pick=1,报名时需选 Top/JG/Mid/ADC/Support。"""
     match_name = discord.ui.TextInput(
         label="比赛名称 / Match Name",
@@ -6772,7 +6774,9 @@ class DashboardView(discord.ui.View):
 
             if not events:
                 return await sel_int.response.send_message(
-                    "该比赛暂无回放数据 / No replay data for this match.", ephemeral=True
+                    "📹 **回放 Replay** — 该比赛尚未上传回放数据 / No replay data uploaded yet.\n"
+                    "请在比赛结束后使用 `/gmpt-tournament replay upload` 上传回放链接。",
+                    ephemeral=True,
                 )
 
             # 分页：每页 10 条

@@ -2095,16 +2095,22 @@ class Tournament(CogBase):
     # =====================================================================
     @tournament.command(
         name="captain",
-        description="Captain Draft: random or manual captains / 队长选秀（可随机或指定）",
+        description="Captain Draft: random or manual captains / 队长选秀（自动随机或手动指定）",
     )
     @app_commands.describe(
         tournament_id="Tournament ID / 赛事ID",
-        captain_a="Team A captain (optional, 随机抽取如果不传) / A队队长（可选）",
-        captain_b="Team B captain (optional, 随机抽取如果不传) / B队队长（可选）",
+        mode="自动随机 / 手动指定 (auto/manual) / Auto or manual captain selection",
+        captain_a="Team A captain (仅自动模式 / auto mode only)",
+        captain_b="Team B captain (仅自动模式 / auto mode only)",
     )
+    @app_commands.choices(mode=[
+        app_commands.Choice(name="自动", value="auto"),
+        app_commands.Choice(name="手动", value="manual"),
+    ])
     async def captain_draft_cmd(
         self, interaction: discord.Interaction,
         tournament_id: int,
+        mode: str = "auto",
         captain_a: discord.Member = None,
         captain_b: discord.Member = None,
     ):
@@ -2156,6 +2162,136 @@ class Tournament(CogBase):
                 except Exception:
                     pass
 
+        # ── Inner function: start draft flow after captains determined ──
+        async def start_draft_flow(cap_a_info, cap_b_info, is_random):
+            captains_info = [
+                {
+                    "captain_id": cap_a_info["discord_id"],
+                    "team_name": f"Team {cap_a_info['display_name']}",
+                    "pick_order": 1,
+                    "tier_score": cap_a_info["score"],
+                },
+                {
+                    "captain_id": cap_b_info["discord_id"],
+                    "team_name": f"Team {cap_b_info['display_name']}",
+                    "pick_order": 2,
+                    "tier_score": cap_b_info["score"],
+                },
+            ]
+
+            conn2 = get_db(); cur2 = conn2.cursor()
+            cur2.execute(
+                "INSERT INTO draft_sessions (tournament_id, status, created_by) VALUES (?, 'active', ?)",
+                (tournament_id, str(interaction.user.id)),
+            )
+            draft_id = cur2.lastrowid
+            for cap in captains_info:
+                cur2.execute(
+                    "INSERT INTO draft_captains (draft_id, captain_id, team_name, pick_order, tier_score) VALUES (?,?,?,?,?)",
+                    (draft_id, cap["captain_id"], cap["team_name"], cap["pick_order"], cap["tier_score"]),
+                )
+            conn2.commit(); conn2.close()
+
+            captain_ids = {c["captain_id"] for c in captains_info}
+            draft_pool = [
+                (p["discord_id"], p["score"], p["display_name"], p["tier"])
+                for p in all_players if p["discord_id"] not in captain_ids
+            ]
+
+            async def do_start_draft(final_captains):
+                conn3 = get_db(); cur3 = conn3.cursor()
+                for c in final_captains:
+                    cur3.execute(
+                        "UPDATE draft_captains SET pick_order=? WHERE draft_id=? AND captain_id=?",
+                        (c["pick_order"], draft_id, c["captain_id"]),
+                    )
+                conn3.commit(); conn3.close()
+                view = DraftView(draft_id, final_captains, draft_pool, interaction.guild)
+                embed = view.build_embed()
+                embed.description = (
+                    f"队长选秀已开始！\n"
+                    f"轮到: **{_display_name(interaction.guild, view.current_captain['captain_id'])}**\n\n"
+                    f"使用下拉菜单选人 → 点击确认按钮\n"
+                    f"Use dropdown to pick → click Confirm"
+                )
+                view._msg_ref = await interaction.edit_original_response(embed=embed, view=view)
+
+            cap_a_name = cap_a_info["display_name"]
+            cap_b_name = cap_b_info["display_name"]
+            if is_random:
+                announce_text = f"🎲 随机选出队长！\n**Team A:** {cap_a_name} | **Team B:** {cap_b_name}"
+            else:
+                announce_text = f"队长已指定！\n**Team A:** {cap_a_name} | **Team B:** {cap_b_name}"
+
+            announce_embed = discord.Embed(
+                title="Captain Draft / 队长选秀",
+                description=announce_text,
+                color=discord.Color.green() if is_random else discord.Color.blurple(),
+            )
+            coinflip = CaptainCoinflipView(captains_info, interaction.guild, do_start_draft)
+            await interaction.edit_original_response(embed=announce_embed, view=coinflip)
+
+        # ── Manual Mode: two-step Select ──
+        if mode == "manual":
+            # Step 1: Select Team A Captain
+            cap_a_options = []
+            for p in all_players:
+                cap_a_options.append(discord.SelectOption(
+                    label=p["display_name"][:100],
+                    value=p["discord_id"],
+                    description=f"Tier: {p['tier']}",
+                ))
+
+            cap_a_select = discord.ui.Select(
+                placeholder="👑 选择 A 队队长 / Select Team A Captain...",
+                options=cap_a_options[:25],
+                max_values=1,
+            )
+
+            async def cap_a_callback(sel_int: discord.Interaction):
+                cap_a_id = sel_int.data["values"][0]
+                cap_a_info = next(p for p in all_players if p["discord_id"] == cap_a_id)
+
+                # Step 2: Select Team B Captain (exclude A)
+                cap_b_options = []
+                for p in all_players:
+                    if p["discord_id"] == cap_a_id:
+                        continue
+                    cap_b_options.append(discord.SelectOption(
+                        label=p["display_name"][:100],
+                        value=p["discord_id"],
+                        description=f"Tier: {p['tier']}",
+                    ))
+
+                cap_b_select = discord.ui.Select(
+                    placeholder="👑 选择 B 队队长 / Select Team B Captain...",
+                    options=cap_b_options[:25],
+                    max_values=1,
+                )
+
+                async def cap_b_callback(inner_int: discord.Interaction):
+                    cap_b_id = inner_int.data["values"][0]
+                    cap_b_info = next(p for p in all_players if p["discord_id"] == cap_b_id)
+                    await start_draft_flow(cap_a_info, cap_b_info, is_random=False)
+
+                cap_b_select.callback = cap_b_callback
+                cap_b_view = discord.ui.View(timeout=120)
+                cap_b_view.add_item(cap_b_select)
+                await sel_int.response.edit_message(
+                    content="👑 **选择 B 队队长 / Select Team B Captain**:",
+                    view=cap_b_view,
+                )
+
+            cap_a_select.callback = cap_a_callback
+            cap_a_view = discord.ui.View(timeout=120)
+            cap_a_view.add_item(cap_a_select)
+            await interaction.edit_original_response(
+                content="👑 **选择 A 队队长 / Select Team A Captain**:",
+                view=cap_a_view,
+            )
+            return
+
+        # ── Auto Mode ──
         # Determine captains
         selected_ids = set()
         if captain_a:
@@ -2175,100 +2311,24 @@ class Tournament(CogBase):
         random.shuffle(remaining)
 
         if captain_a is None and captain_b is None:
-            # Both random
             chosen = remaining[:2]
             captain_a_info = chosen[0]
             captain_b_info = chosen[1]
             is_random = True
         elif captain_a is None:
-            # captain_b specified, random captain_a
             captain_b_info = next(p for p in all_players if p["discord_id"] == str(captain_b.id))
             captain_a_info = remaining[0]
             is_random = True
         elif captain_b is None:
-            # captain_a specified, random captain_b
             captain_a_info = next(p for p in all_players if p["discord_id"] == str(captain_a.id))
             captain_b_info = remaining[0]
             is_random = True
         else:
-            # Both specified
             captain_a_info = next(p for p in all_players if p["discord_id"] == str(captain_a.id))
             captain_b_info = next(p for p in all_players if p["discord_id"] == str(captain_b.id))
             is_random = False
 
-        # Build captains_info for coinflip + draft
-        captains_info = [
-            {
-                "captain_id": captain_a_info["discord_id"],
-                "team_name": f"Team {captain_a_info['display_name']}",
-                "pick_order": 1,
-                "tier_score": captain_a_info["score"],
-            },
-            {
-                "captain_id": captain_b_info["discord_id"],
-                "team_name": f"Team {captain_b_info['display_name']}",
-                "pick_order": 2,
-                "tier_score": captain_b_info["score"],
-            },
-        ]
-
-        # Insert draft session
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO draft_sessions (tournament_id, status, created_by) VALUES (?, 'active', ?)",
-            (tournament_id, str(interaction.user.id)),
-        )
-        draft_id = cur.lastrowid
-
-        for cap in captains_info:
-            cur.execute(
-                "INSERT INTO draft_captains (draft_id, captain_id, team_name, pick_order, tier_score) VALUES (?,?,?,?,?)",
-                (draft_id, cap["captain_id"], cap["team_name"], cap["pick_order"], cap["tier_score"]),
-            )
-        conn.commit(); conn.close()
-
-        # Build draft pool (all players except captains)
-        captain_ids = {c["captain_id"] for c in captains_info}
-        draft_pool = [
-            (p["discord_id"], p["score"], p["display_name"], p["tier"])
-            for p in all_players if p["discord_id"] not in captain_ids
-        ]
-
-        # Coinflip callback
-        async def do_start_draft(final_captains):
-            conn2 = get_db(); cur2 = conn2.cursor()
-            for c in final_captains:
-                cur2.execute(
-                    "UPDATE draft_captains SET pick_order=? WHERE draft_id=? AND captain_id=?",
-                    (c["pick_order"], draft_id, c["captain_id"]),
-                )
-            conn2.commit(); conn2.close()
-
-            view = DraftView(draft_id, final_captains, draft_pool, interaction.guild)
-            embed = view.build_embed()
-            embed.description = (
-                f"队长选秀已开始！\n"
-                f"轮到: **{_display_name(interaction.guild, view.current_captain['captain_id'])}**\n\n"
-                f"使用下拉菜单选人 → 点击确认按钮\n"
-                f"Use dropdown to pick → click Confirm"
-            )
-            view._msg_ref = await interaction.edit_original_response(embed=embed, view=view)
-
-        # Show announcement embed + coinflip
-        cap_a_name = captain_a_info["display_name"]
-        cap_b_name = captain_b_info["display_name"]
-        if is_random:
-            announce_text = f"🎲 随机选出队长！\n**Team A:** {cap_a_name} | **Team B:** {cap_b_name}"
-        else:
-            announce_text = f"队长已指定！\n**Team A:** {cap_a_name} | **Team B:** {cap_b_name}"
-
-        announce_embed = discord.Embed(
-            title="Captain Draft / 队长选秀",
-            description=announce_text,
-            color=discord.Color.green() if is_random else discord.Color.blurple(),
-        )
-        coinflip = CaptainCoinflipView(captains_info, interaction.guild, do_start_draft)
-        await interaction.followup.send(embed=announce_embed, view=coinflip)
+        await start_draft_flow(captain_a_info, captain_b_info, is_random)
 
     # =====================================================================
     # draft-status
