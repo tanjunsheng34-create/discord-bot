@@ -432,19 +432,19 @@ async def on_ready():
     except Exception as e:
         logger.error(f"Sync error: {e}")
 
-    # 启动自检：向 welcome 频道发一条上线消息，验证频道存在 + 发消息权限
+    # 启动自检：向欢迎频道发一条上线消息，验证频道存在 + 发消息权限
     try:
         for guild in bot.guilds:
-            ch = discord.utils.get(guild.text_channels, name="welcome")
+            ch = guild.get_channel(1398991787523313675)
             if ch and ch.permissions_for(guild.me).send_messages:
                 await ch.send("✅ Bot v3.5 已上线 | Online")
-                print(f"[on_ready] welcome 频道自检 OK: {guild.name} / {ch.name}")
+                print(f"[on_ready] 欢迎频道自检 OK: {guild.name} / {ch.name}")
             elif ch:
-                print(f"[on_ready] welcome 频道无发消息权限: {guild.name} / {ch.name}")
+                print(f"[on_ready] 欢迎频道无发消息权限: {guild.name} / {ch.name}")
             else:
-                print(f"[on_ready] 未找到 welcome 频道: {guild.name}")
+                print(f"[on_ready] 未找到频道 1398991787523313675: {guild.name}")
     except Exception as e:
-        print(f"[on_ready] welcome 自检异常: {e}")
+        print(f"[on_ready] 欢迎频道自检异常: {e}")
 
 
 # =============================================================================
@@ -457,45 +457,37 @@ async def on_member_join(member: discord.Member):
         return
 
     try:
-        file = discord.File("assets/welcome_bg.png", filename="welcome.png")
-
         embed = discord.Embed(
             title="👋 Welcome to Gaming Planet! 🪐",
-            color=0x9B59B6,
+            description=f"{member.mention} 加入了我们！",
+            color=0xA385FF,
             timestamp=datetime.datetime.now(),
         )
 
-        embed.set_author(
-            name=f"{member.name} 加入了我们！| just joined!",
-            icon_url=member.display_avatar.url,
-        )
-
-        embed.description = (
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "**🚀 🔥 ✨ What to expect here:**\n"
+        embed.description += (
+            "\n━━━━━━━━━━━━━━━━\n"
+            "🚀 🔥 ✨ **What to expect here:**\n"
             "🎮 Active members • Weekly custom matches\n"
             "🏆 Monthly tournament & giveaways\n"
             "🎙️ Voice chat & live streams\n"
             "🌸 Friendly owner & admins\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "━━━━━━━━━━━━━━━━\n\n"
             "📖 **快速上手 | Quick Start**\n"
-            "💬 `/gmpt-help` — 查看所有功能 | See all features\n"
-            "🎮 `/gmpt-dashboard` — 控制面板 | Control Panel\n\n"
+            "💬 `/gmpt-help`\n"
+            "🎮 `/gmpt-dashboard`\n\n"
             "👥 **找队友 | Find Teammates**\n"
-            "🔍 `/gmpt-queue` — 寻找队伍 | Looking for group\n"
-            "🤝 直接 @ 在线玩家组队 | Ping players to team up\n\n"
+            "🔍 `/gmpt-queue`\n"
+            "🤝 直接 @ 在线玩家组队\n\n"
             "📚 **教学 | Guides**\n"
-            "🧠 `/gmpt-trivia` — LOL 知识问答 | Quiz\n"
-            "🕵️ `/gmpt-guess-champion` — 猜英雄 | Guess champion\n\n"
-            "💜 **G.M.P.T Gaming Planet** — Have fun!"
+            "🧠 `/gmpt-trivia`\n"
+            "🕵️ `/gmpt-guess-champion`"
         )
 
         embed.set_image(url="attachment://welcome.png")
         embed.set_thumbnail(url=member.display_avatar.url)
-        embed.set_footer(
-            text="G.M.P.T Gaming Planet | Made with 💜",
-            icon_url=member.guild.icon.url if member.guild.icon else None,
-        )
+        embed.set_footer(text=f"G.M.P.T Gaming Planet | {member.guild.name}")
+
+        file = discord.File("assets/welcome_bg.png", filename="welcome.png")
 
         welcome_channel = member.guild.get_channel(1398991787523313675)
         print(f"[on_member_join] welcome_channel={welcome_channel}")

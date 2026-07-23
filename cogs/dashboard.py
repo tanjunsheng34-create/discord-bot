@@ -7327,44 +7327,37 @@ class Dashboard(CogBase):
     async def gmpt_test_welcome(self, interaction: discord.Interaction):
         welcome_channel = interaction.guild.get_channel(1398991787523313675)
         if not welcome_channel:
-            await interaction.response.send_message("未找到 welcome 频道（按名称匹配）", ephemeral=True)
+            await interaction.response.send_message("未找到频道 1398991787523313675", ephemeral=True)
             return
 
         embed = discord.Embed(
             title="👋 Welcome to Gaming Planet! 🪐",
-            color=0x9B59B6,
+            description=f"{interaction.user.mention} 加入了我们！",
+            color=0xA385FF,
             timestamp=datetime.datetime.now(),
         )
-        embed.set_author(
-            name=f"{interaction.user.name} 加入了我们！| just joined!",
-            icon_url=interaction.user.display_avatar.url,
-        )
-        embed.description = (
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "**🚀 🔥 ✨ What to expect here:**\n"
+        embed.description += (
+            "\n━━━━━━━━━━━━━━━━\n"
+            "🚀 🔥 ✨ **What to expect here:**\n"
             "🎮 Active members • Weekly custom matches\n"
             "🏆 Monthly tournament & giveaways\n"
             "🎙️ Voice chat & live streams\n"
             "🌸 Friendly owner & admins\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "━━━━━━━━━━━━━━━━\n\n"
             "📖 **快速上手 | Quick Start**\n"
-            "💬 `/gmpt-help` — 查看所有功能 | See all features\n"
-            "🎮 `/gmpt-dashboard` — 控制面板 | Control Panel\n\n"
+            "💬 `/gmpt-help`\n"
+            "🎮 `/gmpt-dashboard`\n\n"
             "👥 **找队友 | Find Teammates**\n"
-            "🔍 `/gmpt-queue` — 寻找队伍 | Looking for group\n"
-            "🤝 直接 @ 在线玩家组队 | Ping players to team up\n\n"
+            "🔍 `/gmpt-queue`\n"
+            "🤝 直接 @ 在线玩家组队\n\n"
             "📚 **教学 | Guides**\n"
-            "🧠 `/gmpt-trivia` — LOL 知识问答 | Quiz\n"
-            "🕵️ `/gmpt-guess-champion` — 猜英雄 | Guess champion\n\n"
-            "💜 **G.M.P.T Gaming Planet** — Have fun!"
+            "🧠 `/gmpt-trivia`\n"
+            "🕵️ `/gmpt-guess-champion`"
         )
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
-        embed.set_footer(
-            text="G.M.P.T Gaming Planet | Made with 💜",
-            icon_url=interaction.guild.icon.url if interaction.guild.icon else None,
-        )
+        embed.set_footer(text=f"G.M.P.T Gaming Planet | {interaction.guild.name}")
         await welcome_channel.send(embed=embed)
-        await interaction.response.send_message("已发送欢迎预览到 welcome 频道", ephemeral=True)
+        await interaction.response.send_message("已发送欢迎预览", ephemeral=True)
 
     @app_commands.command(
         name="setup-economy-info",
