@@ -23,6 +23,8 @@ from cogs.tournament import (
     ReportView,
     DraftSetupView,
     DraftView,
+    CaptainCoinflipView,
+    CaptainModeView,
     swiss_pairing,
     _display_name,
 )
@@ -5185,7 +5187,7 @@ class DashboardView(discord.ui.View):
             mid = int(sel_int.data["values"][0])
             conn2 = get_db(); cur2 = conn2.cursor()
             cur2.execute(
-                "SELECT r.discord_id, u.username FROM registrations r "
+                "SELECT r.discord_id, r.tier, u.username FROM registrations r "
                 "LEFT JOIN users u ON u.discord_id=r.discord_id WHERE r.tournament_id=?",
                 (mid,),
             )
@@ -5195,45 +5197,110 @@ class DashboardView(discord.ui.View):
             if len(players) < 2:
                 return await sel_int.response.send_message("需要至少2名玩家 / Need at least 2 players.", ephemeral=True)
 
-            cap_options = []
+            # Build all_players in the same format as tournament.py
+            all_players = []
             for p in players:
-                name = p["username"] or p["discord_id"]
-                cap_options.append(discord.SelectOption(label=name[:100], value=p["discord_id"]))
+                tier_key = p["tier"].upper() if p["tier"] else "UNRANKED"
+                score = TIER_SCORE.get(tier_key, 1)
+                all_players.append({
+                    "discord_id": p["discord_id"],
+                    "display_name": _display_name(self.guild, p["discord_id"]),
+                    "tier": tier_key,
+                    "score": score,
+                })
 
-            cap_select = discord.ui.Select(
-                placeholder="选择副队长 (Captain 2) / Select Captain 2...",
-                options=cap_options[:25],
-                max_values=1,
-            )
+            # Try to fetch Riot tiers for better accuracy
+            if self.session:
+                for i, p in enumerate(all_players):
+                    try:
+                        tier_display, tier_key, tier_score = await fetch_player_tier(
+                            self.session, p["discord_id"]
+                        )
+                        if tier_key and tier_key != "UNRANKED":
+                            all_players[i]["tier"] = tier_key.upper()
+                            all_players[i]["score"] = tier_score
+                    except Exception:
+                        pass
 
-            async def final_captain_cb(inner_int: discord.Interaction):
-                cap2_id = inner_int.data["values"][0]
-                caplist = [str(sel_int.user.id), cap2_id]
+            async def start_draft_callback(cap_a_info, cap_b_info, is_random):
+                captains_info = [
+                    {
+                        "captain_id": cap_a_info["discord_id"],
+                        "team_name": f"Team {cap_a_info['display_name']}",
+                        "pick_order": 1,
+                        "tier_score": cap_a_info["score"],
+                    },
+                    {
+                        "captain_id": cap_b_info["discord_id"],
+                        "team_name": f"Team {cap_b_info['display_name']}",
+                        "pick_order": 2,
+                        "tier_score": cap_b_info["score"],
+                    },
+                ]
 
-                a_mentions = []
-                b_mentions = []
-                for i, uid in enumerate(caplist):
-                    m = self.guild.get_member(int(uid)) if uid.isdigit() else None
-                    if i == 0:
-                        a_mentions.append(m.mention if m else f"<@{uid}> (先手)")
-                    else:
-                        b_mentions.append(m.mention if m else f"<@{uid}> (后手)")
-
-                embed = discord.Embed(
-                    title="👑 选出队长 / Captains Picked!",
-                    description=(
-                        f"🔵 **A 队 Team A**: {a_mentions[0] if a_mentions else 'N/A'}\n"
-                        f"🔴 **B 队 Team B**: {b_mentions[0] if b_mentions else 'N/A'}\n\n"
-                        f"现在可以使用 `/gmpt-vote` 开始投票观战!"
-                    ),
-                    color=discord.Color.gold(),
+                conn3 = get_db(); cur3 = conn3.cursor()
+                cur3.execute(
+                    "INSERT INTO draft_sessions (tournament_id, status, created_by) VALUES (?, 'active', ?)",
+                    (mid, str(sel_int.user.id)),
                 )
-                await inner_int.response.send_message(embed=embed, ephemeral=False)
+                draft_id = cur3.lastrowid
+                for cap in captains_info:
+                    cur3.execute(
+                        "INSERT INTO draft_captains (draft_id, captain_id, team_name, pick_order, tier_score) VALUES (?,?,?,?,?)",
+                        (draft_id, cap["captain_id"], cap["team_name"], cap["pick_order"], cap["tier_score"]),
+                    )
+                conn3.commit(); conn3.close()
 
-            cap_select.callback = final_captain_cb
-            cap_view = discord.ui.View(timeout=60)
-            cap_view.add_item(cap_select)
-            await sel_int.response.send_message("选择副队长 (B队) / Select Co-Captain (Team B):", view=cap_view, ephemeral=True)
+                captain_ids = {c["captain_id"] for c in captains_info}
+                draft_pool = [
+                    (p["discord_id"], p["score"], p["display_name"], p["tier"])
+                    for p in all_players if p["discord_id"] not in captain_ids
+                ]
+
+                async def do_start_draft(final_captains):
+                    conn4 = get_db(); cur4 = conn4.cursor()
+                    for c in final_captains:
+                        cur4.execute(
+                            "UPDATE draft_captains SET pick_order=? WHERE draft_id=? AND captain_id=?",
+                            (c["pick_order"], draft_id, c["captain_id"]),
+                        )
+                    conn4.commit(); conn4.close()
+                    view = DraftView(draft_id, final_captains, draft_pool, self.guild)
+                    embed = view.build_embed()
+                    embed.description = (
+                        f"队长选秀已开始！\n"
+                        f"轮到: **{_display_name(self.guild, view.current_captain['captain_id'])}**\n\n"
+                        f"使用下拉菜单选人 → 点击确认按钮\n"
+                        f"Use dropdown to pick → click Confirm"
+                    )
+                    view._msg_ref = await sel_int.edit_original_response(embed=embed, view=view)
+
+                cap_a_name = cap_a_info["display_name"]
+                cap_b_name = cap_b_info["display_name"]
+                if is_random:
+                    announce_text = f"🎲 随机选出队长！\n**Team A:** {cap_a_name} | **Team B:** {cap_b_name}"
+                else:
+                    announce_text = f"队长已指定！\n**Team A:** {cap_a_name} | **Team B:** {cap_b_name}"
+
+                announce_embed = discord.Embed(
+                    title="Captain Draft / 队长选秀",
+                    description=announce_text,
+                    color=discord.Color.green() if is_random else discord.Color.blurple(),
+                )
+                coinflip = CaptainCoinflipView(captains_info, self.guild, do_start_draft)
+                await sel_int.edit_original_response(embed=announce_embed, view=coinflip)
+
+            mode_view = CaptainModeView(
+                all_players=all_players,
+                tournament_id=mid,
+                interaction=sel_int,
+                guild=self.guild,
+                start_draft_callback=start_draft_callback,
+            )
+            await sel_int.response.edit_message(
+                content="👑 **队长选择 Captain Selection**\n🔀 自动随机 / 👤 手动指定",
+                view=mode_view,
+            )
 
         select.callback = captain_select_callback
         view = discord.ui.View(timeout=60)

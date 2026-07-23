@@ -1462,6 +1462,95 @@ class DraftSetupView(discord.ui.View):
 
 
 # =============================================================================
+# CaptainModeView — 统一入口：模式选择（自动/手动）
+# =============================================================================
+class CaptainModeView(discord.ui.View):
+    """Shared entry point: auto-random or manual-select captain mode.
+    Used by both tournament.py /gmpt-tournament captain and dashboard.py Pick Captain button."""
+    def __init__(self, all_players, tournament_id, interaction, guild, start_draft_callback):
+        super().__init__(timeout=120)
+        self.all_players = all_players
+        self.tournament_id = tournament_id
+        self.interaction = interaction
+        self.guild = guild
+        self.start_draft_callback = start_draft_callback
+
+    @discord.ui.button(label="🔀 自动随机 Auto Random", style=discord.ButtonStyle.primary, row=0)
+    async def auto_btn(self, btn_int: discord.Interaction, button: discord.ui.Button):
+        import random as _random
+        chosen = _random.sample(self.all_players, 2)
+        await self.start_draft_callback(chosen[0], chosen[1], is_random=True)
+
+    @discord.ui.button(label="👤 手动指定 Manual Select", style=discord.ButtonStyle.secondary, row=0)
+    async def manual_btn(self, btn_int: discord.Interaction, button: discord.ui.Button):
+        # Step 1: Select Team A Captain
+        cap_a_options = []
+        for p in self.all_players:
+            cap_a_options.append(discord.SelectOption(
+                label=p["display_name"][:100],
+                value=p["discord_id"],
+                description=f"Tier: {p['tier']}",
+            ))
+
+        cap_a_select = discord.ui.Select(
+            placeholder="👑 选择 A 队队长 / Select Team A Captain...",
+            options=cap_a_options[:25],
+            max_values=1,
+        )
+
+        async def cap_a_callback(sel_int: discord.Interaction):
+            cap_a_id = sel_int.data["values"][0]
+            cap_a_info = next(p for p in self.all_players if p["discord_id"] == cap_a_id)
+
+            cap_b_options = []
+            for p in self.all_players:
+                if p["discord_id"] == cap_a_id:
+                    continue
+                cap_b_options.append(discord.SelectOption(
+                    label=p["display_name"][:100],
+                    value=p["discord_id"],
+                    description=f"Tier: {p['tier']}",
+                ))
+
+            cap_b_select = discord.ui.Select(
+                placeholder="👑 选择 B 队队长 / Select Team B Captain...",
+                options=cap_b_options[:25],
+                max_values=1,
+            )
+
+            async def cap_b_callback(inner_int: discord.Interaction):
+                cap_b_id = inner_int.data["values"][0]
+                cap_b_info = next(p for p in self.all_players if p["discord_id"] == cap_b_id)
+
+                confirm_embed = discord.Embed(
+                    title="✅ 队长已选定 / Captains Selected",
+                    description=(
+                        f"🔵 **A 队 Team A**: {cap_a_info['display_name']}\n"
+                        f"🔴 **B 队 Team B**: {cap_b_info['display_name']}"
+                    ),
+                    color=discord.Color.blurple(),
+                )
+                await inner_int.response.edit_message(embed=confirm_embed, view=None)
+                await self.start_draft_callback(cap_a_info, cap_b_info, is_random=False)
+
+            cap_b_select.callback = cap_b_callback
+            cap_b_view = discord.ui.View(timeout=120)
+            cap_b_view.add_item(cap_b_select)
+            await sel_int.response.edit_message(
+                content="👑 **选择 B 队队长 / Select Team B Captain**:",
+                view=cap_b_view,
+            )
+
+        cap_a_select.callback = cap_a_callback
+        cap_a_view = discord.ui.View(timeout=120)
+        cap_a_view.add_item(cap_a_select)
+        await btn_int.response.edit_message(
+            content="👑 **选择 A 队队长 / Select Team A Captain**:",
+            view=cap_a_view,
+        )
+
+
+# =============================================================================
 # Tournament Cog
 # =============================================================================
 
@@ -2091,28 +2180,18 @@ class Tournament(CogBase):
         await interaction.followup.send(embed=embed, view=view)
 
     # =====================================================================
-    # captain — 随机/手动选队长 + 抛硬币 + 蛇形选人
+    # captain — 队长选秀（统一入口：模式选择 View）
     # =====================================================================
     @tournament.command(
         name="captain",
-        description="Captain Draft: random or manual captains / 队长选秀（自动随机或手动指定）",
+        description="Captain Draft: 自动随机或手动指定队长 / auto or manual captain selection",
     )
     @app_commands.describe(
         tournament_id="Tournament ID / 赛事ID",
-        mode="自动随机 / 手动指定 (auto/manual) / Auto or manual captain selection",
-        captain_a="Team A captain (仅自动模式 / auto mode only)",
-        captain_b="Team B captain (仅自动模式 / auto mode only)",
     )
-    @app_commands.choices(mode=[
-        app_commands.Choice(name="自动", value="auto"),
-        app_commands.Choice(name="手动", value="manual"),
-    ])
     async def captain_draft_cmd(
         self, interaction: discord.Interaction,
         tournament_id: int,
-        mode: str = "auto",
-        captain_a: discord.Member = None,
-        captain_b: discord.Member = None,
     ):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("仅管理员可使用此命令。", ephemeral=True)
@@ -2231,104 +2310,20 @@ class Tournament(CogBase):
             coinflip = CaptainCoinflipView(captains_info, interaction.guild, do_start_draft)
             await interaction.edit_original_response(embed=announce_embed, view=coinflip)
 
-        # ── Manual Mode: two-step Select ──
-        if mode == "manual":
-            # Step 1: Select Team A Captain
-            cap_a_options = []
-            for p in all_players:
-                cap_a_options.append(discord.SelectOption(
-                    label=p["display_name"][:100],
-                    value=p["discord_id"],
-                    description=f"Tier: {p['tier']}",
-                ))
-
-            cap_a_select = discord.ui.Select(
-                placeholder="👑 选择 A 队队长 / Select Team A Captain...",
-                options=cap_a_options[:25],
-                max_values=1,
-            )
-
-            async def cap_a_callback(sel_int: discord.Interaction):
-                cap_a_id = sel_int.data["values"][0]
-                cap_a_info = next(p for p in all_players if p["discord_id"] == cap_a_id)
-
-                # Step 2: Select Team B Captain (exclude A)
-                cap_b_options = []
-                for p in all_players:
-                    if p["discord_id"] == cap_a_id:
-                        continue
-                    cap_b_options.append(discord.SelectOption(
-                        label=p["display_name"][:100],
-                        value=p["discord_id"],
-                        description=f"Tier: {p['tier']}",
-                    ))
-
-                cap_b_select = discord.ui.Select(
-                    placeholder="👑 选择 B 队队长 / Select Team B Captain...",
-                    options=cap_b_options[:25],
-                    max_values=1,
-                )
-
-                async def cap_b_callback(inner_int: discord.Interaction):
-                    cap_b_id = inner_int.data["values"][0]
-                    cap_b_info = next(p for p in all_players if p["discord_id"] == cap_b_id)
-                    await start_draft_flow(cap_a_info, cap_b_info, is_random=False)
-
-                cap_b_select.callback = cap_b_callback
-                cap_b_view = discord.ui.View(timeout=120)
-                cap_b_view.add_item(cap_b_select)
-                await sel_int.response.edit_message(
-                    content="👑 **选择 B 队队长 / Select Team B Captain**:",
-                    view=cap_b_view,
-                )
-
-            cap_a_select.callback = cap_a_callback
-            cap_a_view = discord.ui.View(timeout=120)
-            cap_a_view.add_item(cap_a_select)
-            await interaction.edit_original_response(
-                content="👑 **选择 A 队队长 / Select Team A Captain**:",
-                view=cap_a_view,
-            )
-            return
-
-        # ── Auto Mode ──
-        # Determine captains
-        selected_ids = set()
-        if captain_a:
-            selected_ids.add(str(captain_a.id))
-        if captain_b:
-            selected_ids.add(str(captain_b.id))
-
-        # Validate specified captains are registered
-        for cap_id in selected_ids:
-            if not any(p["discord_id"] == cap_id for p in all_players):
-                return await interaction.followup.send(
-                    f"<@{cap_id}> 未报名此锦标赛。"
-                )
-
-        # Fill in random captains from remaining pool
-        remaining = [p for p in all_players if p["discord_id"] not in selected_ids]
-        random.shuffle(remaining)
-
-        if captain_a is None and captain_b is None:
-            chosen = remaining[:2]
-            captain_a_info = chosen[0]
-            captain_b_info = chosen[1]
-            is_random = True
-        elif captain_a is None:
-            captain_b_info = next(p for p in all_players if p["discord_id"] == str(captain_b.id))
-            captain_a_info = remaining[0]
-            is_random = True
-        elif captain_b is None:
-            captain_a_info = next(p for p in all_players if p["discord_id"] == str(captain_a.id))
-            captain_b_info = remaining[0]
-            is_random = True
-        else:
-            captain_a_info = next(p for p in all_players if p["discord_id"] == str(captain_a.id))
-            captain_b_info = next(p for p in all_players if p["discord_id"] == str(captain_b.id))
-            is_random = False
-
-        await start_draft_flow(captain_a_info, captain_b_info, is_random)
+        # Unified mode selection entry point
+        mode_view = CaptainModeView(
+            all_players=all_players,
+            tournament_id=tournament_id,
+            interaction=interaction,
+            guild=interaction.guild,
+            start_draft_callback=start_draft_flow,
+        )
+        mode_embed = discord.Embed(
+            title="👑 队长选择 Captain Selection",
+            description="请选择队长模式 / Choose captain mode:",
+            color=discord.Color.gold(),
+        )
+        await interaction.edit_original_response(embed=mode_embed, view=mode_view)
 
     # =====================================================================
     # draft-status
