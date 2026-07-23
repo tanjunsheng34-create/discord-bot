@@ -4466,13 +4466,13 @@ class DashboardView(discord.ui.View):
     """Unified control panel with 5 pages + navigation buttons."""
 
     PAGE_COLORS = {
-        1: discord.Color.blue(),
-        2: discord.Color.gold(),
-        3: discord.Color.green(),
-        4: discord.Color.teal(),
-        5: discord.Color.orange(),
-        6: discord.Color.purple(),
-        7: discord.Color.dark_purple(),
+        1: 0x3498DB,  # 蓝色
+        2: 0xF1C40F,  # 金色
+        3: 0x2ECC71,  # 绿色
+        4: 0x9B59B6,  # 紫色
+        5: 0xE67E22,  # 橙色
+        6: 0xE74C3C,  # 红色
+        7: 0x95A5A6,  # 灰色
     }
 
     PAGE_TITLES = {
@@ -4697,89 +4697,104 @@ class DashboardView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=self)
 
     def _build_page_embed(self):
-        title = f"🎮 GMPT 控制面板 Control Panel | {self.PAGE_TITLES.get(self.page, '')}"
-        color = self.PAGE_COLORS.get(self.page, discord.Color.blurple())
+        title = f"🎮 GMPT 控制面板 | Control Panel"
+        color = self.PAGE_COLORS.get(self.page, 0x3498DB)
 
-        if self.page == 1:
-            desc = (
-                "⚔️ 比赛系统 Match System\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                "🛠️ 创建比赛 Create Match — 新建内战\n"
-                "📝 报名 Sign Up — 选手加入比赛\n"
-                "🎲 随机分队 Random — 自动分配队伍\n"
-                "🔴🔵 手动分队 Manual — 手动分配AB队\n"
-                "💰 结算 Settle — 计算奖励\n"
-                "🔊 拉入语音 Pull VC — 自动分房\n"
-                "👑 选队长 Captains — 随机或手动选队长"
-            )
-        elif self.page == 2:
-            desc = (
-                "🏆 赛事系统 Tournament System\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                "① 创建赛事 Create → ② 报名 Sign Up → ③ 队长选秀 Draft\n"
-                "④ 上报比分 Report → ⑤ 对阵表 Bracket → ⑥ 排名 Standings\n"
-                "⑦ 记录 History → ⑧ 定时赛事 Scheduled"
-            )
-        elif self.page == 3:
-            desc = (
-                "💰 经济系统 Economy System\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                "💳 余额 Balance — 查询金币\n"
-                "👤 个人档案 Profile — 查看数据\n"
-                "🏪 道具商店 Shop — 购买道具\n"
-                "📊 财务统计 Finance — 收支明细\n"
-                "🏆 成就 Achievements — 徽章展示"
-            )
-        elif self.page == 4:
-            desc = (
-                "👤 玩家系统 Player System\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                "📊 个人资料 Profile — 比赛数据总览\n"
-                "📜 比赛历史 History — 历史战绩回顾\n"
-                "📅 每周挑战 Weekly — 周常任务\n"
-                "💎 MVP排行 MVP LB — 最有价值选手\n"
-                "🎖️ 段位 Ranks — 段位排行\n"
-                "🔥 连胜 Win Streak — 连胜记录"
-            )
-        elif self.page == 5:
-            desc = (
-                "🎮 小游戏 Mini Games\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                "🎰 老虎机 Slots — 试试手气\n"
-                "🪙 猜硬币 Coinflip — 正反下注\n"
-                "🧠 知识问答 Trivia — LOL知识竞赛\n"
-                "🦸 猜英雄 Guess Champ — 猜英雄挑战\n"
-                "🏆 比赛预测 Predict — 竞猜比赛\n"
-                "🖼️ 表情包 Meme — 生成梗图\n"
-                "💕 虚拟动作 Actions — 互动动作"
-            )
-        elif self.page == 6:
-            desc = (
-                "🎮 LoL 系统 League System\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                "🎤 语音排行 Voice LB — 语音频道排行\n"
-                "🔊 排队状态 Queue — 组队排队\n"
-                "👥 全部玩家 All Players — 玩家列表\n"
-                "🏅 MMR排行 MMR LB — MMR排行榜\n"
-                "🎬 比赛回放 Replay — 赛后回顾\n"
-                "🎙️ 赛后拉入 Post-Match VC — 结算后分房"
-            )
-        elif self.page == 7:
-            desc = (
-                "🔧 工具与设置 Tools & Settings\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                "📤 导出数据 Export CSV — 导出比赛数据\n"
-                "🔒 管理面板 Admin — 管理员功能\n"
-                "📢 发送公告 Announce — 全员推送\n"
-                "🔄 赛季重置 Season Reset — 重置赛季\n"
-                "🎙️ 赛后拉入 Post-Match VC — 赛后语音分房"
-            )
-
-        return discord.Embed(
+        embed = discord.Embed(
             title=title,
-            description=desc,
             color=color,
-        ).set_footer(text=f"GMPT Dashboard v3.3 | Page {self.page}/7")
+        )
+
+        page_field_map = {
+            1: (
+                "⚔️ 比赛 | Match",
+                (
+                    "━━━━━━━━━━━━━━━━━━━━\n"
+                    "🛠️ **创建比赛** Create Match — 新建内战\n"
+                    "📝 **报名** Sign Up — 选手加入比赛\n"
+                    "🎲 **随机分队** Random — 自动分配队伍\n"
+                    "🔴🔵 **手动分队** Manual — 手动分配AB队\n"
+                    "💰 **结算** Settle — 计算奖励\n"
+                    "🔊 **拉入语音** Pull VC — 自动分房\n"
+                    "👑 **选队长** Captains — 随机或手动选队长"
+                ),
+            ),
+            2: (
+                "🏆 赛事 | Tournament",
+                (
+                    "━━━━━━━━━━━━━━━━━━━━\n"
+                    "① 创建赛事 Create → ② 报名 Sign Up\n"
+                    "③ 队长选秀 Draft → ④ 上报比分 Report\n"
+                    "⑤ 对阵表 Bracket → ⑥ 排名 Standings\n"
+                    "⑦ 记录 History → ⑧ 定时赛事 Scheduled"
+                ),
+            ),
+            3: (
+                "💰 经济 | Economy",
+                (
+                    "━━━━━━━━━━━━━━━━━━━━\n"
+                    "💳 **余额** Balance — 查询金币\n"
+                    "👤 **个人档案** Profile — 查看数据\n"
+                    "🏪 **道具商店** Shop — 购买道具\n"
+                    "📊 **财务统计** Finance — 收支明细\n"
+                    "🏆 **成就** Achievements — 徽章展示"
+                ),
+            ),
+            4: (
+                "👤 玩家 | Player",
+                (
+                    "━━━━━━━━━━━━━━━━━━━━\n"
+                    "📊 **个人资料** Profile — 比赛数据总览\n"
+                    "📜 **比赛历史** History — 历史战绩回顾\n"
+                    "📅 **每周挑战** Weekly — 周常任务\n"
+                    "💎 **MVP排行** MVP LB — 最有价值选手\n"
+                    "🎖️ **段位** Ranks — 段位排行\n"
+                    "🔥 **连胜** Win Streak — 连胜记录"
+                ),
+            ),
+            5: (
+                "🎮 小游戏 | Mini Games",
+                (
+                    "━━━━━━━━━━━━━━━━━━━━\n"
+                    "🎰 **老虎机** Slots — 试试手气\n"
+                    "🪙 **猜硬币** Coinflip — 正反下注\n"
+                    "🧠 **知识问答** Trivia — LOL知识竞赛\n"
+                    "🦸 **猜英雄** Guess Champ — 猜英雄挑战\n"
+                    "🏆 **比赛预测** Predict — 竞猜比赛\n"
+                    "🖼️ **表情包** Meme — 生成梗图\n"
+                    "💕 **虚拟动作** Actions — 互动动作"
+                ),
+            ),
+            6: (
+                "🎮 LoL | League",
+                (
+                    "━━━━━━━━━━━━━━━━━━━━\n"
+                    "🎤 **语音排行** Voice LB — 语音频道排行\n"
+                    "🔊 **排队状态** Queue — 组队排队\n"
+                    "👥 **全部玩家** All Players — 玩家列表\n"
+                    "🏅 **MMR排行** MMR LB — MMR排行榜\n"
+                    "🎬 **比赛回放** Replay — 赛后回顾\n"
+                    "🎙️ **赛后拉入** Post-Match VC — 结算后分房"
+                ),
+            ),
+            7: (
+                "🔧 工具与设置 | Tools & Settings",
+                (
+                    "━━━━━━━━━━━━━━━━━━━━\n"
+                    "📤 **导出数据** Export CSV — 导出比赛数据\n"
+                    "🔒 **管理面板** Admin — 管理员功能\n"
+                    "📢 **发送公告** Announce — 全员推送\n"
+                    "🔄 **赛季重置** Season Reset — 重置赛季\n"
+                    "🎙️ **赛后拉入** Post-Match VC — 赛后语音分房"
+                ),
+            ),
+        }
+
+        key = self.page if self.page in page_field_map else 1
+        field_name, field_value = page_field_map[key]
+        embed.add_field(name=field_name, value=field_value, inline=False)
+        embed.set_footer(text=f"GMPT Dashboard v3.4 | Page {self.page}/7")
+        return embed
 
     # ═══════════════════ Page 1 — Match ═══════════════════
 

@@ -402,38 +402,42 @@ async def on_ready():
 # =============================================================================
 @bot.event
 async def on_member_join(member: discord.Member):
-    try:
-        # 尝试找到系统欢迎频道，否则发到第一个可见文字频道
-        target_channel = None
-        for ch in member.guild.text_channels:
-            if ch.name in ("welcome", "欢迎", "general", "综合", "大厅"):
-                target_channel = ch
-                break
-        if target_channel is None:
-            target_channel = member.guild.system_channel or next(
-                (c for c in member.guild.text_channels if c.permissions_for(member.guild.me).send_messages),
-                None,
-            )
-        if target_channel is None:
-            return
+    if member.bot:
+        return
 
+    try:
         file = discord.File("assets/welcome_bg.png", filename="welcome.png")
         embed = discord.Embed(
-            title="🎮 欢迎来到 G.M.P.T 游戏星球！",
             description=(
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                "🎮 欢迎来到 G.M.P.T 游戏星球！\n"
-                "🌍 Welcome to G.M.P.T Gaming Planet!\n\n"
-                "使用 /gmpt-dashboard 打开控制面板\n"
-                "Type /gmpt-dashboard to open the control panel\n\n"
-                "使用 /gmpt-help 查看所有命令\n"
-                "Type /gmpt-help to see all commands\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                f"**{member.mention}** 加入了我们！\n"
+                f"**{member.mention}** just joined!\n\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🚀 **快速开始 | Quick Start**\n"
+                f"💬 输入 `/gmpt-dashboard` 打开控制面板\n"
+                f"💬 Type `/gmpt-dashboard` to open the control panel\n\n"
+                f"📖 输入 `/gmpt-help` 查看所有功能\n"
+                f"📖 Type `/gmpt-help` to see all features"
             ),
             color=0x9B59B6,
         )
+        embed.set_author(
+            name="🎉 欢迎来到 Gaming Planet!",
+            icon_url=member.display_avatar.url,
+        )
         embed.set_image(url="attachment://welcome.png")
-        await target_channel.send(embed=embed, file=file)
+        embed.set_thumbnail(url=member.display_avatar.url)
+        embed.set_footer(text="G.M.P.T Gaming Planet | Made with 💜")
+
+        # 发送到 welcome 频道
+        welcome_channel = discord.utils.get(member.guild.text_channels, name="welcome")
+        if welcome_channel:
+            await welcome_channel.send(embed=embed, file=file)
+        else:
+            # 没有 welcome 频道则发到第一个可用频道
+            for channel in member.guild.text_channels:
+                if channel.permissions_for(member.guild.me).send_messages:
+                    await channel.send(embed=embed, file=file)
+                    break
     except Exception as e:
         logger.warning(f"Welcome message failed (non-critical): {e}")
 

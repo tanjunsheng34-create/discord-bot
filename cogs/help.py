@@ -22,12 +22,12 @@ class HelpCog(CogBase):
         embed.add_field(
             name="⚔️ 比赛 / Match",
             value=(
-                "`/gmpt-create` — 创建比赛\n"
-                "`/gmpt-join` — 报名\n"
-                "`/gmpt-shuffle` — 随机分队\n"
-                "`/gmpt-settle` — 结算\n"
-                "`/gmpt-pull-vc` — 拉入语音\n"
-                "`/gmpt-pick-captain` — 选队长"
+                "`/gmpt-create` — 创建比赛 | Create match\n"
+                "`/gmpt-join` — 报名 | Sign up\n"
+                "`/gmpt-shuffle` — 随机分队 | Random teams\n"
+                "`/gmpt-settle` — 结算 | Settle\n"
+                "`/gmpt-pull-vc` — 拉入语音 | Pull VC\n"
+                "`/gmpt-pick-captain` — 选队长 | Pick captain"
             ),
             inline=False,
         )
@@ -35,12 +35,12 @@ class HelpCog(CogBase):
         embed.add_field(
             name="🏆 赛事 / Tournament",
             value=(
-                "`/gmpt-tournament create` — 创建赛事\n"
-                "`/gmpt-tournament signup` — 报名\n"
-                "`/gmpt-tournament captain` — 队长选秀\n"
-                "`/gmpt-tournament bracket` — 对阵图\n"
-                "`/gmpt-tournament standings` — 排名\n"
-                "`/gmpt-tournament report` — 上报比分"
+                "`/gmpt-tournament create` — 创建赛事 | Create\n"
+                "`/gmpt-tournament signup` — 报名 | Sign up\n"
+                "`/gmpt-tournament captain` — 队长选秀 | Draft\n"
+                "`/gmpt-tournament bracket` — 对阵图 | Bracket\n"
+                "`/gmpt-tournament standings` — 排名 | Standings\n"
+                "`/gmpt-tournament report` — 上报比分 | Report"
             ),
             inline=False,
         )
@@ -48,14 +48,14 @@ class HelpCog(CogBase):
         embed.add_field(
             name="💰 经济 / Economy",
             value=(
-                "`/gmpt-balance` — 余额\n"
-                "`/gmpt-shop` — 商店\n"
-                "`/gmpt-buy` — 购买\n"
-                "`/gmpt-inventory` — 背包\n"
-                "`/gmpt-gift` — 送礼\n"
-                "`/gmpt-daily claim` — 签到\n"
-                "`/gmpt-achievements` — 成就\n"
-                "`/gmpt-bet` — 下注"
+                "`/gmpt-balance` — 余额 | Balance\n"
+                "`/gmpt-shop` — 商店 | Shop\n"
+                "`/gmpt-buy` — 购买 | Buy\n"
+                "`/gmpt-inventory` — 背包 | Inventory\n"
+                "`/gmpt-gift` — 送礼 | Gift\n"
+                "`/gmpt-daily claim` — 签到 | Daily\n"
+                "`/gmpt-achievements` — 成就 | Achievements\n"
+                "`/gmpt-bet` — 下注 | Bet"
             ),
             inline=False,
         )
@@ -63,13 +63,13 @@ class HelpCog(CogBase):
         embed.add_field(
             name="💬 社交 / Social",
             value=(
-                "`/gmpt-hug <user>` — 拥抱\n"
-                "`/gmpt-slap <user>` — 拍打\n"
-                "`/gmpt-pat <user>` — 摸头\n"
-                "`/gmpt-kiss <user>` — 亲吻\n"
-                "`/gmpt-kill <user>` — 击杀\n"
-                "`/gmpt-level` — 我的等级\n"
-                "`/gmpt-level-leaderboard` — 等级排行"
+                "`/gmpt-hug <user>` — 拥抱 | Hug\n"
+                "`/gmpt-slap <user>` — 拍打 | Slap\n"
+                "`/gmpt-pat <user>` — 摸头 | Pat\n"
+                "`/gmpt-kiss <user>` — 亲吻 | Kiss\n"
+                "`/gmpt-kill <user>` — 击杀 | Kill\n"
+                "`/gmpt-level` — 我的等级 | My level\n"
+                "`/gmpt-level-leaderboard` — 等级排行 | Level LB"
             ),
             inline=False,
         )
@@ -77,12 +77,12 @@ class HelpCog(CogBase):
         embed.add_field(
             name="🎮 小游戏 / Mini Games",
             value=(
-                "`/gmpt-slots` — 老虎机\n"
-                "`/gmpt-coinflip` — 猜硬币\n"
-                "`/gmpt-trivia` — 知识问答\n"
-                "`/gmpt-guess-champion` — 猜英雄\n"
-                "`/gmpt-predict` — 比赛预测竞猜\n"
-                "`/gmpt-meme` — 表情包生成"
+                "`/gmpt-slots` — 老虎机 | Slots\n"
+                "`/gmpt-coinflip` — 猜硬币 | Coinflip\n"
+                "`/gmpt-trivia` — 知识问答 | Trivia\n"
+                "`/gmpt-guess-champion` — 猜英雄 | Guess champ\n"
+                "`/gmpt-predict` — 比赛预测竞猜 | Predict\n"
+                "`/gmpt-meme` — 表情包生成 | Meme"
             ),
             inline=False,
         )
@@ -90,12 +90,12 @@ class HelpCog(CogBase):
         embed.add_field(
             name="🎮 LoL / League",
             value=(
-                "`/gmpt-profile-lol` — 战绩查询\n"
-                "`/gmpt-rank` — 段位查询\n"
-                "`/gmpt-stream` — 直播通知\n"
-                "`/gmpt-match-history` — 比赛历史\n"
-                "`/gmpt-lol-settle` — 比赛结算\n"
-                "`/gmpt-vc-setup` — 语音分区配置"
+                "`/gmpt-profile-lol` — 战绩查询 | Profile\n"
+                "`/gmpt-rank` — 段位查询 | Rank\n"
+                "`/gmpt-stream` — 直播通知 | Stream\n"
+                "`/gmpt-match-history` — 比赛历史 | History\n"
+                "`/gmpt-lol-settle` — 比赛结算 | Settle\n"
+                "`/gmpt-vc-setup` — 语音分区配置 | VC setup"
             ),
             inline=False,
         )
@@ -103,14 +103,14 @@ class HelpCog(CogBase):
         embed.add_field(
             name="🔧 工具 / Tools",
             value=(
-                "`/gmpt-dashboard` — 控制面板\n"
-                "`/gmpt-stats` — 数据统计\n"
-                "`/gmpt-finance` — 财务统计\n"
-                "`/gmpt-voicetime` — 语音时长\n"
-                "`/gmpt-queue` — 排队\n"
-                "`/gmpt-transactions` — 交易记录\n"
-                "`/gmpt-daily-tasks` — 每日任务\n"
-                "`/announce` — 公告(管理)"
+                "`/gmpt-dashboard` — 控制面板 | Dashboard\n"
+                "`/gmpt-stats` — 数据统计 | Stats\n"
+                "`/gmpt-finance` — 财务统计 | Finance\n"
+                "`/gmpt-voicetime` — 语音时长 | Voice time\n"
+                "`/gmpt-queue` — 排队 | Queue\n"
+                "`/gmpt-transactions` — 交易记录 | Transactions\n"
+                "`/gmpt-daily-tasks` — 每日任务 | Daily tasks\n"
+                "`/announce` — 公告(管理) | Announce"
             ),
             inline=False,
         )
