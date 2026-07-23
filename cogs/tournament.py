@@ -209,9 +209,10 @@ class CaptainCoinflipView(discord.ui.View):
 
 # =============================================================================
 class DraftView(discord.ui.View):
-    def __init__(self, draft_id, captains_info, available_players, guild, timeout=600):
+    def __init__(self, draft_id, captains_info, available_players, guild, tournament_id=None, timeout=600):
         super().__init__(timeout=None)
         self.draft_id = draft_id
+        self.tournament_id = tournament_id
         self.captains = captains_info  # list of {captain_id, team_name, pick_order, tier_score}
         self.available_players = available_players  # list of (discord_id, tier_score, display_name, tier_str)
         self.guild = guild
@@ -222,6 +223,8 @@ class DraftView(discord.ui.View):
         self._pending_pick = None
         self._timer_task = None
         self._deadline = 0  # monotonic timestamp when current pick expires
+        self._completed = False  # prevents duplicate AssignView sends
+        self._last_interaction = None  # stored for auto_skip → AssignView transition
 
         # Sort captains by pick_order
         self.captains.sort(key=lambda c: c["pick_order"])
@@ -245,7 +248,10 @@ class DraftView(discord.ui.View):
         """Auto-skip current captain's turn."""
         unassigned = self._get_unassigned()
         if not unassigned:
-            return  # draft complete
+            # Draft complete — transition to AssignView if we have a stored interaction
+            if self._last_interaction and not self._completed:
+                await self._complete_draft(self._last_interaction, auto_balance=False)
+            return
 
         cap = self.current_captain
         if not cap:
@@ -273,17 +279,14 @@ class DraftView(discord.ui.View):
         if not unassigned or len(unassigned) == 0:
             for child in self.children:
                 child.disabled = True
+            # If we have a stored interaction, auto-transition
+            if self._last_interaction and not self._completed:
+                self._timer_task = None  # prevent double-fire
+                await self._complete_draft(self._last_interaction, auto_balance=False)
+                return
 
         self._rebuild_select()
         self._start_timer()
-        # Update message if possible (uses stored interaction reference)
-        embed = self.build_embed()
-        try:
-            # Update through the message reference if available
-            if hasattr(self, '_msg_ref'):
-                await self._msg_ref.edit(embed=embed, view=self)
-        except Exception:
-            pass
 
     @property
     def current_captain(self):
@@ -301,14 +304,75 @@ class DraftView(discord.ui.View):
 
     def _get_team_score(self, captain_id):
         cap = next((c for c in self.captains if c["captain_id"] == captain_id), None)
-        cap_score = cap["tier_score"] if cap else 0
+        cap_score = (cap["tier_score"] or 0) if cap else 0
         team_picks = self._get_team_players(captain_id)
         pick_score = 0
         for pid in team_picks:
             player_info = next((p for p in self.available_players if p[0] == pid), None)
             if player_info:
-                pick_score += player_info[1]
+                pick_score += (player_info[1] or 0)
         return cap_score + pick_score
+
+    async def _complete_draft(self, interaction: discord.Interaction, *, auto_balance: bool = False):
+        """Transition from DraftView to AssignView when draft completes."""
+        if self._completed:
+            return
+        self._completed = True
+
+        if self._timer_task and not self._timer_task.done():
+            self._timer_task.cancel()
+
+        # Resolve tournament_id from DB if not set
+        tid = self.tournament_id
+        if not tid:
+            conn = get_db(); cur = conn.cursor()
+            cur.execute("SELECT tournament_id FROM draft_sessions WHERE id=?", (self.draft_id,))
+            row = cur.fetchone()
+            tid = row["tournament_id"] if row else None
+            conn.close()
+
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("UPDATE draft_sessions SET status='completed' WHERE id=?", (self.draft_id,))
+        conn.commit(); conn.close()
+
+        # Build all_players for AssignView
+        all_players = []
+        if tid:
+            conn = get_db(); cur = conn.cursor()
+            cur.execute(
+                "SELECT tp.discord_id, tp.tier, u.display_name FROM tournament_players tp "
+                "LEFT JOIN users u ON u.discord_id=tp.discord_id "
+                "WHERE tp.tournament_id=?",
+                (tid,),
+            )
+            for row in cur.fetchall():
+                pid = str(row["discord_id"])
+                tier = row["tier"] or ""
+                name = row.get("display_name") or pid
+                score = TIER_SCORE.get(tier.upper(), 0)
+                all_players.append((pid, score, name, tier))
+            conn.close()
+
+        # Disable current view
+        for child in self.children:
+            child.disabled = True
+        embed = self.build_embed()
+        embed.title = "选秀已结束 / Draft Ended"
+        embed.description = "⚡ 正在打开分队面板..." if auto_balance else "✅ 正在打开分配面板..."
+        embed.color = discord.Color.orange() if auto_balance else discord.Color.gold()
+        await interaction.edit_original_response(embed=embed, view=self)
+
+        # Send AssignView as followup
+        assign_view = AssignView(
+            draft_id=self.draft_id,
+            captains_info=self.captains,
+            all_players=all_players,
+            guild=self.guild,
+        )
+        if auto_balance:
+            assign_view._auto_balance()
+            assign_view._rebuild_select()
+        await interaction.followup.send(embed=assign_view.build_embed(), view=assign_view)
 
     def _rebuild_select(self):
         for child in list(self.children):
@@ -366,6 +430,7 @@ class DraftView(discord.ui.View):
                        emoji="✅", row=1, custom_id="draft_confirm")
     async def confirm_pick(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
+        self._last_interaction = interaction
         cap = self.current_captain
         if not cap:
             return await interaction.followup.send("Draft error.", ephemeral=True)
@@ -409,6 +474,12 @@ class DraftView(discord.ui.View):
         if not unassigned or len(unassigned) == 0:
             for child in self.children:
                 child.disabled = True
+            # Auto-transition to AssignView
+            self._rebuild_select()
+            embed = self.build_embed()
+            await interaction.edit_original_response(embed=embed, view=self)
+            await self._complete_draft(interaction, auto_balance=False)
+            return
 
         self._rebuild_select()
         self._start_timer()
@@ -419,6 +490,7 @@ class DraftView(discord.ui.View):
                        emoji="⏭️", row=1, custom_id="draft_skip")
     async def skip_turn(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
+        self._last_interaction = interaction
         cap = self.current_captain
         if not cap:
             return await interaction.followup.send("Draft error.", ephemeral=True)
@@ -465,6 +537,7 @@ class DraftView(discord.ui.View):
                        emoji="⚡", row=2, custom_id="draft_autobalance")
     async def skip_to_autobalance(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
+        self._last_interaction = interaction
         cap = self.current_captain
         if not cap:
             return await interaction.followup.send("Draft error.", ephemeral=True)
@@ -475,102 +548,24 @@ class DraftView(discord.ui.View):
                     "Only captains can use this. / 仅队长可用。",
                     ephemeral=True,
                 )
-
-        # Complete the draft and transition to AssignView with auto balance
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("UPDATE draft_sessions SET status='completed' WHERE id=?", (self.draft_id,))
-        conn.commit(); conn.close()
-
-        # Build all_players for AssignView
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(
-            "SELECT discord_id, tier, display_name FROM tournament_players "
-            "JOIN users ON users.id=discord_id OR users.discord_id=discord_id "
-            "WHERE tournament_id=?",
-            (self.tournament_id,),
-        )
-        all_players = []
-        for row in cur.fetchall():
-            pid = str(row["discord_id"])
-            tier = row["tier"] or ""
-            name = row.get("display_name") or pid
-            score = TIER_SCORE.get(tier.upper(), 0)
-            all_players.append((pid, score, name, tier))
-        conn.close()
-
-        # Disable current view
-        for child in self.children:
-            child.disabled = True
-        embed = self.build_embed()
-        embed.title = f"选秀已结束 / Draft Ended — 前往自动平衡"
-        embed.description = "⚡ 正在打开自动平衡分队..."
-        embed.color = discord.Color.orange()
-        await interaction.edit_original_response(embed=embed, view=self)
-
-        # Send AssignView as followup
-        assign_view = AssignView(
-            draft_id=self.draft_id,
-            captains_info=self.captains,
-            all_players=all_players,
-            guild=self.guild,
-        )
-        assign_view._auto_balance()  # Immediately auto-balance
-        assign_view._rebuild_select()
-        await interaction.followup.send(embed=assign_view.build_embed(), view=assign_view)
+        await self._complete_draft(interaction, auto_balance=True)
 
     @discord.ui.button(label="结束选秀 / End Draft", style=discord.ButtonStyle.danger,
                        emoji="🏁", row=2, custom_id="draft_end")
     async def end_draft(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
+        self._last_interaction = interaction
         cap = self.current_captain
         if not cap:
             return await interaction.followup.send("Draft error.", ephemeral=True)
         if str(interaction.user.id) != cap["captain_id"]:
-            # Allow any captain to end
             is_any_captain = any(c["captain_id"] == str(interaction.user.id) for c in self.captains)
             if not is_any_captain:
                 return await interaction.followup.send(
                     "Only captains can end the draft. / 仅队长可结束选秀。",
                     ephemeral=True,
                 )
-
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("UPDATE draft_sessions SET status='completed' WHERE id=?", (self.draft_id,))
-        conn.commit(); conn.close()
-
-        for child in self.children:
-            child.disabled = True
-        self._rebuild_select()
-        embed = self.build_embed()
-        embed.title = f"Draft Complete — {embed.title.replace('Draft — ', '')}"
-        embed.description = "✅ 队长选秀已完成！ / Captain Draft completed! — 打开分配面板"
-        embed.color = discord.Color.gold()
-        await interaction.edit_original_response(embed=embed, view=self)
-
-        # Build AssignView and send as followup
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(
-            "SELECT tp.discord_id, tp.tier, u.display_name FROM tournament_players tp "
-            "LEFT JOIN users u ON u.discord_id=tp.discord_id "
-            "WHERE tp.tournament_id=?",
-            (self.tournament_id,),
-        )
-        all_players = []
-        for row in cur.fetchall():
-            pid = str(row["discord_id"])
-            tier = row["tier"] or ""
-            name = row.get("display_name") or pid
-            score = TIER_SCORE.get(tier.upper(), 0)
-            all_players.append((pid, score, name, tier))
-        conn.close()
-
-        assign_view = AssignView(
-            draft_id=self.draft_id,
-            captains_info=self.captains,
-            all_players=all_players,
-            guild=self.guild,
-        )
-        await interaction.followup.send(embed=assign_view.build_embed(), view=assign_view)
+        await self._complete_draft(interaction, auto_balance=False)
 
     def build_embed(self):
         remaining = max(0, int(self._deadline - asyncio.get_event_loop().time()))
@@ -595,7 +590,7 @@ class DraftView(discord.ui.View):
             )
 
         # Balance report
-        scores = [self._get_team_score(c["captain_id"]) for c in self.captains]
+        scores = [self._get_team_score(c["captain_id"]) or 0 for c in self.captains]
         if len(scores) >= 2:
             balance_lines = []
             for i, cap in enumerate(self.captains):
@@ -1409,7 +1404,7 @@ class DraftSetupView(discord.ui.View):
                             (c["pick_order"], draft_id, c["captain_id"]))
             conn.commit(); conn.close()
 
-            view = DraftView(draft_id, final_captains, draft_pool, interaction.guild)
+            view = DraftView(draft_id, final_captains, draft_pool, interaction.guild, tournament_id=self.tournament_id)
             embed = view.build_embed()
             embed.description = (
                 f"队长选秀已开始！\n"
@@ -2285,7 +2280,7 @@ class Tournament(CogBase):
                         (c["pick_order"], draft_id, c["captain_id"]),
                     )
                 conn3.commit(); conn3.close()
-                view = DraftView(draft_id, final_captains, draft_pool, interaction.guild)
+                view = DraftView(draft_id, final_captains, draft_pool, interaction.guild, tournament_id=self.tournament_id)
                 embed = view.build_embed()
                 embed.description = (
                     f"队长选秀已开始！\n"

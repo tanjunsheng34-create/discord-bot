@@ -1391,12 +1391,12 @@ class RematchView(discord.ui.View):
 
 
 class VoicePullView(discord.ui.View):
-    """赛前/赛后语音频道管理。从 A/B 队语音频道拉人。"""
+    """赛前/赛后语音频道管理。按 Discord ID 把队员拉入 A/B 队 VC 或大厅。"""
 
-    TEAM_A_VC_ID = POST_MATCH_VC_TEAM_B
+    TEAM_A_VC_ID = 1438050912814895186
     TEAM_B_VC_ID = 1437626921394372658
     LIVE_ROOM_ID = 1442412877301416006
-    NOTIFY_CHANNEL_ID = POST_MATCH_VC_TEAM_A
+    NOTIFY_CHANNEL_ID = 1453208983358935121
 
     def __init__(self, team_a_ids: list, team_b_ids: list, guild: discord.Guild, timeout: float = 300):
         super().__init__(timeout=timeout)
@@ -1438,33 +1438,37 @@ class VoicePullView(discord.ui.View):
         conn.close()
         return cls(team_a_ids, team_b_ids, guild, timeout)
 
-    async def _do_pull_from_vc(self, interaction, source_vc_id, target_vc_id, label):
-        """从 source_vc_id 语音频道拉所有在线成员到 target_vc_id,返回通知行。"""
-        source_channel = self.guild.get_channel(source_vc_id)
-        if not source_channel:
-            return [f"⚠️ {label}队语音频道未找到 (ID:{source_vc_id})"]
-
+    async def _do_pull(self, interaction, team_ids, target_vc_id, label):
+        """拉指定 Discord ID 的队员到 target_vc_id，返回通知行。"""
         target_channel = self.guild.get_channel(target_vc_id)
         if not target_channel:
-            return [f"⚠️ 目标语音频道未找到 ({label}队, ID:{target_vc_id})"]
+            return [f"⚠️ {label}队目标语音频道未找到 (ID:{target_vc_id})"]
 
         moved = []
         not_in = []
-        for member in source_channel.members:
+        for uid in team_ids:
+            member = self.guild.get_member(int(uid))
+            if not member:
+                not_in.append(f"<@{uid}>")
+                continue
             if member.voice and member.voice.channel:
+                if member.voice.channel.id == target_vc_id:
+                    # Already in target, skip
+                    continue
                 try:
                     await member.move_to(target_channel)
                     moved.append(member)
-                except Exception:
+                except Exception as e:
+                    logger.warning(f"VoicePullView: move_to failed for {uid}: {e}")
                     not_in.append(member.mention)
             else:
                 not_in.append(member.mention)
 
         lines = []
         if moved:
-            lines.append(f"✅ {label}队已拉入 Live Room: {' '.join(m.mention for m in moved)}")
+            lines.append(f"✅ {label}队已拉入: {' '.join(m.mention for m in moved)}")
         if not_in:
-            lines.append(f"⚠️ {label}队无法拉入: {' '.join(not_in)}")
+            lines.append(f"⚠️ {label}队不在语音频道(无法拉入): {' '.join(not_in)}")
         return lines
 
     async def _notify(self, lines):
@@ -1486,7 +1490,7 @@ class VoicePullView(discord.ui.View):
         if not interaction.user.guild_permissions.administrator and uid not in self.team_a_ids and uid not in self.team_b_ids:
             return await interaction.response.send_message("仅参赛者或管理员可操作", ephemeral=True)
         await interaction.response.defer(ephemeral=True)
-        lines = await self._do_pull_from_vc(interaction, self.TEAM_A_VC_ID, self.LIVE_ROOM_ID, "A")
+        lines = await self._do_pull(interaction, self.team_a_ids, self.TEAM_A_VC_ID, "A")
         await self._notify(lines)
         button.disabled = True
         self._used_a = True
@@ -1501,7 +1505,7 @@ class VoicePullView(discord.ui.View):
         if not interaction.user.guild_permissions.administrator and uid not in self.team_a_ids and uid not in self.team_b_ids:
             return await interaction.response.send_message("仅参赛者或管理员可操作", ephemeral=True)
         await interaction.response.defer(ephemeral=True)
-        lines = await self._do_pull_from_vc(interaction, self.TEAM_B_VC_ID, self.LIVE_ROOM_ID, "B")
+        lines = await self._do_pull(interaction, self.team_b_ids, self.TEAM_B_VC_ID, "B")
         await self._notify(lines)
         button.disabled = True
         self._used_b = True
@@ -1517,9 +1521,9 @@ class VoicePullView(discord.ui.View):
             return await interaction.response.send_message("仅参赛者或管理员可操作", ephemeral=True)
         await interaction.response.defer(ephemeral=True)
 
-        lines_a = await self._do_pull_from_vc(interaction, self.TEAM_A_VC_ID, self.LIVE_ROOM_ID, "A+B")
-        lines_b = await self._do_pull_from_vc(interaction, self.TEAM_B_VC_ID, self.LIVE_ROOM_ID, "A+B")
-        await self._notify(lines_a + lines_b)
+        all_ids = self.team_a_ids + self.team_b_ids
+        lines = await self._do_pull(interaction, all_ids, self.LIVE_ROOM_ID, "A+B")
+        await self._notify(lines)
 
         button.disabled = True
         self._used_live = True
@@ -3022,6 +3026,17 @@ class MatchViewWithID(discord.ui.View):
             f"🕐 开始时间: {now}",
             ephemeral=True,
         )
+
+        # 发送通知到通知频道
+        try:
+            notify_ch = guild.get_channel(1453208983358935121)
+            if notify_ch:
+                await notify_ch.send(
+                    f"@here 🚨 比赛即将开始！| Match starting soon!\n"
+                    f"比赛 ID: {mid} | 开始时间: {now}"
+                )
+        except Exception as e:
+            log_error("dashboard", "notify", e)
 
         # 更新公开消息
         try:

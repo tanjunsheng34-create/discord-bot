@@ -320,6 +320,7 @@ def _create_voice_giveaway_tables(cursor):
             team_a_vc_id   TEXT,
             team_b_vc_id   TEXT,
             lobby_vc_id    TEXT,
+            notification_channel_id TEXT DEFAULT '1453208983358935121',
             enabled        INTEGER DEFAULT 0,
             PRIMARY KEY (guild_id)
         );
@@ -645,6 +646,12 @@ def _run_migrations(cursor):
     except sqlite3.OperationalError:
         pass
 
+    # match_vc_config — notification_channel_id
+    try:
+        cursor.execute("ALTER TABLE match_vc_config ADD COLUMN notification_channel_id TEXT DEFAULT '1453208983358935121'")
+    except sqlite3.OperationalError:
+        pass
+
     # shop items fields
     try:
         cursor.execute("ALTER TABLE shop_items ADD COLUMN stock INTEGER DEFAULT -1")
@@ -680,8 +687,8 @@ def _seed_default_vc(cursor):
     cursor.execute(
         """
         INSERT OR IGNORE INTO match_vc_config
-            (guild_id, team_a_vc_id, team_b_vc_id, lobby_vc_id, enabled)
-        VALUES ('default', '1438050912814895186', '1437626921394372658', '1442412877301416006', 1)
+            (guild_id, team_a_vc_id, team_b_vc_id, lobby_vc_id, notification_channel_id, enabled)
+        VALUES ('default', '1438050912814895186', '1437626921394372658', '1442412877301416006', '1453208983358935121', 1)
         """
     )
 
