@@ -437,7 +437,6 @@ async def on_ready():
         for guild in bot.guilds:
             ch = guild.get_channel(1398991787523313675)
             if ch and ch.permissions_for(guild.me).send_messages:
-                await ch.send("✅ Bot v3.5 已上线 | Online")
                 print(f"[on_ready] 欢迎频道自检 OK: {guild.name} / {ch.name}")
             elif ch:
                 print(f"[on_ready] 欢迎频道无发消息权限: {guild.name} / {ch.name}")
