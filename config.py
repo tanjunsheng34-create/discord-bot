@@ -43,6 +43,9 @@ SHOP_LOG_CHANNEL_ID: int = 1528241284177854624
 ACHIEVEMENTS_CHANNEL_ID: int = 1528241092640768101
 ITEM_REQUESTS_CHANNEL_ID: int = 1528249993914220625
 
+# Whisper (匿名树洞) channel
+WHISPER_CHANNEL_ID: Optional[int] = None
+
 
 def _get_env_int(key: str, default: int = 0) -> int:
     """Helper to read integer env var."""

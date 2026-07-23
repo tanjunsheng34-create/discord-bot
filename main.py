@@ -40,6 +40,7 @@ COGS = [
     "cogs.actions",
     "cogs.announce",
     "cogs.economy",
+    "cogs.games",
     "cogs.tournament",
     "cogs.lol",
     "cogs.dashboard",

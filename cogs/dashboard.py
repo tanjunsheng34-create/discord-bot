@@ -4488,6 +4488,7 @@ class DashboardView(discord.ui.View):
         5: 0xE67E22,  # 橙色
         6: 0xE74C3C,  # 红色
         7: 0x95A5A6,  # 灰色
+        8: 0x1ABC9C,  # 青色
     }
 
     PAGE_TITLES = {
@@ -4498,6 +4499,7 @@ class DashboardView(discord.ui.View):
         5: "🎮 小游戏 Mini Games",
         6: "🎮 LoL League",
         7: "🔧 工具与设置 Tools",
+        8: "🎮 游戏中心 Games",
     }
 
     def __init__(self, guild=None, session=None, *args, **kwargs):
@@ -4607,6 +4609,18 @@ class DashboardView(discord.ui.View):
             ]
             while len(btns) < 8:
                 btns.append(None)
+        elif page == 8:
+            # 游戏中心 (Games Center)
+            btns = [
+                ("🎲 掷骰子\nRoll Dice", "game_roll"),
+                ("🔢 猜数字\nGuess Number", "game_guess"),
+                ("📝 真心话大冒险\nTruth or Dare", "game_truth_dare"),
+                ("🕊️ 树洞\nWhisper", "game_whisper"),
+                ("🎡 轮盘赌\nRoulette", "game_roulette"),
+                ("◀️ 返回主菜单\nBack to Main", "game_back"),
+            ]
+            while len(btns) < 8:
+                btns.append(None)
 
         # Layout: rows of 4
         rows = []
@@ -4651,8 +4665,8 @@ class DashboardView(discord.ui.View):
             btn.callback = self.make_page_callback(p)
             self.add_item(btn)
 
-        # Row 4: P5 P6 P7 ▶ (4 cols)
-        for p in range(5, 8):
+        # Row 4: P5 P6 P7 P8 ▶ (5 cols)
+        for p in range(5, 9):
             is_current = (p == page)
             btn = discord.ui.Button(
                 label=f"P{p}",
@@ -4665,7 +4679,7 @@ class DashboardView(discord.ui.View):
             self.add_item(btn)
 
         self.next_btn = discord.ui.Button(label="▶", style=discord.ButtonStyle.primary, row=4,
-                                           disabled=(page == 7), custom_id="dashboard_next")
+                                           disabled=(page == 8), custom_id="dashboard_next")
         self.next_btn.callback = self.next_page
         self.add_item(self.next_btn)
 
@@ -4706,7 +4720,7 @@ class DashboardView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=self)
 
     async def next_page(self, interaction: discord.Interaction):
-        if self.page < 7:
+        if self.page < 8:
             self.page += 1
         self.build_page_buttons()
         embed = self._build_page_embed()
@@ -4805,12 +4819,24 @@ class DashboardView(discord.ui.View):
                     "🎙️ **赛后拉入** Post-Match VC — 赛后语音分房"
                 ),
             ),
+            8: (
+                "🎮 游戏中心 | Games",
+                (
+                    "━━━━━━━━━━━━━━━━━━━━\n"
+                    "🎲 **掷骰子** Roll Dice — `/gmpt-roll 2d6`\n"
+                    "🔢 **猜数字** Guess Number — `/gmpt-guess-number`\n"
+                    "📝 **真心话大冒险** Truth or Dare — `/gmpt-truth-dare`\n"
+                    "🕊️ **树洞** Whisper — `/gmpt-whisper`\n"
+                    "🎡 **轮盘赌** Roulette — `/gmpt-roulette`\n"
+                    "◀️ **返回主菜单** Back to Main — 回到第一页"
+                ),
+            ),
         }
 
         key = self.page if self.page in page_field_map else 1
         field_name, field_value = page_field_map[key]
         embed.add_field(name=field_name, value=field_value, inline=False)
-        embed.set_footer(text=f"GMPT Dashboard v3.4 | Page {self.page}/7")
+        embed.set_footer(text=f"GMPT Dashboard v3.4 | Page {self.page}/8")
         return embed
 
     # ═══════════════════ Page 1 — Match ═══════════════════
@@ -7031,6 +7057,118 @@ class DashboardView(discord.ui.View):
             view=view,
             ephemeral=True,
         )
+
+    # ═══════════════════ Page 8 — Games ═══════════════════
+
+    async def _game_roll(self, interaction: discord.Interaction):
+        """🎲 掷骰子 / Roll Dice — 命令介绍"""
+        await interaction.response.defer(ephemeral=True)
+        embed = discord.Embed(
+            title="🎲 掷骰子 / Roll Dice",
+            description=(
+                "使用 `/gmpt-roll` 命令掷骰子！\n"
+                "Use `/gmpt-roll` to roll the dice!\n\n"
+                "**用法 / Usage:**\n"
+                "`/gmpt-roll 2d6` — 掷 2 个 6 面骰\n"
+                "`/gmpt-roll 1d20` — 掷 1 个 20 面骰\n"
+                "`/gmpt-roll 5d10` — 掷 5 个 10 面骰\n\n"
+                "**限制 / Limits:** 最多 20 个骰子，最多 100 面\n"
+                "Max 20 dice, max 100 faces each."
+            ),
+            color=0x3498DB,
+        )
+        embed.set_footer(text="GMPT Games — 骰子 / Dice")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    async def _game_guess(self, interaction: discord.Interaction):
+        """🔢 猜数字 / Guess Number — 命令介绍"""
+        await interaction.response.defer(ephemeral=True)
+        embed = discord.Embed(
+            title="🔢 猜数字 / Guess Number",
+            description=(
+                "使用 `/gmpt-guess-number` 玩猜数字！\n"
+                "Use `/gmpt-guess-number` to play!\n\n"
+                "**用法 / Usage:**\n"
+                "`/gmpt-guess-number` — 默认 1-100 (default)\n"
+                "`/gmpt-guess-number 50` — 在 1-50 范围内猜\n"
+                "`/gmpt-guess-number 500` — 在 1-500 范围内猜\n\n"
+                "**规则 / Rules:**\n"
+                "最多 10 次机会，猜对获得金币奖励！\n"
+                "Max 10 attempts. Win coins for guessing correctly!"
+            ),
+            color=0x2ECC71,
+        )
+        embed.set_footer(text="GMPT Games — 猜数字 / Guess Number")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    async def _game_truth_dare(self, interaction: discord.Interaction):
+        """📝 真心话大冒险 / Truth or Dare — 命令介绍"""
+        await interaction.response.defer(ephemeral=True)
+        embed = discord.Embed(
+            title="📝 真心话大冒险 / Truth or Dare",
+            description=(
+                "使用 `/gmpt-truth-dare` 来玩真心话大冒险！\n"
+                "Use `/gmpt-truth-dare` to play!\n\n"
+                "**用法 / Usage:**\n"
+                "`/gmpt-truth-dare` — 随机出题 (random)\n"
+                "`/gmpt-truth-dare truth` — 只出真心话题\n"
+                "`/gmpt-truth-dare dare` — 只出大冒险题\n\n"
+                "**冷却 / Cooldown:** 每人 30 秒\n"
+                "30 seconds per person."
+            ),
+            color=0x9B59B6,
+        )
+        embed.set_footer(text="GMPT Games — 真心话大冒险 / Truth or Dare")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    async def _game_whisper(self, interaction: discord.Interaction):
+        """🕊️ 树洞 / Whisper — 命令介绍"""
+        await interaction.response.defer(ephemeral=True)
+        embed = discord.Embed(
+            title="🕊️ 树洞 / Whisper",
+            description=(
+                "使用 `/gmpt-whisper` 匿名投递树洞！\n"
+                "Use `/gmpt-whisper` for anonymous confessions!\n\n"
+                "**用法 / Usage:**\n"
+                "`/gmpt-whisper 我今天...` — 发送匿名消息\n\n"
+                "**注意 / Notes:**\n"
+                "消息完全匿名，最多 500 字\n"
+                "Completely anonymous, max 500 characters\n"
+                "需要管理员配置树洞频道 / Admin must configure channel"
+            ),
+            color=0x95A5A6,
+        )
+        embed.set_footer(text="GMPT Games — 树洞 / Whisper")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    async def _game_roulette(self, interaction: discord.Interaction):
+        """🎡 轮盘赌 / Roulette — 命令介绍"""
+        await interaction.response.defer(ephemeral=True)
+        embed = discord.Embed(
+            title="🎡 轮盘赌 / Roulette",
+            description=(
+                "使用 `/gmpt-roulette` 玩轮盘赌！\n"
+                "Use `/gmpt-roulette` to play roulette!\n\n"
+                "**用法 / Usage:**\n"
+                "`/gmpt-roulette 100` — 下注 100 金币\n"
+                "`/gmpt-roulette 500` — 下注 500 金币\n\n"
+                "**赔率 / Odds:**\n"
+                "🔴 红 / Red — 1:1\n"
+                "⚫ 黑 / Black — 1:1\n"
+                "🟢 绿 / Green — 14:1\n\n"
+                "**最低下注 / Min Bet:** 10 金币"
+            ),
+            color=0xF1C40F,
+        )
+        embed.set_footer(text="GMPT Games — 轮盘 / Roulette")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    async def _game_back(self, interaction: discord.Interaction):
+        """◀️ 返回主菜单 — back to page 1"""
+        self.page = 1
+        self.build_page_buttons()
+        embed = self._build_page_embed()
+        await interaction.response.edit_message(embed=embed, view=self)
 
 
 
