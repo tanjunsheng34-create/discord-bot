@@ -497,7 +497,7 @@ async def on_member_join(member: discord.Member):
             icon_url=member.guild.icon.url if member.guild.icon else None,
         )
 
-        welcome_channel = discord.utils.get(member.guild.text_channels, name="welcome")
+        welcome_channel = member.guild.get_channel(1398991787523313675)
         print(f"[on_member_join] welcome_channel={welcome_channel}")
         if welcome_channel:
             await welcome_channel.send(content=member.mention, embed=embed, file=file)

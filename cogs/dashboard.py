@@ -7325,7 +7325,7 @@ class Dashboard(CogBase):
     )
     @app_commands.default_permissions(administrator=True)
     async def gmpt_test_welcome(self, interaction: discord.Interaction):
-        welcome_channel = discord.utils.get(interaction.guild.text_channels, name="welcome")
+        welcome_channel = interaction.guild.get_channel(1398991787523313675)
         if not welcome_channel:
             await interaction.response.send_message("未找到 welcome 频道（按名称匹配）", ephemeral=True)
             return
