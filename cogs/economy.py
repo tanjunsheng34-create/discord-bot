@@ -1738,13 +1738,31 @@ class Economy(CogBase):
     # ========== 比赛历史 /gmpt-history ==========
     @app_commands.command(name="gmpt-history", description="View match history / 查看比赛历史")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
-    @app_commands.describe(page="Page number (5 per page) / 页码（每页5场）")
-    async def history_cmd(self, interaction: discord.Interaction, page: int = 1):
-        uid = str(interaction.user.id)
+    @app_commands.describe(
+        user="查看指定用户的战绩 / View specific user's history",
+        page="Page number (10 per page) / 页码（每页10场）",
+    )
+    async def history_cmd(self, interaction: discord.Interaction, user: discord.Member = None, page: int = 1):
+        target = user or interaction.user
+        uid = str(target.id)
         conn = get_db(); cur = conn.cursor()
 
+        # Total stats
         cur.execute("""
-            SELECT tp.tournament_id, t.name as match_name, t.created_at,
+            SELECT COUNT(*) as total, SUM(wins) as wins, SUM(losses) as losses, SUM(draws) as draws
+            FROM tournament_players tp
+            JOIN tournaments t ON t.id = tp.tournament_id
+            WHERE tp.discord_id=? AND t.status='finished'
+        """, (uid,))
+        stats = cur.fetchone()
+        total = stats["total"] or 0
+        w_total = stats["wins"] or 0
+        l_total = stats["losses"] or 0
+        wr = round(w_total / max(total, 1) * 100, 1)
+
+        # Recent 10 matches
+        cur.execute("""
+            SELECT tp.tournament_id, t.name as match_name, t.created_at, t.bo_type,
                    tp.wins, tp.losses, tp.draws, r.team_id, rt.name as team_name
             FROM tournament_players tp
             JOIN tournaments t ON t.id = tp.tournament_id
@@ -1752,23 +1770,27 @@ class Economy(CogBase):
             LEFT JOIN teams rt ON rt.id = r.team_id
             WHERE tp.discord_id=? AND t.status='finished'
             ORDER BY t.created_at DESC
-            LIMIT 5 OFFSET ?
-        """, (uid, (page - 1) * 5))
+            LIMIT 10 OFFSET ?
+        """, (uid, (page - 1) * 10))
         rows = cur.fetchall()
         conn.close()
 
-        if not rows:
+        if total == 0:
             return await interaction.response.send_message(
-                "No match history. / 暂无比赛记录。" if page == 1
-                else "No more records. / 没有更多记录了。"
+                f"No match history for {target.display_name}. / 暂无 {target.display_name} 的比赛记录。"
             )
 
         embed = discord.Embed(
-            title=f"Match History / 比赛历史 — {interaction.user.display_name}",
+            title=f"Match History / 比赛历史 — {target.display_name}",
+            description=(
+                f"📊 总场次: **{total}** | 胜率: **{wr}%** | "
+                f"W:**{w_total}** L:**{l_total}** D:**{stats['draws'] or 0}**"
+            ),
             color=discord.Color.blue(),
         )
         for r in rows:
             date_str = r["created_at"][:10] if r["created_at"] else "N/A"
+            bo = f" [{r['bo_type']}]" if r.get("bo_type") and r["bo_type"] != "BO1" else ""
             w, l = r["wins"] or 0, r["losses"] or 0
             if w > l:
                 result, icon = "WIN", "🟢"
@@ -1778,7 +1800,7 @@ class Economy(CogBase):
                 d = r["draws"] or 0
                 result, icon = ("DRAW", "⚪") if d > 0 else ("N/A", "⚪")
             embed.add_field(
-                name=f"#{r['tournament_id']} — {r['match_name']}",
+                name=f"#{r['tournament_id']} — {r['match_name']}{bo}",
                 value=f"{date_str} | {icon} {result} | {r['team_name'] or 'N/A'}",
                 inline=False,
             )

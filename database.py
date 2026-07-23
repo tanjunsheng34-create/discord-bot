@@ -315,6 +315,15 @@ def _create_voice_giveaway_tables(cursor):
             PRIMARY KEY (discord_id, join_time)
         );
 
+        CREATE TABLE IF NOT EXISTS match_vc_config (
+            guild_id       TEXT NOT NULL,
+            team_a_vc_id   TEXT,
+            team_b_vc_id   TEXT,
+            lobby_vc_id    TEXT,
+            enabled        INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id)
+        );
+
         CREATE TABLE IF NOT EXISTS voice_tracker (
             user_id         TEXT PRIMARY KEY,
             total_seconds   INTEGER DEFAULT 0,
@@ -611,6 +620,28 @@ def _run_migrations(cursor):
         pass
     try:
         cursor.execute("ALTER TABLE registrations ADD COLUMN lane TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+
+    # BO series support
+    try:
+        cursor.execute("ALTER TABLE tournaments ADD COLUMN bo_type TEXT DEFAULT 'BO1'")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE tournaments ADD COLUMN current_game INTEGER DEFAULT 1")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE tournaments ADD COLUMN team_a_wins INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE tournaments ADD COLUMN team_b_wins INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE tournaments ADD COLUMN started_at TEXT DEFAULT NULL")
     except sqlite3.OperationalError:
         pass
 

@@ -59,6 +59,13 @@ class CreateMatchModal(discord.ui.Modal, title="创建比赛 / Create Match"):
         max_length=3,
         required=True,
     )
+    bo_type = discord.ui.TextInput(
+        label="BO类型 / BO Type (BO1/BO3/BO5)",
+        placeholder="BO1",
+        default="BO1",
+        max_length=3,
+        required=True,
+    )
 
     def __init__(self, guild, session):
         super().__init__()
@@ -73,18 +80,26 @@ class CreateMatchModal(discord.ui.Modal, title="创建比赛 / Create Match"):
         if mp < 2 or mp % 2 != 0:
             return await interaction.response.send_message("人数必须为大于2的偶数 / Must be an even number > 2.", ephemeral=True)
 
+        bo = self.bo_type.value.strip().upper()
+        if bo not in ("BO1", "BO3", "BO5"):
+            bo = "BO1"
+
         try:
             team_size = mp // 2
+            wins_needed = {"BO1": 1, "BO3": 2, "BO5": 3}.get(bo, 1)
             conn = get_db(); cur = conn.cursor()
             cur.execute(
-                "INSERT INTO tournaments (name, max_teams, team_size, created_by, status) VALUES (?, 2, ?, ?, 'open')",
-                (self.match_name.value, team_size, str(interaction.user.id)),
+                "INSERT INTO tournaments (name, max_teams, team_size, created_by, status, bo_type) "
+                "VALUES (?, 2, ?, ?, 'open', ?)",
+                (self.match_name.value, team_size, str(interaction.user.id), bo),
             )
             conn.commit(); tid = cur.lastrowid; conn.close()
 
             embed = discord.Embed(
-                title=f"Match: {self.match_name.value}",
-                description=f"**{mp}** 人 / Players | 每队 / Per Team: {team_size}\nClick below to sign up / 点击下方按钮报名",
+                title=f"Match: {self.match_name.value} [{bo}]",
+                description=f"**{mp}** 人 / Players | 每队 / Per Team: {team_size}\n"
+                            f"**{bo}** — 需赢 {wins_needed} 局 / Need {wins_needed} win(s)\n"
+                            f"Click below to sign up / 点击下方按钮报名",
                 color=discord.Color.blue(),
             ).set_footer(text=f"Match ID: {tid}")
             view = MatchView()
@@ -131,6 +146,13 @@ class CreateRoleMatchModal(discord.ui.Modal, title="创建选路比赛 / Create 
         max_length=3,
         required=True,
     )
+    bo_type = discord.ui.TextInput(
+        label="BO类型 / BO Type (BO1/BO3/BO5)",
+        placeholder="BO1",
+        default="BO1",
+        max_length=3,
+        required=True,
+    )
 
     def __init__(self, guild, session):
         super().__init__()
@@ -145,18 +167,26 @@ class CreateRoleMatchModal(discord.ui.Modal, title="创建选路比赛 / Create 
         if mp < 2 or mp % 2 != 0:
             return await interaction.response.send_message("人数必须为大于2的偶数 / Must be an even number > 2.", ephemeral=True)
 
+        bo = self.bo_type.value.strip().upper()
+        if bo not in ("BO1", "BO3", "BO5"):
+            bo = "BO1"
+
         try:
             team_size = mp // 2
+            wins_needed = {"BO1": 1, "BO3": 2, "BO5": 3}.get(bo, 1)
             conn = get_db(); cur = conn.cursor()
             cur.execute(
-                "INSERT INTO tournaments (name, max_teams, team_size, created_by, status, role_pick) VALUES (?, 2, ?, ?, 'open', 1)",
-                (self.match_name.value, team_size, str(interaction.user.id)),
+                "INSERT INTO tournaments (name, max_teams, team_size, created_by, status, role_pick, bo_type) "
+                "VALUES (?, 2, ?, ?, 'open', 1, ?)",
+                (self.match_name.value, team_size, str(interaction.user.id), bo),
             )
             conn.commit(); tid = cur.lastrowid; conn.close()
 
             embed = discord.Embed(
-                title=f"Match (选路): {self.match_name.value}",
-                description=f"**{mp}** 人 / Players | 每队 / Per Team: {team_size}\n选路比赛 — 报名时需选择路线 / Role-pick match, select lane on signup",
+                title=f"Match (选路): {self.match_name.value} [{bo}]",
+                description=f"**{mp}** 人 / Players | 每队 / Per Team: {team_size}\n"
+                            f"**{bo}** — 需赢 {wins_needed} 局 / Need {wins_needed} win(s)\n"
+                            f"选路比赛 — 报名时需选择路线 / Role-pick match, select lane on signup",
                 color=discord.Color.purple(),
             ).set_footer(text=f"Match ID: {tid}")
             view = MatchView()
@@ -1385,6 +1415,7 @@ class VoicePullView(discord.ui.View):
         teams = cur.fetchall()
         team_a_ids = []
         team_b_ids = []
+        seen_ids = set()
         for t in teams:
             cur.execute(
                 "SELECT discord_id FROM registrations WHERE team_id=? AND (is_sub IS NULL OR is_sub=0)",
@@ -1397,9 +1428,11 @@ class VoicePullView(discord.ui.View):
             name_upper = (t["name"] or "").strip().upper()
             is_a = name_upper.startswith("A ") or name_upper.startswith("A队") or "蓝" in name_upper
             if is_a and not team_a_ids:
-                team_a_ids = pids
+                team_a_ids = [pid for pid in pids if pid not in seen_ids]
+                seen_ids.update(team_a_ids)
             elif (not is_a) and not team_b_ids:
-                team_b_ids = pids
+                team_b_ids = [pid for pid in pids if pid not in seen_ids]
+                seen_ids.update(team_b_ids)
             if team_a_ids and team_b_ids:
                 break
         conn.close()
@@ -2534,20 +2567,62 @@ class MatchViewWithID(discord.ui.View):
                             content="结算已取消 / Settle cancelled.", embed=None, view=None
                         )
 
-                    analysis_embed = await _execute_settle(
-                        match_id=mid,
-                        win_team_id=flow.win_team_id,
-                        mvp_id=flow.mvp_id,
-                        guild=guild,
-                        match_name=t["name"],
-                        bot=interaction.client,
-                    )
+                    # BO series check
+                    conn_bo = get_db(); cur_bo = conn_bo.cursor()
+                    cur_bo.execute("SELECT bo_type, team_a_wins, team_b_wins, current_game FROM tournaments WHERE id=?", (mid,))
+                    bo_row = cur_bo.fetchone()
+                    bo_type = bo_row["bo_type"] if bo_row and bo_row["bo_type"] else "BO1"
+                    team_a_wins = bo_row["team_a_wins"] if bo_row else 0
+                    team_b_wins = bo_row["team_b_wins"] if bo_row else 0
+                    current_game = bo_row["current_game"] if bo_row else 1
+                    wins_needed = {"BO1": 1, "BO3": 2, "BO5": 3}.get(bo_type, 1)
 
-                    await mvp_int.edit_original_response(
-                        content="✅ 结算完成! / Settle complete!", embed=None, view=None
-                    )
+                    # Determine which team won (A or B) by checking team order
+                    cur_bo.execute("SELECT id, name FROM teams WHERE tournament_id=? ORDER BY id ASC", (mid,))
+                    all_teams = cur_bo.fetchall()
+                    is_team_a = (all_teams[0]["id"] == flow.win_team_id) if len(all_teams) >= 2 else True
+                    new_a_wins = team_a_wins + (1 if is_team_a else 0)
+                    new_b_wins = team_b_wins + (0 if is_team_a else 1)
+                    new_game = current_game + 1
+                    series_decided = (new_a_wins >= wins_needed) or (new_b_wins >= wins_needed)
 
-                    await _post_settle_actions(mid, t["name"], guild, interaction.channel, analysis_embed, interaction.client)
+                    if bo_type == "BO1" or series_decided:
+                        # Finalize settlement
+                        cur_bo.execute(
+                            "UPDATE tournaments SET team_a_wins=?, team_b_wins=?, current_game=?, status='finished' WHERE id=?",
+                            (new_a_wins, new_b_wins, new_game - 1, mid),
+                        )
+                        conn_bo.commit(); conn_bo.close()
+
+                        analysis_embed = await _execute_settle(
+                            match_id=mid,
+                            win_team_id=flow.win_team_id,
+                            mvp_id=flow.mvp_id,
+                            guild=guild,
+                            match_name=t["name"],
+                            bot=interaction.client,
+                        )
+
+                        await mvp_int.edit_original_response(
+                            content=f"✅ 结算完成! / Settle complete! [{bo_type} {new_a_wins}-{new_b_wins}]", embed=None, view=None
+                        )
+
+                        await _post_settle_actions(mid, t["name"], guild, interaction.channel, analysis_embed, interaction.client)
+                    else:
+                        # Update score for next game
+                        cur_bo.execute(
+                            "UPDATE tournaments SET team_a_wins=?, team_b_wins=?, current_game=? WHERE id=?",
+                            (new_a_wins, new_b_wins, new_game, mid),
+                        )
+                        conn_bo.commit(); conn_bo.close()
+
+                        await mvp_int.edit_original_response(
+                            content=f"📊 **{bo_type} Game {current_game}** 结算完成!\n"
+                                    f"当前比分 / Current Score: **{new_a_wins} - {new_b_wins}**\n"
+                                    f"需赢 {wins_needed} 局 / Need {wins_needed} win(s)\n"
+                                    f"比赛仍在进行 / Match still in progress!",
+                            embed=None, view=None,
+                        )
 
                 mvp_select.callback = mvp_callback
                 mvp_view = discord.ui.View(timeout=120)
@@ -2932,16 +3007,19 @@ class MatchViewWithID(discord.ui.View):
 
         await interaction.response.defer(ephemeral=True)
 
+        from datetime import datetime
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         conn = get_db()
         try:
             cur = conn.cursor()
-            cur.execute("UPDATE tournaments SET status='closed' WHERE id=?", (mid,))
+            cur.execute("UPDATE tournaments SET status='closed', started_at=? WHERE id=?", (now, mid))
             conn.commit()
         finally:
             conn.close()
 
         await interaction.followup.send(
-            "▶️ **比赛已开始！报名已锁定。** / Match started! Signups are now locked.",
+            "▶️ **比赛已开始！报名已锁定。** / Match started! Signups are now locked.\n"
+            f"🕐 开始时间: {now}",
             ephemeral=True,
         )
 
@@ -2951,7 +3029,9 @@ class MatchViewWithID(discord.ui.View):
             if embeds:
                 embed = embeds[0]
                 embed.color = discord.Color.orange()
-                embed.set_footer(text=embed.footer.text + " | 已开始/Started" if embed.footer.text else "已开始/Started")
+                bo_type = t["bo_type"] if "bo_type" in t.keys() else "BO1"
+                footer = f"已开始/Started | {bo_type} | 🕐 {now}"
+                embed.set_footer(text=footer)
                 await interaction.message.edit(embed=embed)
         except Exception as e:
             log_error("dashboard", "message_edit", e)
@@ -4425,13 +4505,15 @@ class DashboardView(discord.ui.View):
             btns = [
                 ("🎮 创建比赛\nCreate Match", "create_match"),
                 ("📋 报名\nSign Up", "signup"),
-                ("🎲 随机分队\nRandom Teams", "shuffle"),
-                ("🔴🔵 分AB队\nTeam A/B", "assign_teams"),
-                ("⚔️ 开始比赛\nStart Match", "start_match"),
+                ("🎲 随机分队\nRandom", "shuffle"),
+                ("🔴🔵 手动分队\nManual", "assign_teams"),
                 ("🏁 结算\nSettle", "settle"),
                 ("🔊 拉入语音\nPull VC", "pull_voice"),
                 ("👑 选队长\nPick Captain", "pick_captain"),
             ]
+            # Pad to 8 slots for consistent grid
+            while len(btns) < 8:
+                btns.append(None)
         elif page == 2:
             btns = [
                 ("🏆 创建赛事\nCreate", "create_tournament"),
@@ -4619,7 +4701,11 @@ class DashboardView(discord.ui.View):
         if self.page == 1:
             desc = "⚔️ **Match System / 比赛系统** — 创建、报名、分队、结算\nClick a button below / 点击下方按钮"
         elif self.page == 2:
-            desc = "🏆 **Tournament System / 赛事系统** — 创建赛事、报名、选秀、上报\nClick a button below / 点击下方按钮"
+            desc = (
+                "🏆 **Tournament System / 赛事系统**\n"
+                "① 创建赛事 Create  ② 报名 Sign Up  ③ 队长选秀 Draft  ④ 上报比分 Report\n"
+                "⑤ 对阵表 Bracket  ⑥ 排名 Standings  ⑦ 记录 History  ⑧ 定时赛事 Scheduled"
+            )
         elif self.page == 3:
             desc = "👤 **Player / 玩家** — 资料、历史、挑战、排行\ne.g. 赛季、Profile、History、MVP"
         elif self.page == 4:
@@ -4826,75 +4912,6 @@ class DashboardView(discord.ui.View):
             await sel_int.response.send_message(embed=embed, view=view, ephemeral=False)
 
         select.callback = assign_callback
-        view = discord.ui.View(timeout=60)
-        view.add_item(select)
-        await interaction.followup.send(view=view, ephemeral=True)
-
-    async def _start_match(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(
-            "SELECT id, name FROM tournaments WHERE status='open' AND max_teams=2 ORDER BY id DESC LIMIT 25"
-        )
-        matches = cur.fetchall()
-        conn.close()
-
-        if not matches:
-            return await interaction.followup.send("当前没有可开始的比赛 / No open matches.", ephemeral=True)
-
-        options = []
-        for m in matches:
-            options.append(discord.SelectOption(
-                label=m["name"][:100],
-                value=str(m["id"]),
-                description=f"ID: {m['id']}",
-            ))
-
-        select = discord.ui.Select(
-            placeholder="选择比赛 / Select a match...",
-            options=options[:25],
-        )
-
-        async def start_callback(sel_int: discord.Interaction):
-            mid = int(sel_int.data["values"][0])
-
-            embed = discord.Embed(
-                title="确认开始 / Confirm Start",
-                description=f"确定要关闭比赛报名并开始吗?\nClose signup and start?\nMatch ID: {mid}",
-                color=discord.Color.orange(),
-            )
-            confirm_view = ConfirmView(timeout=30)
-            await sel_int.response.send_message(embed=embed, view=confirm_view, ephemeral=True)
-            await confirm_view.wait()
-            if confirm_view.value is None or not confirm_view.value:
-                return
-
-            conn2 = get_db(); cur2 = conn2.cursor()
-            cur2.execute("UPDATE tournaments SET status='closed' WHERE id=? AND status='open'", (mid,))
-            try:
-                conn2.commit()
-                # Record match start event for replay
-                cur2.execute(
-                    "INSERT INTO match_events (tournament_id, event_type) VALUES (?, 'start')",
-                    (mid,),
-                )
-                conn2.commit()
-            finally:
-                conn2.close()
-            await sel_int.edit_original_response(
-                content=f"比赛 / Match (ID: {mid}) 已开始! Started! 报名已关闭 / Signup closed.",
-                embed=None,
-                view=None,
-            )
-
-            conn3 = get_db(); cur3 = conn3.cursor()
-            cur3.execute("SELECT name FROM tournaments WHERE id=?", (mid,))
-            t_name_row = cur3.fetchone()
-            match_name = t_name_row["name"] if t_name_row else "Unknown"
-            conn3.close()
-            await VoteView.send_vote(match_id=mid, match_name=match_name, channel=sel_int.channel)
-
-        select.callback = start_callback
         view = discord.ui.View(timeout=60)
         view.add_item(select)
         await interaction.followup.send(view=view, ephemeral=True)
@@ -5187,8 +5204,11 @@ class DashboardView(discord.ui.View):
             mid = int(sel_int.data["values"][0])
             conn2 = get_db(); cur2 = conn2.cursor()
             cur2.execute(
-                "SELECT r.discord_id, r.tier, u.username FROM registrations r "
-                "LEFT JOIN users u ON u.discord_id=r.discord_id WHERE r.tournament_id=?",
+                "SELECT r.discord_id, COALESCE(m.rank, 'UNRANKED') as tier, u.username "
+                "FROM registrations r "
+                "LEFT JOIN users u ON u.discord_id=r.discord_id "
+                "LEFT JOIN mmr m ON m.discord_id=r.discord_id "
+                "WHERE r.tournament_id=?",
                 (mid,),
             )
             players = cur2.fetchall()
@@ -7717,6 +7737,127 @@ class Dashboard(CogBase):
                 await interaction.followup.send(f"恢复失败 / Recovery failed: {e}", ephemeral=True)
             except Exception as e:
                 log_error("dashboard", "followup_send", e)
+
+    # ========== VC Auto-Assign / 语音自动分房 ==========
+
+    @app_commands.command(name="gmpt-vc-setup", description="Setup auto voice channel assignment / 设置自动语音分房 (Admin)")
+    @app_commands.describe(
+        team_a="A队语音频道 / Team A voice channel",
+        team_b="B队语音频道 / Team B voice channel",
+        lobby="大厅语音频道 / Lobby voice channel",
+    )
+    async def vc_setup_cmd(
+        self, interaction: discord.Interaction,
+        team_a: discord.VoiceChannel = None,
+        team_b: discord.VoiceChannel = None,
+        lobby: discord.VoiceChannel = None,
+    ):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("Admin only. / 仅管理员。", ephemeral=True)
+
+        gid = str(interaction.guild_id)
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "INSERT OR REPLACE INTO match_vc_config (guild_id, team_a_vc_id, team_b_vc_id, lobby_vc_id, enabled) "
+            "VALUES (?, ?, ?, ?, 1)",
+            (
+                gid,
+                str(team_a.id) if team_a else None,
+                str(team_b.id) if team_b else None,
+                str(lobby.id) if lobby else None,
+            ),
+        )
+        conn.commit(); conn.close()
+
+        embed = discord.Embed(
+            title="语音自动分房配置 / VC Auto-Assign Config",
+            description=(
+                f"✅ 已保存 / Saved!\n"
+                f"🔴 A队 VC: {team_a.mention if team_a else '❌ 未设置 / Not set'}\n"
+                f"🔵 B队 VC: {team_b.mention if team_b else '❌ 未设置 / Not set'}\n"
+                f"🏠 大厅 VC: {lobby.mention if lobby else '❌ 未设置 / Not set'}"
+            ),
+            color=discord.Color.green(),
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    async def _auto_assign_vc(self, match_id: int, guild: discord.Guild) -> str:
+        """Auto-assign team members to configured VCs. Returns status message."""
+        gid = str(guild.id)
+        conn = get_db(); cur = conn.cursor()
+
+        cur.execute("SELECT * FROM match_vc_config WHERE guild_id=? AND enabled=1", (gid,))
+        config = cur.fetchone()
+        if not config:
+            conn.close()
+            return "❌ VC未配置 / VC not configured. Use /gmpt-vc-setup."
+
+        cur.execute("""
+            SELECT r.discord_id, r.team_id, t.name as team_name
+            FROM registrations r
+            JOIN teams t ON t.id = r.team_id
+            WHERE r.tournament_id=? AND (r.is_sub IS NULL OR r.is_sub=0)
+        """, (match_id,))
+        players = cur.fetchall()
+        conn.close()
+
+        if not players:
+            return "❌ 无参赛选手 / No players registered."
+
+        # Determine which team is A (first team by id)
+        team_ids = sorted(set(p["team_id"] for p in players))
+        if len(team_ids) < 2:
+            return "❌ 需要两支队伍 / Need two teams."
+
+        team_a_id = team_ids[0]
+        team_b_id = team_ids[1]
+
+        vc_a = guild.get_channel(int(config["team_a_vc_id"])) if config["team_a_vc_id"] else None
+        vc_b = guild.get_channel(int(config["team_b_vc_id"])) if config["team_b_vc_id"] else None
+
+        moved_a, moved_b, failed = 0, 0, 0
+        for p in players:
+            member = guild.get_member(int(p["discord_id"]))
+            if not member or not member.voice or not member.voice.channel:
+                failed += 1
+                continue
+
+            target_vc = vc_a if p["team_id"] == team_a_id else vc_b
+            if target_vc and member.voice.channel.id != target_vc.id:
+                try:
+                    await member.move_to(target_vc)
+                    if p["team_id"] == team_a_id:
+                        moved_a += 1
+                    else:
+                        moved_b += 1
+                except Exception:
+                    failed += 1
+
+        return (
+            f"✅ 自动分房完成! / Auto-assign done!\n"
+            f"🔴 A队 VC: {moved_a} 人 | 🔵 B队 VC: {moved_b} 人"
+            + (f"\n⚠️ 失败: {failed} 人" if failed else "")
+        )
+
+    @app_commands.command(name="gmpt-vc-assign", description="Auto-assign players to voice channels / 自动语音分房")
+    @app_commands.describe(match_id="比赛 ID / Match ID (optional, uses latest)")
+    async def vc_assign_cmd(self, interaction: discord.Interaction, match_id: int = None):
+        await interaction.response.defer(ephemeral=True)
+
+        conn = get_db(); cur = conn.cursor()
+        if match_id:
+            cur.execute("SELECT id FROM tournaments WHERE id=? AND status='closed'", (match_id,))
+        else:
+            cur.execute("SELECT id FROM tournaments WHERE status='closed' ORDER BY id DESC LIMIT 1")
+        row = cur.fetchone()
+        conn.close()
+
+        if not row:
+            return await interaction.followup.send("无进行中的比赛 / No active match.", ephemeral=True)
+
+        mid = row["id"]
+        result = await self._auto_assign_vc(mid, interaction.guild)
+        await interaction.followup.send(result)
 
 
 async def setup(bot):
