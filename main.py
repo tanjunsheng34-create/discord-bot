@@ -381,6 +381,31 @@ async def on_ready():
     print("=" * 50)
     print("GMPT Bot v3.5 已启动 - 欢迎消息使用新版四板块")
     print("=" * 50)
+
+    # ── 启动自检：图片生成依赖 ──
+    dep_status = []
+    try:
+        from PIL import Image, ImageFont, ImageDraw
+        dep_status.append("✅ Pillow OK")
+    except Exception:
+        dep_status.append("❌ Pillow 缺失 → Actions/Meme 将无法生成图片")
+    try:
+        import imageio
+        dep_status.append("✅ imageio OK")
+    except Exception:
+        dep_status.append("❌ imageio 缺失 → Meme 将使用文字模式")
+    font_ok = False
+    for fp in [
+        r"C:\Windows\Fonts\seguiemj.ttf",
+        r"C:\Windows\Fonts\segoeui.ttf",
+        r"C:\Windows\Fonts\msyh.ttc",
+    ]:
+        if os.path.exists(fp):
+            font_ok = True
+            break
+    dep_status.append("✅ 字体 OK" if font_ok else "❌ 字体缺失 → 图片文字可能乱码")
+    print(" | ".join(dep_status))
+
     init_db()
     # Periodic database maintenance
     try:

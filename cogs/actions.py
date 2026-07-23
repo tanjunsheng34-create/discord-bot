@@ -12,19 +12,16 @@ from discord import app_commands
 from discord.ext import commands
 
 from utils.cog_base import CogBase
+from utils.logger import log_error
 from database import get_db
-
-import logging
-
-logger = logging.getLogger(__name__)
 
 # 每个动作对应的配置
 ACTION_CONFIG = {
-    "hug":  {"emoji": "🤗", "verb_cn": "拥抱了", "verb_en": "Hug"},
-    "slap": {"emoji": "👋", "verb_cn": "拍打了", "verb_en": "Slap"},
-    "pat":  {"emoji": "🫳", "verb_cn": "摸了摸", "verb_en": "Pat"},
-    "kiss": {"emoji": "💋", "verb_cn": "亲吻了", "verb_en": "Kiss"},
-    "kill": {"emoji": "💀", "verb_cn": "击杀了", "verb_en": "Kill"},
+    "hug":  {"emoji": "🤗", "verb_cn": "拥抱了", "verb_en": "Hug", "color": 0xE91E63},
+    "slap": {"emoji": "👋", "verb_cn": "拍打了", "verb_en": "Slap", "color": 0xE74C3C},
+    "pat":  {"emoji": "✋", "verb_cn": "摸了摸", "verb_en": "Pat", "color": 0x2ECC71},
+    "kiss": {"emoji": "💋", "verb_cn": "亲吻了", "verb_en": "Kiss", "color": 0x9B59B6},
+    "kill": {"emoji": "💀", "verb_cn": "击杀了", "verb_en": "Kill", "color": 0x8B0000},
 }
 
 # 渐变配色方案
@@ -160,17 +157,27 @@ class ActionsCog(CogBase):
         conn.commit()
         conn.close()
 
-        # 生成图片 (discord.File)
-        file = _generate_action_image(action_name, user1_name, user2_name)
-
-        embed = discord.Embed(
-            title=title,
-            color=0x9B59B6,
-        )
-        embed.set_image(url=f"attachment://{action_name}.png")
-        embed.set_footer(text=f"+5 💰 送给了 {user2_name} | +5 💰 sent to {user2_name}")
-
-        await interaction.response.send_message(embed=embed, file=file)
+        # 生成图片 (discord.File) — 失败则文字兜底
+        cfg = ACTION_CONFIG[action_name]
+        try:
+            file = _generate_action_image(action_name, user1_name, user2_name)
+            embed = discord.Embed(
+                title=title,
+                color=cfg["color"],
+            )
+            embed.set_image(url=f"attachment://{action_name}.png")
+            embed.set_footer(text=f"+5 💰 送给了 {user2_name} | +5 💰 sent to {user2_name}")
+            await interaction.response.send_message(embed=embed, file=file)
+        except Exception as e:
+            log_error("actions", f"_do_action:{action_name}", e)
+            # 文字 fallback：大号 emoji + 动作描述
+            embed = discord.Embed(
+                title=f"{user1_name} {cfg['verb_cn']} {user2_name}！",
+                description=f"# {cfg['emoji']}  {cfg['verb_en']}\n{user1_name} {cfg['verb_cn']} {user2_name}",
+                color=cfg["color"],
+            )
+            embed.set_footer(text=f"+5 💰 送给了 {user2_name} | +5 💰 sent to {user2_name}")
+            await interaction.response.send_message(embed=embed)
 
     # ── 命令定义 ──
 
