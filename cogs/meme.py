@@ -228,7 +228,19 @@ class Meme(commands.Cog):
 
         except Exception as e:
             log_error("meme", "meme_cmd", e)
-            await interaction.followup.send(f"生成失败 / Generation failed: {e}", ephemeral=True)
+            # Fallback: text-only embed with large styled text
+            tpl = TEMPLATE_DEFS[template]
+            embed = discord.Embed(
+                title=f"📸 Meme — {tpl['label']}",
+                description=(
+                    f"*(图片生成失败，以下是文字版 / Image failed, text fallback)*\n\n"
+                    f"**⬆️ {top_text.upper() if top_text else '...'}**\n"
+                    f"**⬇️ {bottom_text.upper() if bottom_text else '...'}**"
+                ),
+                color=discord.Color.from_rgb(*tpl["bg_color"]),
+            )
+            embed.set_footer(text=f"模板: {template} | by {interaction.user.display_name}")
+            await interaction.followup.send(embed=embed, ephemeral=False)
         finally:
             try:
                 if os.path.exists(output_path):

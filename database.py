@@ -339,6 +339,15 @@ def _create_voice_giveaway_tables(cursor):
             tickets INTEGER DEFAULT 0
         );
 
+        CREATE TABLE IF NOT EXISTS giveaway_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            giveaway_id INTEGER NOT NULL,
+            discord_id TEXT NOT NULL,
+            tickets_used INTEGER DEFAULT 1,
+            entered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (giveaway_id) REFERENCES giveaways(id)
+        );
+
         CREATE TABLE IF NOT EXISTS giveaways (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             channel_id TEXT,

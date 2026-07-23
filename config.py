@@ -15,7 +15,6 @@ BACKUP_TABLES: list = [
     "users",
     "voice_tracker",
     "daily_checkin",
-    "giveaway",
     "giveaway_entries",
     "user_inventory",
     "giveaways",
