@@ -6,26 +6,10 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from utils.cog_base import CogBase
 
-class Announce(commands.Cog):
-    async def cog_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
-        try:
-            if isinstance(error, app_commands.CommandOnCooldown):
-                remaining = int(error.retry_after)
-                msg = f"⏳ 冷却中，请等 {remaining} 秒 / Cooldown, wait {remaining}s."
-                if not interaction.response.is_done():
-                    await interaction.response.send_message(msg, ephemeral=True)
-                else:
-                    await interaction.followup.send(msg, ephemeral=True)
-            else:
-                err_msg = f"❌ 错误: {error}"
-                if not interaction.response.is_done():
-                    await interaction.response.send_message(err_msg, ephemeral=True)
-                else:
-                    await interaction.followup.send(err_msg, ephemeral=True)
-        except Exception:
-            pass
 
+class Announce(CogBase):
     def __init__(self, bot):
         self.bot = bot
 

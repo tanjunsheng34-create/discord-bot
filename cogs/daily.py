@@ -16,6 +16,7 @@ import sqlite3
 import time as time_mod
 import random
 from utils.logger import log_error
+from utils.cog_base import CogBase
 
 logger = logging.getLogger(__name__)
 
@@ -37,29 +38,11 @@ STREAK_REWARDS = {
 # ══════════════════════════════════════════════════
 #  Command Group
 # ══════════════════════════════════════════════════
-class Daily(commands.Cog):
+class Daily(CogBase):
     daily_group = app_commands.Group(
         name="gmpt-daily",
         description="Daily voice reward system / 每日语音奖励系统",
     )
-
-    async def cog_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
-        try:
-            if isinstance(error, app_commands.CommandOnCooldown):
-                remaining = int(error.retry_after)
-                msg = f"⏳ 冷却中，请等 {remaining} 秒 / Cooldown, wait {remaining}s."
-                if not interaction.response.is_done():
-                    await interaction.response.send_message(msg, ephemeral=True)
-                else:
-                    await interaction.followup.send(msg, ephemeral=True)
-            else:
-                err_msg = f"❌ 错误: {error}"
-                if not interaction.response.is_done():
-                    await interaction.response.send_message(err_msg, ephemeral=True)
-                else:
-                    await interaction.followup.send(err_msg, ephemeral=True)
-        except Exception:
-            pass
 
     def __init__(self, bot):
         self.bot = bot

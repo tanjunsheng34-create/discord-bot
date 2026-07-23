@@ -15,6 +15,7 @@ from collections import defaultdict
 
 import logging
 from utils.logger import log_error
+from utils.cog_base import CogBase
 logger = logging.getLogger(__name__)
 
 
@@ -397,6 +398,63 @@ class DraftView(discord.ui.View):
         embed = self.build_embed()
         await interaction.edit_original_response(embed=embed, view=self)
 
+    @discord.ui.button(label="Skip»自动平衡 / Auto Balance", style=discord.ButtonStyle.primary,
+                       emoji="⚡", row=2, custom_id="draft_autobalance")
+    async def skip_to_autobalance(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        cap = self.current_captain
+        if not cap:
+            return await interaction.followup.send("Draft error.", ephemeral=True)
+        if str(interaction.user.id) != cap["captain_id"]:
+            is_any_captain = any(c["captain_id"] == str(interaction.user.id) for c in self.captains)
+            if not is_any_captain:
+                return await interaction.followup.send(
+                    "Only captains can use this. / 仅队长可用。",
+                    ephemeral=True,
+                )
+
+        # Complete the draft and transition to AssignView with auto balance
+        conn = get_db(); cur = conn.cursor()
+        cur.execute("UPDATE draft_sessions SET status='completed' WHERE id=?", (self.draft_id,))
+        conn.commit(); conn.close()
+
+        # Build all_players for AssignView
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT discord_id, tier, display_name FROM tournament_players "
+            "JOIN users ON users.id=discord_id OR users.discord_id=discord_id "
+            "WHERE tournament_id=?",
+            (self.tournament_id,),
+        )
+        all_players = []
+        for row in cur.fetchall():
+            pid = str(row["discord_id"])
+            tier = row["tier"] or ""
+            name = row.get("display_name") or pid
+            score = TIER_SCORE.get(tier.upper(), 0)
+            all_players.append((pid, score, name, tier))
+        conn.close()
+
+        # Disable current view
+        for child in self.children:
+            child.disabled = True
+        embed = self.build_embed()
+        embed.title = f"选秀已结束 / Draft Ended — 前往自动平衡"
+        embed.description = "⚡ 正在打开自动平衡分队..."
+        embed.color = discord.Color.orange()
+        await interaction.edit_original_response(embed=embed, view=self)
+
+        # Send AssignView as followup
+        assign_view = AssignView(
+            draft_id=self.draft_id,
+            captains_info=self.captains,
+            all_players=all_players,
+            guild=self.guild,
+        )
+        assign_view._auto_balance()  # Immediately auto-balance
+        assign_view._rebuild_select()
+        await interaction.followup.send(embed=assign_view.build_embed(), view=assign_view)
+
     @discord.ui.button(label="结束选秀 / End Draft", style=discord.ButtonStyle.danger,
                        emoji="🏁", row=2, custom_id="draft_end")
     async def end_draft(self, interaction: discord.Interaction, button):
@@ -422,9 +480,34 @@ class DraftView(discord.ui.View):
         self._rebuild_select()
         embed = self.build_embed()
         embed.title = f"Draft Complete — {embed.title.replace('Draft — ', '')}"
-        embed.description = "✅ 队长选秀已完成！ / Captain Draft completed!"
+        embed.description = "✅ 队长选秀已完成！ / Captain Draft completed! — 打开分配面板"
         embed.color = discord.Color.gold()
         await interaction.edit_original_response(embed=embed, view=self)
+
+        # Build AssignView and send as followup
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT tp.discord_id, tp.tier, u.display_name FROM tournament_players tp "
+            "LEFT JOIN users u ON u.discord_id=tp.discord_id "
+            "WHERE tp.tournament_id=?",
+            (self.tournament_id,),
+        )
+        all_players = []
+        for row in cur.fetchall():
+            pid = str(row["discord_id"])
+            tier = row["tier"] or ""
+            name = row.get("display_name") or pid
+            score = TIER_SCORE.get(tier.upper(), 0)
+            all_players.append((pid, score, name, tier))
+        conn.close()
+
+        assign_view = AssignView(
+            draft_id=self.draft_id,
+            captains_info=self.captains,
+            all_players=all_players,
+            guild=self.guild,
+        )
+        await interaction.followup.send(embed=assign_view.build_embed(), view=assign_view)
 
     def build_embed(self):
         embed = discord.Embed(
@@ -473,6 +556,257 @@ class DraftView(discord.ui.View):
             )
 
         return embed
+
+
+# =============================================================================
+# AssignView — 团队分配界面（选秀完成后）
+# =============================================================================
+
+class AssignView(discord.ui.View):
+    """团队分配界面：支持手动调整、自动平衡、随机分队。"""
+
+    def __init__(self, draft_id, captains_info, all_players, guild, timeout=600):
+        super().__init__(timeout=None)
+        self.draft_id = draft_id
+        self.captains = captains_info  # list of {captain_id, team_name, pick_order, tier_score}
+        self.guild = guild
+        self.all_players = all_players  # list of (discord_id, tier_score, display_name, tier_str)
+
+        # team_assignments: {captain_id: [player_discord_ids]}
+        self.team_assignments = {}
+        for c in self.captains:
+            self.team_assignments[c["captain_id"]] = []
+
+        # Load existing draft picks from DB
+        self._load_draft_picks()
+        self._rebuild_select()
+
+    def _load_draft_picks(self):
+        conn = get_db(); cur = conn.cursor()
+        cur.execute(
+            "SELECT captain_id, player_id FROM draft_picks WHERE draft_id=? ORDER BY pick_number",
+            (self.draft_id,),
+        )
+        picks = cur.fetchall()
+        conn.close()
+        for p in picks:
+            cid = p["captain_id"]
+            pid = p["player_id"]
+            if cid in self.team_assignments:
+                self.team_assignments[cid].append(pid)
+
+    def _get_unassigned(self):
+        all_assigned = set()
+        for players in self.team_assignments.values():
+            all_assigned.update(players)
+        captain_ids = {c["captain_id"] for c in self.captains}
+        return [p for p in self.all_players if p[0] not in all_assigned and p[0] not in captain_ids]
+
+    def _get_team_players(self, captain_id):
+        return self.team_assignments.get(captain_id, [])
+
+    def _get_team_total_score(self, captain_id):
+        cap = next((c for c in self.captains if c["captain_id"] == captain_id), None)
+        cap_score = cap["tier_score"] if cap else 0
+        pick_score = 0
+        for pid in self._get_team_players(captain_id):
+            pinfo = next((p for p in self.all_players if p[0] == pid), None)
+            if pinfo:
+                pick_score += pinfo[1]
+        return cap_score + pick_score
+
+    def _rebuild_select(self):
+        for child in list(self.children):
+            if isinstance(child, discord.ui.Select):
+                self.remove_item(child)
+
+        unassigned = self._get_unassigned()
+        options = []
+        for pid, score, name, tier_str in unassigned:
+            options.append(discord.SelectOption(
+                label=name[:25], value=pid,
+                description=f"Score: {score} | {tier_str}"[:50],
+            ))
+
+        if not options:
+            options.append(discord.SelectOption(
+                label="(无待分配玩家 / No players left)",
+                value="__none__",
+            ))
+
+        select = discord.ui.Select(
+            placeholder="选择玩家 / Select a player...",
+            options=options[:25],
+            custom_id="assign_select",
+            row=0,
+        )
+        select.callback = self.select_callback
+        self.add_item(select)
+
+    async def select_callback(self, interaction: discord.Interaction):
+        val = interaction.data["values"][0]
+        if val == "__none__":
+            return await interaction.response.defer()
+        # Just store selection — no side effects
+        self._pending_player = val
+        pname = next((p[2] for p in self.all_players if p[0] == val), val)
+        await interaction.response.send_message(
+            f"已选择: **{pname}** — 点击「加入 A 队」或「加入 B 队」",
+            ephemeral=True,
+        )
+
+    def _assign_player(self, player_id, captain_id):
+        if player_id in self.team_assignments.get(captain_id, []):
+            return False
+        # Remove from any other team first
+        for cid in self.team_assignments:
+            if player_id in self.team_assignments[cid]:
+                self.team_assignments[cid].remove(player_id)
+        self.team_assignments[captain_id].append(player_id)
+        return True
+
+    def _clear_team(self, captain_id):
+        self.team_assignments[captain_id] = []
+
+    def build_embed(self):
+        c0 = self.captains[0]
+        c1 = self.captains[1] if len(self.captains) > 1 else None
+        embed = discord.Embed(
+            title=f"Team Assign / 团队分配",
+            description=f"Draft #{self.draft_id} — 手动调整队伍或使用自动平衡",
+            color=discord.Color.teal(),
+        )
+
+        for cap in self.captains:
+            players = self._get_team_players(cap["captain_id"])
+            tscore = self._get_team_total_score(cap["captain_id"])
+            names = [_display_name(self.guild, pid) for pid in players]
+            cnt = len(players)
+            embed.add_field(
+                name=f"{cap['team_name']} ({cnt}人, {tscore} pts)",
+                value="\n".join(names) if names else "(暂无队员 / Empty)",
+                inline=True,
+            )
+
+        if c1:
+            diff = abs(self._get_team_total_score(c0["captain_id"]) - self._get_team_total_score(c1["captain_id"]))
+            embed.add_field(name="差距 / Gap", value=f"{diff} pts", inline=True)
+
+        unassigned = self._get_unassigned()
+        if unassigned:
+            remaining = [f"{p[2]} ({p[3]}, {p[1]}pts)" for p in unassigned]
+            if len(remaining) > 10:
+                remaining = remaining[:10] + [f"... 还有 {len(unassigned) - 10} 人"]
+            embed.add_field(
+                name=f"待分配 / Unassigned ({len(unassigned)})",
+                value="\n".join(remaining),
+                inline=False,
+            )
+
+        return embed
+
+    def _auto_balance(self):
+        """按 MMR 蛇形分配所有未分配选手。"""
+        unassigned = self._get_unassigned()
+        # Sort by tier_score descending
+        unassigned.sort(key=lambda p: p[1], reverse=True)
+        team_order = [self.captains[0]["captain_id"], self.captains[1]["captain_id"]]
+        # Snake pattern: 0, 1, 1, 0, 0, 1, 1, 0, ...
+        snake = []
+        for i in range(len(unassigned)):
+            pair_idx = i // 2
+            if pair_idx % 2 == 0:
+                snake.append(team_order[i % 2])  # 0, 1
+            else:
+                snake.append(team_order[1 - (i % 2)])  # 1, 0
+        # Clear existing
+        for c in self.captains:
+            self.team_assignments[c["captain_id"]] = []
+        for i, (pid, score, name, tier_str) in enumerate(unassigned):
+            self.team_assignments[snake[i]].append(pid)
+
+    def _random_split(self):
+        """纯随机分配所有未分配选手。"""
+        import random
+        unassigned = self._get_unassigned()
+        shuffled = list(unassigned)
+        random.shuffle(shuffled)
+        mid = len(shuffled) // 2
+        # Clear existing
+        self.team_assignments[self.captains[0]["captain_id"]] = [p[0] for p in shuffled[:mid + len(shuffled) % 2]]
+        self.team_assignments[self.captains[1]["captain_id"]] = [p[0] for p in shuffled[mid + len(shuffled) % 2:]]
+
+    # ── 按钮 ──
+
+    @discord.ui.button(label="加入 A 队 / A", style=discord.ButtonStyle.primary, row=1, custom_id="assign_team_a")
+    async def btn_team_a(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        if not hasattr(self, '_pending_player') or not self._pending_player:
+            return await interaction.followup.send("请先从下拉菜单选择一个玩家。", ephemeral=True)
+        cap_id = self.captains[0]["captain_id"]
+        self._assign_player(self._pending_player, cap_id)
+        self._pending_player = None
+        self._rebuild_select()
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="加入 B 队 / B", style=discord.ButtonStyle.danger, row=1, custom_id="assign_team_b")
+    async def btn_team_b(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        if not hasattr(self, '_pending_player') or not self._pending_player:
+            return await interaction.followup.send("请先从下拉菜单选择一个玩家。", ephemeral=True)
+        cap_id = self.captains[1]["captain_id"]
+        self._assign_player(self._pending_player, cap_id)
+        self._pending_player = None
+        self._rebuild_select()
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="清空 / Clear", style=discord.ButtonStyle.secondary, row=2, custom_id="assign_clear")
+    async def btn_clear(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        for c in self.captains:
+            self._clear_team(c["captain_id"])
+        self._rebuild_select()
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="⚡ 自动平衡分队", style=discord.ButtonStyle.success, row=2, custom_id="assign_auto_balance")
+    async def btn_auto_balance(self, interaction: discord.Interaction, button):
+        await interaction.response.defer()
+        self._auto_balance()
+        self._rebuild_select()
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="🎲 随机分队", style=discord.ButtonStyle.secondary, row=2, custom_id="assign_random")
+    async def btn_random(self, interaction: discord.Interaction, button):
+        await interaction.response.defer()
+        self._random_split()
+        self._rebuild_select()
+        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="✅ 确认分队", style=discord.ButtonStyle.primary, row=3, custom_id="assign_confirm")
+    async def btn_confirm(self, interaction: discord.Interaction, button):
+        await interaction.response.defer()
+        # Save assignments to DB
+        conn = get_db(); cur = conn.cursor()
+        # Clear existing picks and re-insert
+        cur.execute("DELETE FROM draft_picks WHERE draft_id=?", (self.draft_id,))
+        pick_num = 0
+        for cap in self.captains:
+            for pid in self._get_team_players(cap["captain_id"]):
+                pick_num += 1
+                cur.execute(
+                    "INSERT INTO draft_picks (draft_id, captain_id, player_id, pick_number) VALUES (?,?,?,?)",
+                    (self.draft_id, cap["captain_id"], pid, pick_num),
+                )
+        cur.execute("UPDATE draft_sessions SET status='completed' WHERE id=?", (self.draft_id,))
+        conn.commit(); conn.close()
+
+        for child in self.children:
+            child.disabled = True
+        embed = self.build_embed()
+        embed.title = "团队已确认 / Teams Confirmed"
+        embed.description = "✅ 分队已完成！各队长可查看最终名单。"
+        embed.color = discord.Color.gold()
+        await interaction.edit_original_response(embed=embed, view=self)
 
 
 # =============================================================================
@@ -1045,27 +1379,8 @@ class DraftSetupView(discord.ui.View):
 # =============================================================================
 
 
-class Tournament(commands.Cog):
+class Tournament(CogBase):
     """锦标赛 Tournament System"""
-
-    async def cog_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
-        try:
-            if isinstance(error, app_commands.CommandOnCooldown):
-                remaining = int(error.retry_after)
-                msg = f"⏳ 冷却中，请等 {remaining} 秒 / Cooldown, wait {remaining}s."
-                if not interaction.response.is_done():
-                    await interaction.response.send_message(msg, ephemeral=True)
-                else:
-                    await interaction.followup.send(msg, ephemeral=True)
-            else:
-                err_msg = f"❌ 错误: {error}"
-                if not interaction.response.is_done():
-                    await interaction.response.send_message(err_msg, ephemeral=True)
-                else:
-                    await interaction.followup.send(err_msg, ephemeral=True)
-        except Exception:
-            pass
-
     def __init__(self, bot):
         self.bot = bot
         self.session = None

@@ -36,6 +36,7 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 COGS = [
+    "cogs.actions",
     "cogs.announce",
     "cogs.economy",
     "cogs.tournament",

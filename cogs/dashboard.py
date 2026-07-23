@@ -1,6 +1,7 @@
 """
 GMPT Bot — Dashboard / 统一控制面板
 """
+import asyncio
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -28,6 +29,7 @@ from cogs.tournament import (
 
 import logging
 from utils.logger import log_error
+from utils.cog_base import CogBase
 from datetime import datetime, timezone, timedelta
 
 try:
@@ -922,7 +924,7 @@ class ReShuffleView(discord.ui.View):
                 except Exception:
                     pass
                 if "locked" in str(e).lower() and attempt < 2:
-                    time.sleep(0.3 * (attempt + 1))
+                    await asyncio.sleep(0.3 * (attempt + 1))
                     continue
                 raise
 
@@ -4475,6 +4477,7 @@ class DashboardView(discord.ui.View):
                 ("🦸 猜英雄\nGuess Champ", "guess_champion"),
                 ("🏆 比赛预测\nPredict", "predict"),
                 ("🖼️ 表情包\nMeme", "meme"),
+                ("💕 虚拟动作\nActions", "actions"),
             ]
             while len(btns) < 8:
                 btns.append(None)
@@ -6107,6 +6110,28 @@ class DashboardView(discord.ui.View):
         embed.add_field(name="查看模板", value="`/gmpt-meme-templates`", inline=False)
         await interaction.followup.send(embed=embed, ephemeral=True)
 
+    async def _actions(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        embed = discord.Embed(
+            title="💕 虚拟动作 Virtual Actions",
+            description="对好友发送互动动作，每次送出 5💰 给对方！",
+            color=0xE91E63,
+        )
+        embed.add_field(
+            name="可用命令 / Commands",
+            value=(
+                "`/gmpt-hug <user>` — 🤗 拥抱 Hug\n"
+                "`/gmpt-slap <user>` — 👋 拍打 Slap\n"
+                "`/gmpt-pat <user>` — 🫳 摸头 Pat\n"
+                "`/gmpt-kiss <user>` — 💋 亲吻 Kiss\n"
+                "`/gmpt-kill <user>` — 💀 击杀 Kill\n"
+            ),
+            inline=False,
+        )
+        embed.add_field(name="冷却 / Cooldown", value="每个动作 3 秒", inline=False)
+        embed.set_footer(text="每使用一次动作，目标获得 +5💰")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
     # ═══════════════════ Page 6 — Tools ═══════════════════
 
     async def _voice_lb(self, interaction: discord.Interaction):
@@ -6828,29 +6853,10 @@ class DashboardView(discord.ui.View):
 
 
 
-class Dashboard(commands.Cog):
+class Dashboard(CogBase):
     """统一控制面板 / Unified Control Panel — 一个界面完成所有操作"""
 
     _croniter_warned = False
-
-    async def cog_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
-        try:
-            if isinstance(error, app_commands.CommandOnCooldown):
-                remaining = int(error.retry_after)
-                msg = f"⏳ 冷却中，请等 {remaining} 秒 / Cooldown, wait {remaining}s."
-                if not interaction.response.is_done():
-                    await interaction.response.send_message(msg, ephemeral=True)
-                else:
-                    await interaction.followup.send(msg, ephemeral=True)
-            else:
-                err_msg = f"❌ 错误: {error}"
-                if not interaction.response.is_done():
-                    await interaction.response.send_message(err_msg, ephemeral=True)
-                else:
-                    await interaction.followup.send(err_msg, ephemeral=True)
-        except Exception:
-            pass
-
     def __init__(self, bot):
         self.bot = bot
 

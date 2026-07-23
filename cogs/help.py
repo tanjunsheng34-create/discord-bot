@@ -4,27 +4,10 @@ GMPT Bot — Help Command / 帮助命令
 import discord
 from discord import app_commands
 from discord.ext import commands
+from utils.cog_base import CogBase
 
 
-class HelpCog(commands.Cog):
-    async def cog_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
-        try:
-            if isinstance(error, app_commands.CommandOnCooldown):
-                remaining = int(error.retry_after)
-                msg = f"⏳ 冷却中，请等 {remaining} 秒 / Cooldown, wait {remaining}s."
-                if not interaction.response.is_done():
-                    await interaction.response.send_message(msg, ephemeral=True)
-                else:
-                    await interaction.followup.send(msg, ephemeral=True)
-            else:
-                err_msg = f"❌ 错误: {error}"
-                if not interaction.response.is_done():
-                    await interaction.response.send_message(err_msg, ephemeral=True)
-                else:
-                    await interaction.followup.send(err_msg, ephemeral=True)
-        except Exception:
-            pass
-
+class HelpCog(CogBase):
     def __init__(self, bot):
         self.bot = bot
 
@@ -82,6 +65,18 @@ class HelpCog(commands.Cog):
                 "`/gmpt-guess-champion` — 猜英雄\n"
                 "`/gmpt-predict` — 比赛预测竞猜\n"
                 "`/gmpt-meme` — 表情包生成"
+            ),
+            inline=False,
+        )
+
+        embed.add_field(
+            name="💕 虚拟动作 | Actions",
+            value=(
+                "`/gmpt-hug <user>` — 拥抱\n"
+                "`/gmpt-slap <user>` — 拍打\n"
+                "`/gmpt-pat <user>` — 摸头\n"
+                "`/gmpt-kiss <user>` — 亲吻\n"
+                "`/gmpt-kill <user>` — 击杀"
             ),
             inline=False,
         )
