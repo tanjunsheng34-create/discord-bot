@@ -7334,7 +7334,7 @@ class Dashboard(CogBase):
             title="👋 Welcome to Gaming Planet! 🪐",
             description=f"{interaction.user.mention} 加入了我们！",
             color=0xA385FF,
-            timestamp=datetime.datetime.now(),
+            timestamp=datetime.now(timezone.utc),
         )
         embed.description += (
             "\n━━━━━━━━━━━━━━━━\n"
