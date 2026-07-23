@@ -2540,6 +2540,155 @@ class ResetAllModal(discord.ui.Modal, title="重置全部金币 / Reset All Coin
             f"🎟️ You have **{tix}** giveaway ticket(s). / 你有 **{tix}** 张抽奖券。", ephemeral=True
         )
 
+    # ══════════ 财务统计 Finance ══════════
+    @app_commands.command(name="gmpt-finance", description="View financial statistics / 查看财务统计")
+    @app_commands.describe(user="Target user (Admin only; omit for self) / 目标用户（仅管理员；不填为自己）")
+    async def finance_cmd(self, interaction: discord.Interaction, user: discord.Member | None = None):
+        await interaction.response.defer(ephemeral=False)
+
+        # Determine target
+        if user is not None and user.id != interaction.user.id:
+            if not interaction.user.guild_permissions.administrator:
+                return await interaction.followup.send(
+                    "只有管理员可以查看他人的财务统计 / Only admins can view others' finance stats.",
+                    ephemeral=True,
+                )
+            target_uid = str(user.id)
+            target_name = user.display_name
+        else:
+            target_uid = str(interaction.user.id)
+            target_name = interaction.user.display_name
+            user = interaction.user
+
+        conn = get_db(); cur = conn.cursor()
+
+        # Total income and expenses
+        cur.execute(
+            "SELECT SUM(amount) as total FROM transactions WHERE discord_id=? AND amount > 0",
+            (target_uid,),
+        )
+        income_row = cur.fetchone()
+        total_income = income_row["total"] if income_row["total"] else 0
+
+        cur.execute(
+            "SELECT SUM(ABS(amount)) as total FROM transactions WHERE discord_id=? AND amount < 0",
+            (target_uid,),
+        )
+        expense_row = cur.fetchone()
+        total_expense = expense_row["total"] if expense_row["total"] else 0
+
+        # Current balance
+        cur.execute(
+            "SELECT score FROM users WHERE discord_id=?",
+            (target_uid,),
+        )
+        balance_row = cur.fetchone()
+        current_balance = balance_row["score"] if balance_row and balance_row["score"] is not None else 0
+
+        # By category (parse reason string)
+        categories = {
+            "签到": 0, "比赛": 0, "小游戏": 0, "商店": 0,
+            "互动": 0, "赠送": 0, "成就": 0, "赛季": 0, "其他": 0,
+        }
+
+        cur.execute(
+            "SELECT reason, SUM(amount) as cat_total FROM transactions WHERE discord_id=? GROUP BY reason",
+            (target_uid,),
+        )
+        for row in cur.fetchall():
+            reason = row["reason"].lower() if row["reason"] else ""
+            amt = row["cat_total"]
+            if any(kw in reason for kw in ["签到", "daily"]):
+                categories["签到"] += amt
+            elif any(kw in reason for kw in ["比赛", "match", "settle"]):
+                categories["比赛"] += amt
+            elif any(kw in reason for kw in ["老虎机", "slots", "coinflip", "猜硬币", "trivia", "猜英雄", "guess"]):
+                categories["小游戏"] += amt
+            elif any(kw in reason for kw in ["商店", "shop", "buy"]):
+                categories["商店"] += amt
+            elif any(kw in reason for kw in ["互动", "hug", "slap", "pat", "kiss", "kill"]):
+                categories["互动"] += amt
+            elif any(kw in reason for kw in ["赠送", "gift"]):
+                categories["赠送"] += amt
+            elif any(kw in reason for kw in ["成就", "achievement"]):
+                categories["成就"] += amt
+            elif any(kw in reason for kw in ["赛季", "season"]):
+                categories["赛季"] += amt
+            else:
+                categories["其他"] += amt
+
+        # Top transactions
+        cur.execute(
+            "SELECT amount, reason FROM transactions WHERE discord_id=? ORDER BY ABS(amount) DESC LIMIT 5",
+            (target_uid,),
+        )
+        top_txns = cur.fetchall()
+        conn.close()
+
+        net = total_income - total_expense
+
+        embed = discord.Embed(
+            title=f"📊 财务统计 / Finance Report — {target_name}",
+            color=discord.Color.green() if net >= 0 else discord.Color.red(),
+            timestamp=datetime.utcnow(),
+        )
+        embed.set_thumbnail(url=user.display_avatar.url if user.display_avatar else None)
+
+        # Summary
+        embed.add_field(
+            name="💰 总收入 / Total Income",
+            value=f"+🪙 {total_income:,}",
+            inline=True,
+        )
+        embed.add_field(
+            name="💸 总支出 / Total Expenses",
+            value=f"-🪙 {total_expense:,}",
+            inline=True,
+        )
+        embed.add_field(
+            name="📊 净收益 / Net",
+            value=f"🪙 {net:+,}",
+            inline=True,
+        )
+        embed.add_field(
+            name="🏦 当前余额 / Current Balance",
+            value=f"🪙 {current_balance:,}",
+            inline=True,
+        )
+        embed.add_field(
+            name="\u200b",
+            value="\u200b",
+            inline=True,
+        )
+
+        # Category breakdown (left side)
+        cat_lines = []
+        cat_labels = ["签到", "比赛", "小游戏", "商店", "互动", "赠送", "成就", "赛季", "其他"]
+        for cat in cat_labels:
+            amt = categories[cat]
+            cat_lines.append(f"{cat}: 🪙 {amt:+,}")
+        embed.add_field(
+            name="📋 按类别 / By Category",
+            value="\n".join(cat_lines),
+            inline=True,
+        )
+
+        # Top transactions (right side)
+        txn_lines = []
+        for txn in top_txns:
+            amt = txn["amount"]
+            reason = txn["reason"][:40] if txn["reason"] else "?"
+            txn_lines.append(f"🪙 {amt:+,} — {reason}")
+        embed.add_field(
+            name="🏆 最大交易 / Top Transactions",
+            value="\n".join(txn_lines) if txn_lines else "暂无 / None",
+            inline=True,
+        )
+
+        embed.set_footer(text=f"GMPT Finance | {target_name}")
+
+        await interaction.followup.send(embed=embed)
+
 
 class CoinPaginationView(discord.ui.View):
     """Paginated coin balance list — 10 per page."""

@@ -24,6 +24,7 @@ class HelpCog(CogBase):
             value=(
                 "`/gmpt-tournament create` — 创建\n"
                 "`/gmpt-tournament signup` — 报名\n"
+                "`/gmpt-tournament captain` — 队长选秀\n"
                 "`/gmpt-tournament bracket` — 对阵图\n"
                 "`/gmpt-tournament standings` — 排名\n"
                 "`/gmpt-tournament report` — 上报比分"
@@ -86,6 +87,7 @@ class HelpCog(CogBase):
             value=(
                 "`/gmpt-dashboard` — 控制面板\n"
                 "`/gmpt-stats` — 数据统计\n"
+                "`/gmpt-finance` — 财务统计\n"
                 "`/gmpt-voicetime` — 语音时长\n"
                 "`/gmpt-queue` — 排队\n"
                 "`/gmpt-transactions` — 交易记录\n"

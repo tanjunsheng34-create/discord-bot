@@ -6,6 +6,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from database import get_db
+from datetime import datetime
 import logging
 from utils.logger import log_error
 
@@ -33,6 +34,33 @@ def _add_coins(uid: str, amount: int, reason: str):
     cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (amount, uid))
     cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)", (uid, amount, reason))
     conn.commit(); conn.close()
+
+
+# ── Daily limit helper (Coinflip only) ──
+def _check_daily_limit(uid: int, game_type: str) -> tuple[bool, int, int]:
+    """Returns (blocked, used, remaining)."""
+    today = datetime.now().strftime('%Y-%m-%d')
+    conn = get_db(); cur = conn.cursor()
+    cur.execute(
+        "INSERT OR IGNORE INTO game_limits (user_id, date, game_type, play_count) VALUES (?,?,?,0)",
+        (uid, today, game_type),
+    )
+    cur.execute(
+        "SELECT play_count FROM game_limits WHERE user_id=? AND date=? AND game_type=?",
+        (uid, today, game_type),
+    )
+    row = cur.fetchone()
+    used = row["play_count"] if row else 0
+    remaining = 3 - used
+    blocked = used >= 3
+    if not blocked:
+        cur.execute(
+            "UPDATE game_limits SET play_count = play_count + 1 WHERE user_id=? AND date=? AND game_type=?",
+            (uid, today, game_type),
+        )
+        conn.commit()
+    conn.close()
+    return blocked, used + (0 if blocked else 1), remaining - (0 if blocked else 1)
 
 
 # ── Slot machine ──
@@ -120,6 +148,14 @@ class Casino(commands.Cog):
     async def coinflip_cmd(self, interaction: discord.Interaction, bet: int, choice: str):
         uid = str(interaction.user.id)
 
+        # Daily limit check
+        blocked, used, remaining = _check_daily_limit(interaction.user.id, 'coinflip')
+        if blocked:
+            return await interaction.response.send_message(
+                "你今天已玩了 3 次猜硬币，明天再来！\nYou've played 3 times today, come back tomorrow!",
+                ephemeral=True,
+            )
+
         if bet <= 0:
             return await interaction.response.send_message("下注金额必须为正整数 / Bet must be a positive integer.", ephemeral=True)
 
@@ -154,6 +190,7 @@ class Casino(commands.Cog):
         else:
             embed.add_field(name="结果", value=f"❌ 猜错了！-🪙 {bet}", inline=False)
         embed.add_field(name="新余额 / New Balance", value=f"🪙 {new_balance}", inline=False)
+        embed.set_footer(text=f"📊 今日剩余 / Remaining: {remaining}/3")
 
         await interaction.response.send_message(embed=embed)
 

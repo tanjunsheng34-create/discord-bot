@@ -4602,7 +4602,7 @@ class DashboardView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=self)
 
     async def next_page(self, interaction: discord.Interaction):
-        if self.page < 6:
+        if self.page < 7:
             self.page += 1
         self.build_page_buttons()
         embed = self._build_page_embed()

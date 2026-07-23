@@ -133,6 +133,14 @@ def _create_economy_tables(cursor):
             created_at  TEXT DEFAULT (datetime('now'))
         );
 
+        CREATE TABLE IF NOT EXISTS game_limits (
+            user_id     INTEGER,
+            date        TEXT,
+            game_type   TEXT,
+            play_count  INTEGER DEFAULT 0,
+            PRIMARY KEY (user_id, date, game_type)
+        );
+
         CREATE TABLE IF NOT EXISTS achievements (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             name        TEXT NOT NULL,

@@ -9,6 +9,7 @@ from config import RIOT_API_KEY
 from cogs.economy import add_coins
 from cogs.shared_views import ConfirmView
 import aiohttp
+import asyncio
 import random
 from datetime import datetime
 from collections import defaultdict
@@ -188,7 +189,7 @@ class CaptainCoinflipView(discord.ui.View):
             c["pick_order"] = i
 
         winner = _display_name(self.guild, self.captains[0]["captain_id"])
-        result_text = f"🪙 {result}！**{winner}** 先选！"
+        result_text = f"🪙 硬币结果 Coin Toss Result: {result}！\n👑 **{winner}** 先选！picks first！"
 
         for child in self.children:
             child.disabled = True
@@ -219,10 +220,70 @@ class DraftView(discord.ui.View):
         self.snake_round = 1
         self.snake_direction = 1  # 1 = forward, -1 = backward
         self._pending_pick = None
+        self._timer_task = None
+        self._deadline = 0  # monotonic timestamp when current pick expires
 
         # Sort captains by pick_order
         self.captains.sort(key=lambda c: c["pick_order"])
         self._rebuild_select()
+        self._start_timer()
+
+    def _start_timer(self):
+        if self._timer_task and not self._timer_task.done():
+            self._timer_task.cancel()
+        self._deadline = asyncio.get_event_loop().time() + 30
+        self._timer_task = asyncio.create_task(self._countdown())
+
+    async def _countdown(self):
+        try:
+            await asyncio.sleep(30)
+            await self._auto_skip()
+        except asyncio.CancelledError:
+            pass
+
+    async def _auto_skip(self):
+        """Auto-skip current captain's turn."""
+        unassigned = self._get_unassigned()
+        if not unassigned:
+            return  # draft complete
+
+        cap = self.current_captain
+        if not cap:
+            return
+
+        # Auto-pick first available
+        auto_pick = unassigned[0]
+        conn = get_db(); cur = conn.cursor()
+        pick_num = len(self.drafted_players) + 1
+        cur.execute(
+            "INSERT INTO draft_picks (draft_id, captain_id, player_id, pick_number) VALUES (?,?,?,?)",
+            (self.draft_id, cap["captain_id"], auto_pick[0], pick_num),
+        )
+        conn.commit(); conn.close()
+        self.drafted_players.append((cap["captain_id"], auto_pick[0]))
+        self._pending_pick = None
+
+        self.current_pick += 1
+        if self.current_pick > 0 and self.current_pick % len(self.captains) == 0:
+            self.snake_round += 1
+            self.snake_direction *= -1
+
+        # Check if draft complete
+        unassigned = self._get_unassigned()
+        if not unassigned or len(unassigned) == 0:
+            for child in self.children:
+                child.disabled = True
+
+        self._rebuild_select()
+        self._start_timer()
+        # Update message if possible (uses stored interaction reference)
+        embed = self.build_embed()
+        try:
+            # Update through the message reference if available
+            if hasattr(self, '_msg_ref'):
+                await self._msg_ref.edit(embed=embed, view=self)
+        except Exception:
+            pass
 
     @property
     def current_captain(self):
@@ -350,6 +411,7 @@ class DraftView(discord.ui.View):
                 child.disabled = True
 
         self._rebuild_select()
+        self._start_timer()
         embed = self.build_embed()
         await interaction.edit_original_response(embed=embed, view=self)
 
@@ -389,12 +451,13 @@ class DraftView(discord.ui.View):
             self.snake_round += 1
             self.snake_direction *= -1
 
-        unassigned = self._get_unassigned()
-        if not unassigned or len(unassigned) == 0:
+        unassigned2 = self._get_unassigned()
+        if not unassigned2 or len(unassigned2) == 0:
             for child in self.children:
                 child.disabled = True
 
         self._rebuild_select()
+        self._start_timer()
         embed = self.build_embed()
         await interaction.edit_original_response(embed=embed, view=self)
 
@@ -510,19 +573,23 @@ class DraftView(discord.ui.View):
         await interaction.followup.send(embed=assign_view.build_embed(), view=assign_view)
 
     def build_embed(self):
+        remaining = max(0, int(self._deadline - asyncio.get_event_loop().time()))
+        cap_name = _display_name(self.guild, self.current_captain['captain_id']) if self.current_captain else 'N/A'
         embed = discord.Embed(
             title=f"Draft — Round {self.snake_round}",
-            description=f"Pick #{self.current_pick + 1} — 轮到: **{_display_name(self.guild, self.current_captain['captain_id']) if self.current_captain else 'N/A'}**",
+            description=f"Pick #{self.current_pick + 1} — 轮到: **{cap_name}**\n⏱️ 剩余 {remaining}s / {remaining}s remaining",
             color=discord.Color.blue(),
         )
 
-        # Team rosters
+        total_players = len(self.available_players)
+        # Team rosters with counts
         for cap in self.captains:
             team = self._get_team_players(cap["captain_id"])
             total_score = self._get_team_score(cap["captain_id"])
             names = [_display_name(self.guild, pid) for pid in team]
+            expected_size = total_players // 2 + (total_players % 2 if cap["pick_order"] == 1 else 0)
             embed.add_field(
-                name=f"{cap['team_name']} (总 {total_score} pts)",
+                name=f"{cap['team_name']} ({len(team)}/{expected_size}) — {total_score} pts",
                 value="\n".join(names) if names else "(暂无队员 / Empty)",
                 inline=True,
             )
@@ -785,6 +852,26 @@ class AssignView(discord.ui.View):
     @discord.ui.button(label="✅ 确认分队", style=discord.ButtonStyle.primary, row=3, custom_id="assign_confirm")
     async def btn_confirm(self, interaction: discord.Interaction, button):
         await interaction.response.defer()
+
+        # Check for odd total player count
+        total_assigned = sum(len(self._get_team_players(c["captain_id"])) for c in self.captains)
+        captain_count = len(self.captains)
+        total_players = total_assigned + captain_count
+        if total_players % 2 != 0:
+            unassigned = self._get_unassigned()
+            embed = self.build_embed()
+            embed.title = "⚠️ 人数不均衡 / Uneven Teams"
+            embed.description = (
+                f"⚠️ 总人数为 **{total_players}**（含{captain_count}名队长），无法均匀分成两队。\n"
+                f"待分配: **{len(unassigned)}** 人\n\n"
+                f"请继续分配或再邀请一人。\n"
+                f"Total {total_players} players (incl {captain_count} captains) — cannot split evenly.\n"
+                f"Assign all players or invite one more."
+            )
+            embed.color = discord.Color.orange()
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+
         # Save assignments to DB
         conn = get_db(); cur = conn.cursor()
         # Clear existing picks and re-insert
@@ -1333,7 +1420,7 @@ class DraftSetupView(discord.ui.View):
 
             for child in self.children:
                 child.disabled = True
-            await interaction.edit_original_response(embed=embed, view=view)
+            view._msg_ref = await interaction.edit_original_response(embed=embed, view=view)
 
         # Show coinflip
         coinflip = CaptainCoinflipView(captains_info, interaction.guild, do_start_draft)
@@ -2165,7 +2252,7 @@ class Tournament(CogBase):
                 f"使用下拉菜单选人 → 点击确认按钮\n"
                 f"Use dropdown to pick → click Confirm"
             )
-            await interaction.edit_original_response(embed=embed, view=view)
+            view._msg_ref = await interaction.edit_original_response(embed=embed, view=view)
 
         # Show announcement embed + coinflip
         cap_a_name = captain_a_info["display_name"]

@@ -7,6 +7,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from database import get_db
+from datetime import datetime
 import logging
 from utils.logger import log_error
 
@@ -22,6 +23,33 @@ def _add_coins(uid: str, amount: int, reason: str):
     cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (amount, uid))
     cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)", (uid, amount, reason))
     conn.commit(); conn.close()
+
+
+# ── Daily limit helper ──
+def _check_daily_limit(uid: int, game_type: str) -> tuple[bool, int, int]:
+    """Returns (blocked, used, remaining)."""
+    today = datetime.now().strftime('%Y-%m-%d')
+    conn = get_db(); cur = conn.cursor()
+    cur.execute(
+        "INSERT OR IGNORE INTO game_limits (user_id, date, game_type, play_count) VALUES (?,?,?,0)",
+        (uid, today, game_type),
+    )
+    cur.execute(
+        "SELECT play_count FROM game_limits WHERE user_id=? AND date=? AND game_type=?",
+        (uid, today, game_type),
+    )
+    row = cur.fetchone()
+    used = row["play_count"] if row else 0
+    remaining = 3 - used
+    blocked = used >= 3
+    if not blocked:
+        cur.execute(
+            "UPDATE game_limits SET play_count = play_count + 1 WHERE user_id=? AND date=? AND game_type=?",
+            (uid, today, game_type),
+        )
+        conn.commit()
+    conn.close()
+    return blocked, used + (0 if blocked else 1), remaining - (0 if blocked else 1)
 
 
 # ── Trivia question pool (bilingual) ──
@@ -385,6 +413,127 @@ TRIVIA_QUESTIONS = [
         "options_en": ["Double Up", "Make It Rain", "Strut", "Bullet Time"],
         "answer": 0,
         "reward": 50
+    
+    },
+    {
+        "q_zh": "布隆的被动「震荡猛击」需要多少次攻击触发？",
+        "q_en": "How many hits does Braum's passive 'Concussive Blows' require to stun?",
+        "options_zh": ["3次", "4次", "5次", "2次"],
+        "options_en": ["3", "4", "5", "2"],
+        "answer": 1,
+        "reward": 50
+    },
+    {
+        "q_zh": "塔姆 W 技能大快朵颐可以吞下什么？",
+        "q_en": "What can Tahm Kench's W 'Devour' swallow?",
+        "options_zh": ["敌方英雄和野怪", "友方英雄和敌方英雄", "友方英雄和野怪", "只有小兵"],
+        "options_en": ["Enemy champions + monsters", "Allies + enemies", "Allies + monsters", "Only minions"],
+        "answer": 2,
+        "reward": 50
+    },
+    {
+        "q_zh": "水晶先锋斯卡纳的大招叫什么？",
+        "q_en": "What is Skarner's ultimate ability called?",
+        "options_zh": ["晶状毒刺", "水晶横扫", "水晶蝎甲", "晶状破碎"],
+        "options_en": ["Impale", "Crystal Slash", "Crystalline Exoskeleton", "Fracture"],
+        "answer": 0,
+        "reward": 50
+    },
+    {
+        "q_zh": "菲兹的 E 技能叫什么？",
+        "q_en": "What is Fizz's E ability called?",
+        "options_zh": ["淘气打击", "海石三叉戟", "古灵/精怪", "巨鲨强袭"],
+        "options_en": ["Urchin Strike", "Seastone Trident", "Playful / Trickster", "Chum the Waters"],
+        "answer": 2,
+        "reward": 50
+    },
+    {
+        "q_zh": "男刀泰隆的被动技能效果是什么？",
+        "q_en": "What does Talon's passive 'Blade's End' do?",
+        "options_zh": ["隐身", "3层伤口引爆流血", "加速", "回血"],
+        "options_en": ["Invisibility", "3-stack wound bleed", "Speed boost", "Heal"],
+        "answer": 1,
+        "reward": 50
+    },
+    {
+        "q_zh": "LOL中致命节奏符文提供的效果是什么？",
+        "q_en": "What does Lethal Tempo keystone provide?",
+        "options_zh": ["回蓝", "攻击时叠加攻速并突破攻速上限", "法术吸血", "额外护甲穿透"],
+        "options_en": ["Mana regen", "Stacking attack speed breaking cap", "Spell vamp", "Bonus armor pen"],
+        "answer": 1,
+        "reward": 50
+    },
+    {
+        "q_zh": "弗拉基米尔的 W 技能血红之池能躲避什么？",
+        "q_en": "What can Vladimir's W 'Sanguine Pool' dodge?",
+        "options_zh": ["防御塔攻击", "指向性技能和AoE", "只能躲小兵攻击", "以上都不行"],
+        "options_en": ["Turret shots", "Targeted abilities and AoE", "Only minion attacks", "None of the above"],
+        "answer": 1,
+        "reward": 50
+    },
+    {
+        "q_zh": "海克斯科技闪现的冷却时间是多少？",
+        "q_en": "What is the cooldown of Hexflash?",
+        "options_zh": ["20秒", "25秒", "15秒", "30秒"],
+        "options_en": ["20s", "25s", "15s", "30s"],
+        "answer": 0,
+        "reward": 50
+    },
+    {
+        "q_zh": "龙魂中「海洋龙魂」的效果是什么？",
+        "q_en": "What is the effect of Ocean Dragon Soul?",
+        "options_zh": ["额外真实伤害", "造成伤害后持续回血回蓝", "护盾", "移速爆发"],
+        "options_en": ["Bonus true damage", "Sustain HP/mana on damage dealt", "Shield", "Speed burst"],
+        "answer": 1,
+        "reward": 50
+    },
+    {
+        "q_zh": "S12至S14期间，Faker带领T1获得了几次世界赛冠军？",
+        "q_en": "How many Worlds titles did Faker and T1 win between S12 and S14?",
+        "options_zh": ["1次", "2次", "3次", "0次"],
+        "options_en": ["1", "2", "3", "0"],
+        "answer": 1,
+        "reward": 50
+    },
+    {
+        "q_zh": "塔莉垭的终极技能叫什么？",
+        "q_en": "What is Taliyah's ultimate ability called?",
+        "options_zh": ["石穿", "岩突", "墙幔（编织者之墙）", "撒石阵"],
+        "options_en": ["Threaded Volley", "Seismic Shove", "Weaver's Wall", "Unraveled Earth"],
+        "answer": 2,
+        "reward": 50
+    },
+    {
+        "q_zh": "新版蓝工资装叫什么？",
+        "q_en": "What is the new AP support starter item called?",
+        "options_zh": ["窃法之刃", "扎兹沙克的溃口", "圣物之盾", "幽魂镰刀"],
+        "options_en": ["Spellthief's Edge", "Zaz'Zak's Realmspike", "Relic Shield", "Spectral Sickle"],
+        "answer": 1,
+        "reward": 50
+    },
+    {
+        "q_zh": "永恒梦魇魔腾的大招效果是什么？",
+        "q_en": "What is Nocturne's ultimate 'Paranoia' effect?",
+        "options_zh": ["AOE恐惧所有人", "全屏致盲后飞向目标", "隐身", "全队加速"],
+        "options_en": ["AoE fear all", "Global nearsight + dash to target", "Invisibility", "Team speed buff"],
+        "answer": 1,
+        "reward": 50
+    },
+    {
+        "q_zh": "加里奥的被动叫什么？",
+        "q_en": "What is Galio's passive called?",
+        "options_zh": ["巨像重击", "杜朗护盾", "正义重拳", "英雄登场"],
+        "options_en": ["Colossal Smash", "Shield of Durand", "Justice Punch", "Hero's Entrance"],
+        "answer": 0,
+        "reward": 50
+    },
+    {
+        "q_zh": "S8世界赛中iG在决赛击败了哪个队伍？",
+        "q_en": "Which team did iG defeat in the S8 Worlds Finals?",
+        "options_zh": ["G2", "FNC", "KT", "C9"],
+        "options_en": ["G2", "FNC", "KT", "C9"],
+        "answer": 1,
+        "reward": 50
     }
 ]
 
@@ -552,6 +701,14 @@ class Trivia(commands.Cog):
     @app_commands.command(name="gmpt-trivia", description="Start a trivia quiz / 开始问答游戏")
     @app_commands.describe(questions="Number of questions (default 10) / 题目数量（默认10）")
     async def trivia_cmd(self, interaction: discord.Interaction, questions: int = 10):
+        uid = interaction.user.id
+        blocked, used, remaining = _check_daily_limit(uid, 'trivia')
+        if blocked:
+            return await interaction.response.send_message(
+                f"你今天已玩了 3 次 Trivia，明天再来！\nYou've played 3 times today, come back tomorrow!",
+                ephemeral=True,
+            )
+
         async with self._lock:
             if self.active_game is not None:
                 return await interaction.response.send_message(
@@ -569,7 +726,8 @@ class Trivia(commands.Cog):
             await interaction.response.send_message(
                 f"🎮 **Trivia 问答开始！** 共 {questions} 题，每题 20 秒，发送 A/B/C/D 作答。\n"
                 f"**Trivia started!** {questions} questions, 20s each, type A/B/C/D to answer.\n"
-                f"每题答对 +50 💰，最终前三名额外奖励！/ +50 💰 per correct, top 3 get bonus!"
+                f"每题答对 +50 💰，最终前三名额外奖励！/ +50 💰 per correct, top 3 get bonus!\n"
+                f"📊 剩余次数 / Remaining: {remaining}/3"
             )
 
             for i in range(len(game.questions)):
