@@ -7040,24 +7040,6 @@ class Dashboard(CogBase):
         self.bot = bot
 
     @commands.Cog.listener()
-    async def on_member_join(self, member: discord.Member):
-        """发送欢迎消息到指定频道。"""
-        welcome_channel = member.guild.get_channel(1398991787523313675)
-        if welcome_channel:
-            embed = discord.Embed(
-                title="👋 欢迎来到 Gaming Planet！",
-                description=f"{member.mention} 加入了我们！\nWelcome to Gaming Planet!",
-                color=0x9B59B6,
-            )
-            embed.add_field(
-                name="快速开始 | Quick Start",
-                value="输入 `/gmpt-help` 查看所有功能\nType `/gmpt-help` to see all features",
-                inline=False,
-            )
-            embed.set_thumbnail(url=member.display_avatar.url)
-            await welcome_channel.send(embed=embed)
-
-    @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member):
         log_channel = member.guild.get_channel(MEMBER_LEAVE_LOG_CHANNEL_ID)
         if log_channel:
