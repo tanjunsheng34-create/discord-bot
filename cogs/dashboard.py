@@ -7347,9 +7347,7 @@ class Dashboard(CogBase):
             "📖 **快速上手 | Quick Start**\n"
             "💬 `/gmpt-help`\n"
             "🎮 `/gmpt-dashboard`\n\n"
-            "👥 **找队友 | Find Teammates**\n"
-            "🔍 `/gmpt-queue`\n"
-            "🤝 直接 @ 在线玩家组队\n\n"
+
             "📚 **教学 | Guides**\n"
             "🧠 `/gmpt-trivia`\n"
             "🕵️ `/gmpt-guess-champion`"
