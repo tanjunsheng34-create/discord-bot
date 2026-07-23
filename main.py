@@ -432,12 +432,27 @@ async def on_ready():
     except Exception as e:
         logger.error(f"Sync error: {e}")
 
+    # 启动自检：向 welcome 频道发一条上线消息，验证频道存在 + 发消息权限
+    try:
+        for guild in bot.guilds:
+            ch = discord.utils.get(guild.text_channels, name="welcome")
+            if ch and ch.permissions_for(guild.me).send_messages:
+                await ch.send("✅ Bot v3.5 已上线 | Online")
+                print(f"[on_ready] welcome 频道自检 OK: {guild.name} / {ch.name}")
+            elif ch:
+                print(f"[on_ready] welcome 频道无发消息权限: {guild.name} / {ch.name}")
+            else:
+                print(f"[on_ready] 未找到 welcome 频道: {guild.name}")
+    except Exception as e:
+        print(f"[on_ready] welcome 自检异常: {e}")
+
 
 # =============================================================================
 # 欢迎消息 — on_member_join
 # =============================================================================
 @bot.event
 async def on_member_join(member: discord.Member):
+    print(f"[on_member_join] 触发! member={member.name}, bot={member.bot}")
     if member.bot:
         return
 
@@ -483,14 +498,18 @@ async def on_member_join(member: discord.Member):
         )
 
         welcome_channel = discord.utils.get(member.guild.text_channels, name="welcome")
+        print(f"[on_member_join] welcome_channel={welcome_channel}")
         if welcome_channel:
             await welcome_channel.send(content=member.mention, embed=embed, file=file)
+            print("[on_member_join] 发送完成 → welcome 频道")
         else:
             for channel in member.guild.text_channels:
                 if channel.permissions_for(member.guild.me).send_messages:
                     await channel.send(content=member.mention, embed=embed, file=file)
+                    print(f"[on_member_join] 发送完成 → fallback 频道 {channel.name}")
                     break
     except Exception as e:
+        print(f"[on_member_join] 异常! {e}")
         logger.warning(f"Welcome message failed (non-critical): {e}")
 
 
