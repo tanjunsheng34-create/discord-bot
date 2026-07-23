@@ -4581,6 +4581,7 @@ class DashboardView(discord.ui.View):
                 ("🏆 比赛预测\nPredict", "predict"),
                 ("🖼️ 表情包\nMeme", "meme"),
                 ("💕 虚拟动作\nActions", "actions"),
+                ("🎉 抽奖\nGiveaway", "giveaway"),
             ]
             while len(btns) < 8:
                 btns.append(None)
@@ -4777,7 +4778,8 @@ class DashboardView(discord.ui.View):
                     "🦸 **猜英雄** Guess Champ — 猜英雄挑战\n"
                     "🏆 **比赛预测** Predict — 竞猜比赛\n"
                     "🖼️ **表情包** Meme — 生成梗图\n"
-                    "💕 **虚拟动作** Actions — 互动动作"
+                    "💕 **虚拟动作** Actions — 互动动作\n"
+                    "🎉 **抽奖** Giveaway — 参与抽奖"
                 ),
             ),
             6: (

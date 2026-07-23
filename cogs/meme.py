@@ -1,16 +1,17 @@
 """
 GMPT Bot — Meme Generator
-Generate image memes with top/bottom text using Pillow.
-Fixed: larger fonts, clear outline, proper contrast.
+Generate animated GIF memes with top/bottom text using Pillow + imageio.
+Typewriter effect with 2-3 second loop; auto fallback to static PNG if >8MB.
 """
 import asyncio
 import io
 import os
+import logging
+
 import discord
 from discord import app_commands
 from discord.ext import commands
 from database import get_db
-import logging
 from utils.logger import log_error
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,16 @@ try:
 except ImportError:
     PIL_AVAILABLE = False
     logger.warning("Pillow not installed — meme features disabled")
+
+try:
+    import imageio
+    IMAGEIO_AVAILABLE = True
+except ImportError:
+    IMAGEIO_AVAILABLE = False
+    logger.warning("imageio not installed — GIF features disabled, fallback to PNG")
+
+# Discord file size limit: 8 MB
+DISCORD_MAX_SIZE = 8 * 1024 * 1024
 
 # ── Meme template definitions ──
 TEMPLATE_DEFS = {
@@ -91,21 +102,21 @@ def _wrap_text(draw, text: str, font, max_width: int) -> list[str]:
     return lines
 
 
-def _draw_outlined_text(draw, text: str, pos: tuple, font, text_color=(255, 255, 255), outline_color=(0, 0, 0), outline_width: int = 4):
+def _draw_outlined_text(draw, text: str, pos: tuple, font,
+                        text_color=(255, 255, 255), outline_color=(0, 0, 0),
+                        outline_width: int = 4):
     """Draw white text with thick black outline for maximum readability."""
     x, y = pos
-    # Draw outline in all directions
     for dx in range(-outline_width, outline_width + 1):
         for dy in range(-outline_width, outline_width + 1):
             if dx == 0 and dy == 0:
                 continue
             draw.text((x + dx, y + dy), text, font=font, fill=outline_color)
-    # Main text on top
     draw.text((x, y), text, font=font, fill=text_color)
 
 
-def generate_meme(template: str, top_text: str, bottom_text: str, output_path: str):
-    """Generate a clear, readable meme image."""
+def _make_static_frame(template: str, top_text: str, bottom_text: str) -> Image.Image:
+    """Draw a single complete frame (used as first/last frame and PNG fallback)."""
     tpl = TEMPLATE_DEFS[template]
     width, height = 600, 500
     bg_color = tpl["bg_color"]
@@ -113,27 +124,23 @@ def generate_meme(template: str, top_text: str, bottom_text: str, output_path: s
     img = Image.new("RGB", (width, height), bg_color)
     draw = ImageDraw.Draw(img)
 
-    # ── Draw template label at center ──
+    # Template label
     label_font = _get_font(36)
     _draw_outlined_text(draw, tpl["label"], (30, 30), label_font)
-
     tag_font = _get_font(20)
     _draw_outlined_text(draw, "<Meme Template>", (30, 78), tag_font)
 
-    # ── Draw top text ──
+    # Top text
     if top_text:
-        top_text = top_text.upper()
+        text_upper = top_text.upper()
         max_w = width - 60
         font_size = 48
         top_font = _get_font(font_size)
-        lines = _wrap_text(draw, top_text, top_font, max_w)
-
-        # Shrink font if too many lines
+        lines = _wrap_text(draw, text_upper, top_font, max_w)
         while len(lines) > 3 and font_size > 22:
             font_size -= 4
             top_font = _get_font(font_size)
-            lines = _wrap_text(draw, top_text, top_font, max_w)
-
+            lines = _wrap_text(draw, text_upper, top_font, max_w)
         y_pos = 120
         for line in lines:
             bbox = draw.textbbox((0, 0), line, font=top_font)
@@ -142,19 +149,17 @@ def generate_meme(template: str, top_text: str, bottom_text: str, output_path: s
             _draw_outlined_text(draw, line, (x, y_pos), top_font)
             y_pos += top_font.size + 8
 
-    # ── Draw bottom text ──
+    # Bottom text
     if bottom_text:
-        bottom_text = bottom_text.upper()
+        text_upper = bottom_text.upper()
         max_w = width - 60
         font_size = 48
         bot_font = _get_font(font_size)
-        lines = _wrap_text(draw, bottom_text, bot_font, max_w)
-
+        lines = _wrap_text(draw, text_upper, bot_font, max_w)
         while len(lines) > 3 and font_size > 22:
             font_size -= 4
             bot_font = _get_font(font_size)
-            lines = _wrap_text(draw, bottom_text, bot_font, max_w)
-
+            lines = _wrap_text(draw, text_upper, bot_font, max_w)
         y_start = height - (len(lines) * (bot_font.size + 8)) - 20
         for line in lines:
             bbox = draw.textbbox((0, 0), line, font=bot_font)
@@ -163,7 +168,136 @@ def generate_meme(template: str, top_text: str, bottom_text: str, output_path: s
             _draw_outlined_text(draw, line, (x, y_start), bot_font)
             y_start += bot_font.size + 8
 
-    img.save(output_path, "PNG")
+    return img
+
+
+def _generate_gif_frames(template: str, top_text: str, bottom_text: str,
+                         num_frames: int = 30, duration_msec: int = 80) -> list[Image.Image]:
+    """Generate frames for typewriter effect GIF.
+
+    - Frame 0: full static (hold)
+    - Frames 1..N: top text reveals char by char, bottom text reveals after
+    - Final frame: full static (hold)
+    """
+    frames = []
+
+    full_text_top = top_text.upper() if top_text else ""
+    full_text_bottom = bottom_text.upper() if bottom_text else ""
+
+    total_chars = len(full_text_top) + len(full_text_bottom)
+    if total_chars == 0:
+        # No text at all — just a static frame loop
+        static = _make_static_frame(template, "", "")
+        for _ in range(max(num_frames, 5)):
+            frames.append(static.copy())
+        return frames
+
+    # Animate: top text types first, then bottom text
+    # Split frames proportionally
+    top_len = len(full_text_top)
+    bottom_len = len(full_text_bottom)
+
+    if top_len == 0:
+        top_frames = 0
+        bottom_frames = num_frames
+    elif bottom_len == 0:
+        top_frames = num_frames
+        bottom_frames = 0
+    else:
+        top_frames = max(1, int(num_frames * 0.55))
+        bottom_frames = num_frames - top_frames
+
+    for i in range(num_frames):
+        # Determine how much of top and bottom text to show
+        chars_shown = int((i / max(num_frames - 1, 1)) * total_chars)
+
+        if top_frames > 0 and i < top_frames:
+            # Top text revealing
+            progress = i / max(top_frames - 1, 1)
+            revealed_top_chars = int(progress * top_len)
+            current_top = full_text_top[:revealed_top_chars]
+            current_bottom = ""
+        elif top_frames > 0:
+            # Bottom text revealing
+            progress = (i - top_frames) / max(bottom_frames - 1, 1)
+            revealed_bottom_chars = int(progress * bottom_len)
+            current_top = full_text_top
+            current_bottom = full_text_bottom[:revealed_bottom_chars]
+        else:
+            # Only bottom text
+            progress = i / max(num_frames - 1, 1)
+            revealed_bottom_chars = int(progress * bottom_len)
+            current_top = ""
+            current_bottom = full_text_bottom[:revealed_bottom_chars]
+
+        frame = _make_static_frame(template, current_top, current_bottom)
+        frames.append(frame)
+
+    # Add hold frames at start and end
+    static_full = _make_static_frame(template, top_text, bottom_text)
+    hold_start = 3
+    hold_end = 5
+    final_frames = []
+    for _ in range(hold_start):
+        final_frames.append(static_full.copy())
+    final_frames.extend(frames)
+    for _ in range(hold_end):
+        final_frames.append(static_full.copy())
+
+    return final_frames
+
+
+def generate_meme(template: str, top_text: str, bottom_text: str, output_path: str):
+    """Generate a meme — animated GIF if imageio available, else static PNG.
+
+    Output path should end in .gif (animation) — the caller handles PNG fallback.
+    """
+    tpl = TEMPLATE_DEFS[template]
+
+    if not IMAGEIO_AVAILABLE:
+        # Fallback: static PNG
+        png_path = output_path.replace(".gif", ".png")
+        os.makedirs(os.path.dirname(png_path), exist_ok=True)
+        img = _make_static_frame(template, top_text, bottom_text)
+        img.save(png_path, "PNG")
+        return png_path, False  # (path, is_gif)
+
+    # Generate GIF frames
+    frames = _generate_gif_frames(template, top_text, bottom_text,
+                                  num_frames=30, duration_msec=80)
+
+    try:
+        # Write GIF via imageio
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        imageio.mimsave(
+            output_path,
+            [frame.convert("P", palette=Image.ADAPTIVE) for frame in frames],
+            duration=[80] * len(frames),
+            loop=0,
+        )
+
+        # Check file size — if >8MB, fallback to PNG
+        file_size = os.path.getsize(output_path)
+        if file_size > DISCORD_MAX_SIZE:
+            logger.warning(f"GIF too large ({file_size}B), falling back to PNG")
+            os.remove(output_path)
+            png_path = output_path.replace(".gif", ".png")
+            os.makedirs(os.path.dirname(png_path), exist_ok=True)
+            static = _make_static_frame(template, top_text, bottom_text)
+            static.save(png_path, "PNG")
+            return png_path, False
+
+        return output_path, True
+
+    except Exception as e:
+        logger.error(f"GIF generation failed: {e}, falling back to PNG")
+        png_path = output_path.replace(".gif", ".png")
+        if os.path.exists(output_path):
+            os.remove(output_path)
+        os.makedirs(os.path.dirname(png_path), exist_ok=True)
+        static = _make_static_frame(template, top_text, bottom_text)
+        static.save(png_path, "PNG")
+        return png_path, False
 
 
 class Meme(commands.Cog):
@@ -208,27 +342,33 @@ class Meme(commands.Cog):
 
         import tempfile
         tmp_dir = tempfile.gettempdir()
-        output_path = os.path.join(tmp_dir, f"meme_{interaction.user.id}_{os.urandom(4).hex()}.png")
+        suffix = f"_{interaction.user.id}_{os.urandom(4).hex()}"
+        gif_path = os.path.join(tmp_dir, f"meme{suffix}.gif")
+        png_path = os.path.join(tmp_dir, f"meme{suffix}.png")
+        output_path = gif_path  # primary target
+        cleanup_paths = [gif_path, png_path]
 
         try:
             loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
+            result_path, is_gif = await loop.run_in_executor(
                 None, generate_meme, template, top_text, bottom_text, output_path
             )
 
-            file = discord.File(output_path, filename="meme.png")
+            filename = "meme.gif" if is_gif else "meme.png"
+            file = discord.File(result_path, filename=filename)
+
+            tpl = TEMPLATE_DEFS[template]
             embed = discord.Embed(
-                title=f"📸 Meme — {TEMPLATE_DEFS[template]['label']}",
-                color=discord.Color.from_rgb(*TEMPLATE_DEFS[template]["bg_color"]),
+                title=f"📸 Meme — {tpl['label']}{' [GIF]' if is_gif else ''}",
+                color=discord.Color.from_rgb(*tpl["bg_color"]),
             )
-            embed.set_image(url="attachment://meme.png")
+            embed.set_image(url=f"attachment://{filename}")
             embed.set_footer(text=f"模板: {template} | by {interaction.user.display_name}")
 
             await interaction.followup.send(embed=embed, file=file)
 
         except Exception as e:
             log_error("meme", "meme_cmd", e)
-            # Fallback: text-only embed with large styled text
             tpl = TEMPLATE_DEFS[template]
             embed = discord.Embed(
                 title=f"📸 Meme — {tpl['label']}",
@@ -242,17 +382,19 @@ class Meme(commands.Cog):
             embed.set_footer(text=f"模板: {template} | by {interaction.user.display_name}")
             await interaction.followup.send(embed=embed, ephemeral=False)
         finally:
-            try:
-                if os.path.exists(output_path):
-                    os.remove(output_path)
-            except Exception:
-                pass
+            for path in cleanup_paths:
+                try:
+                    if os.path.exists(path):
+                        os.remove(path)
+                except Exception:
+                    pass
 
     @app_commands.command(name="gmpt-meme-templates", description="List available meme templates / 列出可用模板")
     async def meme_templates_cmd(self, interaction: discord.Interaction):
         embed = discord.Embed(
             title="🎨 Meme 模板列表 / Meme Templates",
-            description="使用 `/gmpt-meme <template> <top_text> <bottom_text>` 生成表情包",
+            description="使用 `/gmpt-meme <template> <top_text> <bottom_text>` 生成表情包\n"
+                        "Now with animated GIF! / 现已支持 GIF 动画！",
             color=discord.Color.purple(),
         )
 
@@ -263,7 +405,7 @@ class Meme(commands.Cog):
                 inline=True,
             )
 
-        embed.set_footer(text=f"共 {len(TEMPLATE_DEFS)} 个模板")
+        embed.set_footer(text=f"共 {len(TEMPLATE_DEFS)} 个模板 | GIF mode available")
         await interaction.response.send_message(embed=embed)
 
     @meme_cmd.error

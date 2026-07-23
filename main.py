@@ -378,6 +378,9 @@ async def auto_restore():
 # =============================================================================
 @bot.event
 async def on_ready():
+    print("=" * 50)
+    print("GMPT Bot v3.5 已启动 - 欢迎消息使用新版四板块")
+    print("=" * 50)
     init_db()
     # Periodic database maintenance
     try:
