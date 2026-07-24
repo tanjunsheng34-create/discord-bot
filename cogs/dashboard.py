@@ -2194,10 +2194,27 @@ class MatchViewWithID(discord.ui.View):
         old_msg_id = _player_list_msgs.get(match_id)
         if old_msg_id:
             try:
-                old_msg = await interaction.channel.fetch_message(old_msg_id)
-                await old_msg.delete()
+                # 安全检查:确保不会误删比赛面板消息
+                with get_db_ctx() as conn_chk:
+                    cur_chk = conn_chk.cursor()
+                    cur_chk.execute("SELECT message_id FROM match_view_state WHERE match_id=? ORDER BY message_id DESC LIMIT 1", (match_id,))
+                    panel_row_chk = cur_chk.fetchone()
+                panel_msg_id_chk = int(panel_row_chk["message_id"]) if panel_row_chk else None
+                if old_msg_id != panel_msg_id_chk:
+                    old_msg = await interaction.channel.fetch_message(old_msg_id)
+                    await old_msg.delete()
+                else:
+                    logger.warning(f"[_refresh_list] old_msg_id={old_msg_id} matches panel message, skip delete")
             except (discord.NotFound, discord.Forbidden):
                 pass
+            except Exception as e_chk:
+                # 安全检查失败时走安全策略:仅当 old_msg_id 明确不是面板消息时才删除
+                logger.error(f"[_refresh_list] safety check failed, fallback: {e_chk}")
+                try:
+                    old_msg = await interaction.channel.fetch_message(old_msg_id)
+                    await old_msg.delete()
+                except (discord.NotFound, discord.Forbidden):
+                    pass
 
         with get_db_ctx() as conn:
             cur = conn.cursor()
@@ -2277,6 +2294,10 @@ class MatchViewWithID(discord.ui.View):
             cur2.execute("SELECT message_id FROM match_view_state WHERE match_id=?", (match_id,))
             panel_row = cur2.fetchone()
             panel_msg_id = panel_row["message_id"] if panel_row else str(interaction.message.id)
+            # 额外保护:确保不会把面板消息 ID 误存为 player_list_msg_id
+            if str(new_msg.id) == str(panel_msg_id):
+                logger.error(f"[_refresh_list] REFUSE to set player_list_msg_id == panel_msg_id for match {match_id}")
+                return
             cur2.execute(
                 "UPDATE match_view_state SET player_list_msg_id=? WHERE message_id=?",
                 (str(new_msg.id), panel_msg_id),
@@ -7924,6 +7945,14 @@ class Dashboard(CogBase):
                 logger.error(f"[gmpt_recover] channel.send (match panel) error: {e}")
                 return await interaction.followup.send("发送比赛面板失败，请检查频道权限。", ephemeral=True)
             save_match_view_state(match_id, msg.id, interaction.channel_id)
+            # 清理同一 match_id 的旧 match_view_state 记录,防止查询污染
+            with get_db_ctx() as conn_clean:
+                cur_clean = conn_clean.cursor()
+                cur_clean.execute(
+                    "DELETE FROM match_view_state WHERE match_id=? AND message_id!=?",
+                    (match_id, str(msg.id)),
+                )
+                conn_clean.commit()
 
             with get_db_ctx() as conn2:
                 cur2 = conn2.cursor()
