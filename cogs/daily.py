@@ -9,7 +9,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from datetime import datetime, date, timezone, timedelta
-from database import get_db
+from database import get_db, get_db_ctx
 
 import logging
 import sqlite3
@@ -80,16 +80,15 @@ class Daily(CogBase):
     #  Config helpers
     # ═══════════════════════════════════════
     def _get_config(self) -> dict:
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute("SELECT key, value FROM daily_config")
-        config = {}
-        for row in cur.fetchall():
-            try:
-                config[row["key"]] = int(row["value"])
-            except (ValueError, TypeError):
-                config[row["key"]] = row["value"]
-        conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT key, value FROM daily_config")
+            config = {}
+            for row in cur.fetchall():
+                try:
+                    config[row["key"]] = int(row["value"])
+                except (ValueError, TypeError):
+                    config[row["key"]] = row["value"]
         return {
             "minutes": config.get("minutes", DEFAULT_MINUTES),
             "reward": config.get("reward", DEFAULT_REWARD),
@@ -147,26 +146,26 @@ class Daily(CogBase):
 
         last_error = None
         for attempt in range(3):
-            conn = get_db()
-            try:
-                cur = conn.cursor()
-                cur.execute(
-                    """INSERT INTO daily_rewards (discord_id, date, voice_minutes, claimed)
-                    VALUES (?, ?, ?, 0)
-                    ON CONFLICT(discord_id, date) DO UPDATE SET voice_minutes = voice_minutes + ?""",
-                    (uid, today_str, minutes, minutes),
-                )
-                conn.commit()
-                self._daily_join_times.pop(uid, None)
-                return True
-            except sqlite3.OperationalError as e:
-                last_error = e
-                if "locked" in str(e).lower() and attempt < 2:
-                    time_mod.sleep(0.2 * (attempt + 1))
-                    continue
-                raise
-            finally:
-                conn.close()
+            with get_db_ctx() as conn:
+                try:
+                    cur = conn.cursor()
+                    cur.execute(
+                        """INSERT INTO daily_rewards (discord_id, date, voice_minutes, claimed)
+                        VALUES (?, ?, ?, 0)
+                        ON CONFLICT(discord_id, date) DO UPDATE SET voice_minutes = voice_minutes + ?""",
+                        (uid, today_str, minutes, minutes),
+                    )
+                    conn.commit()
+                    self._daily_join_times.pop(uid, None)
+                    return True
+                except sqlite3.OperationalError as e:
+                    last_error = e
+                    if "locked" in str(e).lower() and attempt < 2:
+                        time_mod.sleep(0.2 * (attempt + 1))
+                        continue
+                    raise
+                finally:
+                    conn.close()
         raise last_error
 
     # ═══════════════════════════════════════
@@ -189,27 +188,26 @@ class Daily(CogBase):
             if interaction.user.voice and interaction.user.voice.channel:
                 self._daily_join_times[uid] = datetime.now(UTC8)
 
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT voice_minutes, claimed, reward_amount FROM daily_rewards "
-            "WHERE discord_id=? AND date=?",
-            (uid, today_str),
-        )
-        row = cur.fetchone()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT voice_minutes, claimed, reward_amount FROM daily_rewards "
+                "WHERE discord_id=? AND date=?",
+                (uid, today_str),
+            )
+            row = cur.fetchone()
 
-        # ── Fetch streak & total days ──
-        cur.execute("SELECT last_date, streak, total_days FROM daily_checkin WHERE discord_id=?", (uid,))
-        streak_row = cur.fetchone()
-        today_date = date.today().isoformat()
-        yesterday_date = date.today().fromordinal(date.today().toordinal() - 1).isoformat()
-        current_streak = 0
-        total_days = 0
-        if streak_row:
-            if streak_row["last_date"] == today_date or streak_row["last_date"] == yesterday_date:
-                current_streak = streak_row["streak"]
-            total_days = streak_row["total_days"] or 0
-        conn.close()
+            # ── Fetch streak & total days ──
+            cur.execute("SELECT last_date, streak, total_days FROM daily_checkin WHERE discord_id=?", (uid,))
+            streak_row = cur.fetchone()
+            today_date = date.today().isoformat()
+            yesterday_date = date.today().fromordinal(date.today().toordinal() - 1).isoformat()
+            current_streak = 0
+            total_days = 0
+            if streak_row:
+                if streak_row["last_date"] == today_date or streak_row["last_date"] == yesterday_date:
+                    current_streak = streak_row["streak"]
+                total_days = streak_row["total_days"] or 0
 
         # ── Next milestone preview ──
         milestones = [7, 14, 21, 30, 60, 100]
@@ -311,180 +309,174 @@ class Daily(CogBase):
             if interaction.user.voice and interaction.user.voice.channel:
                 self._daily_join_times[uid] = datetime.now(UTC8)
 
-        conn = get_db()
-        cur = conn.cursor()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
 
-        cur.execute(
-            "SELECT voice_minutes, claimed FROM daily_rewards "
-            "WHERE discord_id=? AND date=?",
-            (uid, today_str),
-        )
-        row = cur.fetchone()
-
-        if not row:
-            conn.close()
-            return await interaction.response.send_message(
-                f"You haven't been in voice channels today! "
-                f"Spend **{config['minutes']}** min in voice to claim **{config['reward']}** coins. / "
-                f"你今天还没进入语音频道！在语音频道累计 **{config['minutes']}** 分钟可领取 **{config['reward']}** 金币。",
-                ephemeral=True,
-            )
-
-        voice_minutes = row["voice_minutes"]
-        claimed = row["claimed"]
-
-        if claimed:
-            conn.close()
-            return await interaction.response.send_message(
-                "You already claimed your daily voice reward today! / "
-                "你今天已经领取过每日语音奖励了！",
-                ephemeral=True,
-            )
-
-        if voice_minutes < config["minutes"]:
-            remaining = config["minutes"] - voice_minutes
-            conn.close()
-            return await interaction.response.send_message(
-                f"Not enough voice time! **{voice_minutes}**/**{config['minutes']}** min "
-                f"(need **{remaining}** more). / "
-                f"语音时长不足！**{voice_minutes}**/**{config['minutes']}** 分钟（还需 **{remaining}** 分钟）。",
-                ephemeral=True,
-            )
-
-        # ── Streak calculation ──
-        today_date = date.today().isoformat()
-        cur.execute("SELECT last_date, streak FROM daily_checkin WHERE discord_id=?", (uid,))
-        streak_row = cur.fetchone()
-
-        if streak_row and streak_row["last_date"] == today_date:
-            conn.close()
-            return await interaction.response.send_message(
-                f"Already checked in today! Streak: {streak_row['streak']} days / "
-                f"你今天已经签到过了！连胜 {streak_row['streak']} 天",
-                ephemeral=True,
-            )
-
-        yesterday = date.today().fromordinal(date.today().toordinal() - 1).isoformat()
-        if streak_row and streak_row["last_date"] == yesterday:
-            new_streak = streak_row["streak"] + 1
-        else:
-            new_streak = 1
-
-        # ── Milestone bonus ──
-        milestone_bonus = 0
-        milestone_msg = ""
-        extra_tomorrow = "+0"
-
-        if new_streak == 7:
-            milestone_bonus = 100
-            milestone_msg = "7-day milestone! / 7天里程碑！"
-        elif new_streak == 14:
-            milestone_bonus = 200
-            milestone_msg = "14-day advanced milestone! / 14天高级里程碑！"
-        elif new_streak == 21:
-            milestone_bonus = 200
-            milestone_msg = "21-day milestone! / 21天里程碑！"
-        elif new_streak == 30:
-            milestone_bonus = 500
-            milestone_msg = "30-day legendary milestone! / 30天传奇里程碑！"
-        elif new_streak == 60:
-            milestone_bonus = 1000
-            milestone_msg = "60-day insane milestone! / 60天疯狂里程碑！"
-        elif new_streak == 100:
-            milestone_bonus = 3000
-            milestone_msg = "100-day milestone! / 100天里程碑！"
-
-        # Tomorrow's streak bonus preview
-        tomorrow_streak = new_streak + 1
-        for days, coins in sorted(STREAK_REWARDS.items()):
-            if tomorrow_streak == days:
-                extra_tomorrow = f"+{coins}"
-                break
-            elif tomorrow_streak < days:
-                break
-
-        total_reward = config["reward"] + milestone_bonus
-
-        # ── Award coins ──
-        try:
             cur.execute(
-                "INSERT INTO users (discord_id, username) VALUES (?, ?) ON CONFLICT(discord_id) DO NOTHING",
-                (uid, interaction.user.name),
-            )
-            cur.execute(
-                "UPDATE users SET score = score + ? WHERE discord_id = ?",
-                (total_reward, uid),
-            )
-            cur.execute(
-                "INSERT INTO transactions (discord_id, amount, reason) VALUES (?, ?, ?)",
-                (
-                    uid,
-                    total_reward,
-                    f"Daily Voice Reward Day {new_streak} / 每日语音签到 Day {new_streak} ({voice_minutes} min)",
-                ),
-            )
-            cur.execute(
-                "UPDATE daily_rewards SET claimed=1, claimed_at=?, reward_amount=? "
+                "SELECT voice_minutes, claimed FROM daily_rewards "
                 "WHERE discord_id=? AND date=?",
-                (datetime.now(UTC8).isoformat(), total_reward, uid, today_str),
+                (uid, today_str),
             )
-            # ── Update streak ──
-            cur.execute(
-                "INSERT INTO daily_checkin (discord_id, last_date, streak, total_days) VALUES (?,?,?,1) "
-                "ON CONFLICT(discord_id) DO UPDATE SET last_date=?, streak=?, total_days=total_days+1",
-                (uid, today_date, new_streak, today_date, new_streak),
-            )
+            row = cur.fetchone()
 
-            # ── Easter egg 签到彩蛋 (15% chance) ──
-            easter_egg_msg = None
-            easter_bonus = 0
-            easter_ticket = 0
-            if random.random() < 0.15:
-                easter_eggs = [
-                    {"type": "double", "msg": "🎉 彩蛋！本日签到金币翻倍！", "fn": lambda: total_reward},
-                    {"type": "bonus", "msg": "✨ 彩蛋！额外获得 50💰 金币雨！", "fn": lambda: 50},
-                    {"type": "ticket", "msg": "🎟️ 彩蛋！获得 1 张抽奖券！", "fn": lambda: 1},
-                    {"type": "trivia_bonus", "msg": "🌟 彩蛋！额外获得 100💰 好彩头！", "fn": lambda: 100},
-                ]
-                egg = random.choice(easter_eggs)
-                egg_type = egg["type"]
-                egg_val = egg["fn"]()
-                if egg_type == "double":
-                    extra = total_reward  # double means add original again
-                    cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (extra, uid))
-                    cur.execute(
-                        "INSERT INTO transactions (discord_id, amount, reason) VALUES (?, ?, ?)",
-                        (uid, extra, f"Easter Egg: Double Reward / 彩蛋：翻倍"),
-                    )
-                    total_reward += extra
-                    easter_egg_msg = egg["msg"]
-                elif egg_type == "ticket":
-                    cur.execute(
-                        "INSERT INTO user_inventory (discord_id, item_name, quantity) VALUES (?, 'lottery_ticket', ?) "
-                        "ON CONFLICT(discord_id, item_name) DO UPDATE SET quantity = quantity + ?",
-                        (uid, egg_val, egg_val),
-                    )
-                    easter_egg_msg = egg["msg"]
-                else:
-                    cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (egg_val, uid))
-                    cur.execute(
-                        "INSERT INTO transactions (discord_id, amount, reason) VALUES (?, ?, ?)",
-                        (uid, egg_val, f"Easter Egg: Bonus / 彩蛋：额外金币"),
-                    )
-                    total_reward += egg_val
-                    easter_egg_msg = egg["msg"]
+            if not row:
+                return await interaction.response.send_message(
+                    f"You haven't been in voice channels today! "
+                    f"Spend **{config['minutes']}** min in voice to claim **{config['reward']}** coins. / "
+                    f"你今天还没进入语音频道！在语音频道累计 **{config['minutes']}** 分钟可领取 **{config['reward']}** 金币。",
+                    ephemeral=True,
+                )
 
-            conn.commit()
-        except Exception as e:
-            log_error("daily", "claim_cmd", e)
-            conn.rollback()
-            conn.close()
-            return await interaction.response.send_message(
-                "An error occurred while awarding coins. Please try again. / "
-                "发放金币时出错，请重试。",
-                ephemeral=True,
-            )
-        conn.close()
+            voice_minutes = row["voice_minutes"]
+            claimed = row["claimed"]
+
+            if claimed:
+                return await interaction.response.send_message(
+                    "You already claimed your daily voice reward today! / "
+                    "你今天已经领取过每日语音奖励了！",
+                    ephemeral=True,
+                )
+
+            if voice_minutes < config["minutes"]:
+                remaining = config["minutes"] - voice_minutes
+                return await interaction.response.send_message(
+                    f"Not enough voice time! **{voice_minutes}**/**{config['minutes']}** min "
+                    f"(need **{remaining}** more). / "
+                    f"语音时长不足！**{voice_minutes}**/**{config['minutes']}** 分钟（还需 **{remaining}** 分钟）。",
+                    ephemeral=True,
+                )
+
+            # ── Streak calculation ──
+            today_date = date.today().isoformat()
+            cur.execute("SELECT last_date, streak FROM daily_checkin WHERE discord_id=?", (uid,))
+            streak_row = cur.fetchone()
+
+            if streak_row and streak_row["last_date"] == today_date:
+                return await interaction.response.send_message(
+                    f"Already checked in today! Streak: {streak_row['streak']} days / "
+                    f"你今天已经签到过了！连胜 {streak_row['streak']} 天",
+                    ephemeral=True,
+                )
+
+            yesterday = date.today().fromordinal(date.today().toordinal() - 1).isoformat()
+            if streak_row and streak_row["last_date"] == yesterday:
+                new_streak = streak_row["streak"] + 1
+            else:
+                new_streak = 1
+
+            # ── Milestone bonus ──
+            milestone_bonus = 0
+            milestone_msg = ""
+            extra_tomorrow = "+0"
+
+            if new_streak == 7:
+                milestone_bonus = 100
+                milestone_msg = "7-day milestone! / 7天里程碑！"
+            elif new_streak == 14:
+                milestone_bonus = 200
+                milestone_msg = "14-day advanced milestone! / 14天高级里程碑！"
+            elif new_streak == 21:
+                milestone_bonus = 200
+                milestone_msg = "21-day milestone! / 21天里程碑！"
+            elif new_streak == 30:
+                milestone_bonus = 500
+                milestone_msg = "30-day legendary milestone! / 30天传奇里程碑！"
+            elif new_streak == 60:
+                milestone_bonus = 1000
+                milestone_msg = "60-day insane milestone! / 60天疯狂里程碑！"
+            elif new_streak == 100:
+                milestone_bonus = 3000
+                milestone_msg = "100-day milestone! / 100天里程碑！"
+
+            # Tomorrow's streak bonus preview
+            tomorrow_streak = new_streak + 1
+            for days, coins in sorted(STREAK_REWARDS.items()):
+                if tomorrow_streak == days:
+                    extra_tomorrow = f"+{coins}"
+                    break
+                elif tomorrow_streak < days:
+                    break
+
+            total_reward = config["reward"] + milestone_bonus
+
+            # ── Award coins ──
+            try:
+                cur.execute(
+                    "INSERT INTO users (discord_id, username) VALUES (?, ?) ON CONFLICT(discord_id) DO NOTHING",
+                    (uid, interaction.user.name),
+                )
+                cur.execute(
+                    "UPDATE users SET score = score + ? WHERE discord_id = ?",
+                    (total_reward, uid),
+                )
+                cur.execute(
+                    "INSERT INTO transactions (discord_id, amount, reason) VALUES (?, ?, ?)",
+                    (
+                        uid,
+                        total_reward,
+                        f"Daily Voice Reward Day {new_streak} / 每日语音签到 Day {new_streak} ({voice_minutes} min)",
+                    ),
+                )
+                cur.execute(
+                    "UPDATE daily_rewards SET claimed=1, claimed_at=?, reward_amount=? "
+                    "WHERE discord_id=? AND date=?",
+                    (datetime.now(UTC8).isoformat(), total_reward, uid, today_str),
+                )
+                # ── Update streak ──
+                cur.execute(
+                    "INSERT INTO daily_checkin (discord_id, last_date, streak, total_days) VALUES (?,?,?,1) "
+                    "ON CONFLICT(discord_id) DO UPDATE SET last_date=?, streak=?, total_days=total_days+1",
+                    (uid, today_date, new_streak, today_date, new_streak),
+                )
+
+                # ── Easter egg 签到彩蛋 (15% chance) ──
+                easter_egg_msg = None
+                easter_bonus = 0
+                easter_ticket = 0
+                if random.random() < 0.15:
+                    easter_eggs = [
+                        {"type": "double", "msg": "🎉 彩蛋！本日签到金币翻倍！", "fn": lambda: total_reward},
+                        {"type": "bonus", "msg": "✨ 彩蛋！额外获得 50💰 金币雨！", "fn": lambda: 50},
+                        {"type": "ticket", "msg": "🎟️ 彩蛋！获得 1 张抽奖券！", "fn": lambda: 1},
+                        {"type": "trivia_bonus", "msg": "🌟 彩蛋！额外获得 100💰 好彩头！", "fn": lambda: 100},
+                    ]
+                    egg = random.choice(easter_eggs)
+                    egg_type = egg["type"]
+                    egg_val = egg["fn"]()
+                    if egg_type == "double":
+                        extra = total_reward  # double means add original again
+                        cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (extra, uid))
+                        cur.execute(
+                            "INSERT INTO transactions (discord_id, amount, reason) VALUES (?, ?, ?)",
+                            (uid, extra, f"Easter Egg: Double Reward / 彩蛋：翻倍"),
+                        )
+                        total_reward += extra
+                        easter_egg_msg = egg["msg"]
+                    elif egg_type == "ticket":
+                        cur.execute(
+                            "INSERT INTO user_inventory (discord_id, item_name, quantity) VALUES (?, 'lottery_ticket', ?) "
+                            "ON CONFLICT(discord_id, item_name) DO UPDATE SET quantity = quantity + ?",
+                            (uid, egg_val, egg_val),
+                        )
+                        easter_egg_msg = egg["msg"]
+                    else:
+                        cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (egg_val, uid))
+                        cur.execute(
+                            "INSERT INTO transactions (discord_id, amount, reason) VALUES (?, ?, ?)",
+                            (uid, egg_val, f"Easter Egg: Bonus / 彩蛋：额外金币"),
+                        )
+                        total_reward += egg_val
+                        easter_egg_msg = egg["msg"]
+
+                conn.commit()
+            except Exception as e:
+                log_error("daily", "claim_cmd", e)
+                conn.rollback()
+                return await interaction.response.send_message(
+                    "An error occurred while awarding coins. Please try again. / "
+                    "发放金币时出错，请重试。",
+                    ephemeral=True,
+                )
 
         # ── Build embed ──
         embed = discord.Embed(
@@ -556,22 +548,21 @@ class Daily(CogBase):
                 "Minutes must be at least 1 / 分钟数至少为 1。", ephemeral=True
             )
 
-        conn = get_db()
-        cur = conn.cursor()
-        for key, val in [("minutes", str(minutes)), ("reward", str(reward))]:
-            cur.execute(
-                "INSERT INTO daily_config (key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value = ?",
-                (key, val, val),
-            )
-        if channel:
-            cur.execute(
-                "INSERT INTO daily_config (key, value) VALUES ('channel', ?) "
-                "ON CONFLICT(key) DO UPDATE SET value = ?",
-                (str(channel.id), str(channel.id)),
-            )
-        conn.commit()
-        conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            for key, val in [("minutes", str(minutes)), ("reward", str(reward))]:
+                cur.execute(
+                    "INSERT INTO daily_config (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = ?",
+                    (key, val, val),
+                )
+            if channel:
+                cur.execute(
+                    "INSERT INTO daily_config (key, value) VALUES ('channel', ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = ?",
+                    (str(channel.id), str(channel.id)),
+                )
+            conn.commit()
 
         # ── Send announcement embed to designated channel ──
         if channel:

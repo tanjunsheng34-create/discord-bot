@@ -6,7 +6,7 @@ import logging
 import discord
 from discord import app_commands
 from discord.ext import commands
-from database import get_db
+from database import get_db, get_db_ctx
 from utils.cog_base import CogBase
 from datetime import datetime, timezone
 
@@ -135,68 +135,68 @@ class QueueCog(CogBase):
         player_items = list(self.queue.items())
 
         # 查询所有玩家 MMR
-        conn = get_db(); cur = conn.cursor()
-        uids = [uid for uid, _ in player_items]
-        placeholders = ",".join("?" * len(uids))
-        cur.execute(f"SELECT discord_id, mmr FROM users WHERE discord_id IN ({placeholders})", uids)
-        mmr_rows = cur.fetchall()
-        conn.close()
-        mmr_map = {r["discord_id"]: (r["mmr"] if r["mmr"] else 1000) for r in mmr_rows}
-        for uid in uids:
-            mmr_map.setdefault(uid, 1000)
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            uids = [uid for uid, _ in player_items]
+            placeholders = ",".join("?" * len(uids))
+            cur.execute(f"SELECT discord_id, mmr FROM users WHERE discord_id IN ({placeholders})", uids)
+            mmr_rows = cur.fetchall()
+            mmr_map = {r["discord_id"]: (r["mmr"] if r["mmr"] else 1000) for r in mmr_rows}
+            for uid in uids:
+                mmr_map.setdefault(uid, 1000)
 
-        # 按 MMR 降序排序后蛇形分配
-        sorted_players = sorted(player_items, key=lambda x: mmr_map.get(x[0], 1000), reverse=True)
-        team_a = []; team_b = []
-        snake = ["A", "B", "B", "A", "A", "B", "B", "A", "A", "B"]
-        for i, (uid, data) in enumerate(sorted_players):
-            if snake[i] == "A":
-                team_a.append((uid, data))
-            else:
-                team_b.append((uid, data))
+            # 按 MMR 降序排序后蛇形分配
+            sorted_players = sorted(player_items, key=lambda x: mmr_map.get(x[0], 1000), reverse=True)
+            team_a = []; team_b = []
+            snake = ["A", "B", "B", "A", "A", "B", "B", "A", "A", "B"]
+            for i, (uid, data) in enumerate(sorted_players):
+                if snake[i] == "A":
+                    team_a.append((uid, data))
+                else:
+                    team_b.append((uid, data))
 
-        # 计算两队平均 MMR
-        avg_a = sum(mmr_map[uid] for uid, _ in team_a) / 5
-        avg_b = sum(mmr_map[uid] for uid, _ in team_b) / 5
+            # 计算两队平均 MMR
+            avg_a = sum(mmr_map[uid] for uid, _ in team_a) / 5
+            avg_b = sum(mmr_map[uid] for uid, _ in team_b) / 5
 
-        conn = get_db(); cur = conn.cursor()
-        match_name = f"Auto Queue Match {datetime.now(timezone.utc).strftime('%H:%M')}"
-        cur.execute(
-            "INSERT INTO tournaments (name, max_teams, team_size, created_by, status) VALUES (?, 2, 5, ?, 'open')",
-            (match_name, str(self.bot.user.id)),
-        )
-        conn.commit()
-        match_id = cur.lastrowid
-
-        for uid, data in player_items:
+            conn = get_db(); cur = conn.cursor()
+            match_name = f"Auto Queue Match {datetime.now(timezone.utc).strftime('%H:%M')}"
             cur.execute(
-                "INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)",
-                (uid, "unknown"),
+                "INSERT INTO tournaments (name, max_teams, team_size, created_by, status) VALUES (?, 2, 5, ?, 'open')",
+                (match_name, str(self.bot.user.id)),
             )
-            lane = data["position"] if data["position"] != "Any" else None
-            cur.execute(
-                "INSERT INTO registrations (tournament_id, discord_id, lane) VALUES (?,?,?)",
-                (match_id, uid, lane),
-            )
+            conn.commit()
+            match_id = cur.lastrowid
 
-        cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (match_id, "蓝队 Blue"))
-        aid = cur.lastrowid
-        for uid, _ in team_a:
-            cur.execute(
-                "UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?",
-                (aid, match_id, uid),
-            )
+            for uid, data in player_items:
+                cur.execute(
+                    "INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)",
+                    (uid, "unknown"),
+                )
+                lane = data["position"] if data["position"] != "Any" else None
+                cur.execute(
+                    "INSERT INTO registrations (tournament_id, discord_id, lane) VALUES (?,?,?)",
+                    (match_id, uid, lane),
+                )
 
-        cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (match_id, "红队 Red"))
-        bid = cur.lastrowid
-        for uid, _ in team_b:
-            cur.execute(
-                "UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?",
-                (bid, match_id, uid),
-            )
+            cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (match_id, "蓝队 Blue"))
+            aid = cur.lastrowid
+            for uid, _ in team_a:
+                cur.execute(
+                    "UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?",
+                    (aid, match_id, uid),
+                )
 
-        cur.execute("UPDATE tournaments SET status='closed' WHERE id=?", (match_id,))
-        conn.commit(); conn.close()
+            cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (match_id, "红队 Red"))
+            bid = cur.lastrowid
+            for uid, _ in team_b:
+                cur.execute(
+                    "UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?",
+                    (bid, match_id, uid),
+                )
+
+            cur.execute("UPDATE tournaments SET status='closed' WHERE id=?", (match_id,))
+            conn.commit()
 
         self.queue.clear()
 

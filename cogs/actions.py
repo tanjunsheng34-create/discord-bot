@@ -13,7 +13,7 @@ from discord.ext import commands
 
 from utils.cog_base import CogBase
 from utils.logger import log_error
-from database import get_db
+from database import get_db, get_db_ctx
 
 # 每个动作对应的配置
 ACTION_CONFIG = {
@@ -143,19 +143,18 @@ class ActionsCog(CogBase):
         title = f"{user1_name} {cfg['verb_cn']} {user2_name}"
 
         # 加钱给目标
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO users (discord_id, username, score) VALUES (?, ?, 500) "
-            "ON CONFLICT(discord_id) DO UPDATE SET username=excluded.username",
-            (str(target.id), str(target)),
-        )
-        cur.execute(
-            "UPDATE users SET score = score + 5 WHERE discord_id = ?",
-            (str(target.id),),
-        )
-        conn.commit()
-        conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO users (discord_id, username, score) VALUES (?, ?, 500) "
+                "ON CONFLICT(discord_id) DO UPDATE SET username=excluded.username",
+                (str(target.id), str(target)),
+            )
+            cur.execute(
+                "UPDATE users SET score = score + 5 WHERE discord_id = ?",
+                (str(target.id),),
+            )
+            conn.commit()
 
         # 生成图片 (discord.File) — 全局图片模式关闭则直接文字兜底
         cfg = ACTION_CONFIG[action_name]

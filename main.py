@@ -12,7 +12,7 @@ import datetime
 import sqlite3
 import discord
 from discord.ext import commands
-from database import get_db, init_db
+from database import get_db, get_db_ctx, init_db
 from utils.logger import log_error
 from config import TOKEN, BACKUP_CHANNEL_ID, BACKUP_INTERVAL, BACKUP_TABLES
 
@@ -182,17 +182,16 @@ bot.ffmpeg_path = ensure_deps()
 # =============================================================================
 def export_backup_data():
     """Export all BACKUP_TABLES rows as a dict. Runs in thread — sync safe."""
-    conn = get_db()
-    cur = conn.cursor()
-    data = {}
-    for table in BACKUP_TABLES:
-        try:
-            cur.execute(f"SELECT * FROM {table}")
-            rows = [dict(row) for row in cur.fetchall()]
-            data[table] = rows
-        except Exception:
-            data[table] = []
-    conn.close()
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
+        data = {}
+        for table in BACKUP_TABLES:
+            try:
+                cur.execute(f"SELECT * FROM {table}")
+                rows = [dict(row) for row in cur.fetchall()]
+                data[table] = rows
+            except Exception:
+                data[table] = []
     return data
 
 
@@ -315,63 +314,63 @@ async def auto_restore():
         logger.error(f"Failed to fetch backup: {e}")
         return
 
-    conn = get_db()
-    cur = conn.cursor()
-    restored = {}
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
+        restored = {}
 
-    try:
-        # Batched restore helpers
-        def _restore_batch(table_name, sql, rows_builder):
-            rows = [rows_builder(r) for r in data.get(table_name, [])]
-            if rows:
-                cur.executemany(sql, rows)
-                restored[table_name] = len(rows)
+        try:
+            # Batched restore helpers
+            def _restore_batch(table_name, sql, rows_builder):
+                rows = [rows_builder(r) for r in data.get(table_name, [])]
+                if rows:
+                    cur.executemany(sql, rows)
+                    restored[table_name] = len(rows)
 
-        # users
-        _restore_batch("users",
-            "INSERT OR REPLACE INTO users (discord_id, username, score, created_at) VALUES (?, ?, ?, ?)",
-            lambda u: (u.get("discord_id"), u.get("username", ""), u.get("score", 500), u.get("created_at", "")),
-        )
-        # voice_tracker
-        _restore_batch("voice_tracker",
-            "INSERT OR REPLACE INTO voice_tracker (user_id, total_seconds, login_days, total_joins, last_join_date, last_join_time) VALUES (?, ?, ?, ?, ?, ?)",
-            lambda v: (v.get("user_id"), v.get("total_seconds", 0), v.get("login_days", 0), v.get("total_joins", 0), v.get("last_join_date"), v.get("last_join_time")),
-        )
-        # daily_checkin
-        _restore_batch("daily_checkin",
-            "INSERT OR REPLACE INTO daily_checkin (discord_id, last_date, streak) VALUES (?, ?, ?)",
-            lambda c: (c.get("discord_id"), c.get("last_date", ""), c.get("streak", 0)),
-        )
-        # user_inventory
-        _restore_batch("user_inventory",
-            "INSERT OR REPLACE INTO user_inventory (user_id, item_id, quantity) VALUES (?, ?, ?)",
-            lambda inv: (inv.get("user_id"), inv.get("item_id"), inv.get("quantity", 1)),
-        )
-        # giveaways (economy.py new system)
-        _restore_batch("giveaways",
-            "INSERT OR REPLACE INTO giveaways (id, channel_id, prize, created_by, drawn, winner_id, created_at, draw_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            lambda g: (g.get("id"), g.get("channel_id"), g.get("prize"), g.get("created_by"), g.get("drawn", 0), g.get("winner_id"), g.get("created_at"), g.get("draw_at")),
-        )
-        # giveaway_tickets
-        _restore_batch("giveaway_tickets",
-            "INSERT OR REPLACE INTO giveaway_tickets (discord_id, tickets) VALUES (?, ?)",
-            lambda t: (t.get("discord_id"), t.get("tickets", 0)),
-        )
-        # tournaments
-        _restore_batch("tournaments",
-            "INSERT OR REPLACE INTO tournaments (id, name, max_teams, team_size, status, created_by, created_at, format, max_players, rounds, tier_restriction, role_pick) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            lambda t: (t.get("id"), t.get("name"), t.get("max_teams"), t.get("team_size"), t.get("status", "open"), t.get("created_by"), t.get("created_at"), t.get("format", "swiss"), t.get("max_players", 32), t.get("rounds", 3), t.get("tier_restriction"), t.get("role_pick", 0)),
-        )
-        # tournaments
+            # users
+            _restore_batch("users",
+                "INSERT OR REPLACE INTO users (discord_id, username, score, created_at) VALUES (?, ?, ?, ?)",
+                lambda u: (u.get("discord_id"), u.get("username", ""), u.get("score", 500), u.get("created_at", "")),
+            )
+            # voice_tracker
+            _restore_batch("voice_tracker",
+                "INSERT OR REPLACE INTO voice_tracker (user_id, total_seconds, login_days, total_joins, last_join_date, last_join_time) VALUES (?, ?, ?, ?, ?, ?)",
+                lambda v: (v.get("user_id"), v.get("total_seconds", 0), v.get("login_days", 0), v.get("total_joins", 0), v.get("last_join_date"), v.get("last_join_time")),
+            )
+            # daily_checkin
+            _restore_batch("daily_checkin",
+                "INSERT OR REPLACE INTO daily_checkin (discord_id, last_date, streak) VALUES (?, ?, ?)",
+                lambda c: (c.get("discord_id"), c.get("last_date", ""), c.get("streak", 0)),
+            )
+            # user_inventory
+            _restore_batch("user_inventory",
+                "INSERT OR REPLACE INTO user_inventory (user_id, item_id, quantity) VALUES (?, ?, ?)",
+                lambda inv: (inv.get("user_id"), inv.get("item_id"), inv.get("quantity", 1)),
+            )
+            # giveaways (economy.py new system)
+            _restore_batch("giveaways",
+                "INSERT OR REPLACE INTO giveaways (id, channel_id, prize, created_by, drawn, winner_id, created_at, draw_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                lambda g: (g.get("id"), g.get("channel_id"), g.get("prize"), g.get("created_by"), g.get("drawn", 0), g.get("winner_id"), g.get("created_at"), g.get("draw_at")),
+            )
+            # giveaway_tickets
+            _restore_batch("giveaway_tickets",
+                "INSERT OR REPLACE INTO giveaway_tickets (discord_id, tickets) VALUES (?, ?)",
+                lambda t: (t.get("discord_id"), t.get("tickets", 0)),
+            )
+            # tournaments
+            _restore_batch("tournaments",
+                "INSERT OR REPLACE INTO tournaments (id, name, max_teams, team_size, status, created_by, created_at, format, max_players, rounds, tier_restriction, role_pick) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                lambda t: (t.get("id"), t.get("name"), t.get("max_teams"), t.get("team_size"), t.get("status", "open"), t.get("created_by"), t.get("created_at"), t.get("format", "swiss"), t.get("max_players", 32), t.get("rounds", 3), t.get("tier_restriction"), t.get("role_pick", 0)),
+            )
+            # tournaments
 
-        conn.commit()
+            conn.commit()
 
-        summary = ", ".join(f"{k}: {v}" for k, v in restored.items())
-        logger.info(f"Restore complete: {summary}")
-    except Exception as e:
-        logger.error(f"Restore failed: {e}", exc_info=True)
-    finally:
-        conn.close()
+            summary = ", ".join(f"{k}: {v}" for k, v in restored.items())
+            logger.info(f"Restore complete: {summary}")
+        except Exception as e:
+            logger.error(f"Restore failed: {e}", exc_info=True)
+        finally:
+            conn.close()
 
 
 # =============================================================================
@@ -417,10 +416,9 @@ async def on_ready():
     init_db()
     # Periodic database maintenance
     try:
-        conn = get_db()
-        conn.execute("PRAGMA optimize")
-        conn.execute("VACUUM")
-        conn.close()
+        with get_db_ctx() as conn:
+            conn.execute("PRAGMA optimize")
+            conn.execute("VACUUM")
         logger.info("Database VACUUM completed")
     except Exception as e:
         logger.warning(f"Database VACUUM failed (non-critical): {e}")
@@ -526,25 +524,24 @@ async def on_message(message):
         last = _msg_xp_cooldowns.get(uid, 0)
         if now - last >= 60:
             _msg_xp_cooldowns[uid] = now
-            conn = get_db()
-            cur = conn.cursor()
-            cur.execute(
-                "INSERT INTO users (discord_id, username) VALUES (?, ?) ON CONFLICT(discord_id) DO NOTHING",
-                (uid, message.author.name),
-            )
-            cur.execute("UPDATE users SET xp = xp + 2 WHERE discord_id = ?", (uid,))
-            cur.execute("SELECT xp, level FROM users WHERE discord_id=?", (uid,))
-            xp_row = cur.fetchone()
-            if xp_row:
-                current_xp = xp_row["xp"]
-                current_level = xp_row["level"] or 1
-                while current_xp >= int(current_level ** 1.5 * 100):
-                    current_xp -= int(current_level ** 1.5 * 100)
-                    current_level += 1
-                if current_level != xp_row["level"]:
-                    cur.execute("UPDATE users SET level = ?, xp = ? WHERE discord_id=?", (current_level, current_xp, uid))
-            conn.commit()
-            conn.close()
+            with get_db_ctx() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO users (discord_id, username) VALUES (?, ?) ON CONFLICT(discord_id) DO NOTHING",
+                    (uid, message.author.name),
+                )
+                cur.execute("UPDATE users SET xp = xp + 2 WHERE discord_id = ?", (uid,))
+                cur.execute("SELECT xp, level FROM users WHERE discord_id=?", (uid,))
+                xp_row = cur.fetchone()
+                if xp_row:
+                    current_xp = xp_row["xp"]
+                    current_level = xp_row["level"] or 1
+                    while current_xp >= int(current_level ** 1.5 * 100):
+                        current_xp -= int(current_level ** 1.5 * 100)
+                        current_level += 1
+                    if current_level != xp_row["level"]:
+                        cur.execute("UPDATE users SET level = ?, xp = ? WHERE discord_id=?", (current_level, current_xp, uid))
+                conn.commit()
     except Exception as e:
         log_error("main", "on_message_xp", e)
 

@@ -9,7 +9,7 @@ import time
 import discord
 from discord import app_commands
 from discord.ext import commands
-from database import get_db
+from database import get_db, get_db_ctx
 from utils.cog_base import CogBase
 from cogs.economy import get_balance, add_coins
 from config import WHISPER_CHANNEL_ID
@@ -23,28 +23,29 @@ def _format_coins(amount: int) -> str:
     return f"🪙 {amount:,}"
 
 def _get_user_or_create(uid: str, uname: str):
-    conn = get_db(); cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO users (discord_id, username) VALUES (?,?) ON CONFLICT(discord_id) DO NOTHING",
-        (uid, uname),
-    )
-    cur.execute("SELECT score, id FROM users WHERE discord_id=?", (uid,))
-    row = cur.fetchone()
-    conn.close()
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO users (discord_id, username) VALUES (?,?) ON CONFLICT(discord_id) DO NOTHING",
+            (uid, uname),
+        )
+        cur.execute("SELECT score, id FROM users WHERE discord_id=?", (uid,))
+        row = cur.fetchone()
     return row
 
 # ── Whisper counter (SQLite) ──
 def _init_whisper_table():
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS whispers (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            author_id TEXT NOT NULL,
-            message TEXT NOT NULL,
-            created_at TEXT DEFAULT (datetime('now'))
-        )
-    """)
-    conn.commit(); conn.close()
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS whispers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                author_id TEXT NOT NULL,
+                message TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.commit()
 
 _init_whisper_table()
 
@@ -240,13 +241,14 @@ class Games(CogBase):
         uid = str(interaction.user.id)
 
         # 写入数据库
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO whispers (author_id, message) VALUES (?, ?)",
-            (uid, message),
-        )
-        wid = cur.lastrowid
-        conn.commit(); conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO whispers (author_id, message) VALUES (?, ?)",
+                (uid, message),
+            )
+            wid = cur.lastrowid
+            conn.commit()
 
         # 发送到树洞频道
         channel = self.bot.get_channel(int(WHISPER_CHANNEL_ID))

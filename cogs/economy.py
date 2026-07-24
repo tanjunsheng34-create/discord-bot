@@ -10,7 +10,7 @@ import random
 import discord
 from discord import app_commands
 from discord.ext import commands
-from database import get_db
+from database import get_db, get_db_ctx
 from datetime import datetime
 from cogs.shared_views import ConfirmView
 
@@ -392,14 +392,15 @@ class MainMenuView(discord.ui.View):
         if str(interaction.user.id) != self.user_id:
             return await interaction.followup.send("This is not your shop. / 这不是你的商店页面。", ephemeral=True)
         uid = str(interaction.user.id)
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("""
-            SELECT si.name, inv.quantity
-            FROM user_inventory inv
-            JOIN shop_items si ON si.id = inv.item_id
-            WHERE inv.user_id=?
-        """, (uid,))
-        rows = cur.fetchall(); conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT si.name, inv.quantity
+                FROM user_inventory inv
+                JOIN shop_items si ON si.id = inv.item_id
+                WHERE inv.user_id=?
+            """, (uid,))
+            rows = cur.fetchall()
         if not rows:
             return await interaction.followup.send("Backpack is empty. / 背包是空的。", ephemeral=True)
         lines = [f"📦 **{r['name']}** x{r['quantity']}" for r in rows]
@@ -614,21 +615,21 @@ class AchFilter(discord.ui.View):
 
 # ---------- 购买逻辑 ----------
 async def buy_item(interaction: discord.Interaction, uid: str, item_id: int, broadcast_message: str = None):
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT * FROM shop_items WHERE id=?", (item_id,))
-    item = cur.fetchone()
-    if not item:
-        conn.close(); return await interaction.followup.send(
-            "Item not found. / 物品不存在。", ephemeral=True
-        )
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM shop_items WHERE id=?", (item_id,))
+        item = cur.fetchone()
+        if not item:
+            return await interaction.followup.send(
+                "Item not found. / 物品不存在。", ephemeral=True
+            )
 
-    bal = get_balance(uid)
-    if bal < item["price"]:
-        conn.close(); return await interaction.followup.send(
-            f"Insufficient balance! Need {item['price']} coins, you have {bal}. / 余额不足！需要 {item['price']} coins，你有 {bal} coins。",
-            ephemeral=True,
-        )
-    conn.close()
+        bal = get_balance(uid)
+        if bal < item["price"]:
+            return await interaction.followup.send(
+                f"Insufficient balance! Need {item['price']} coins, you have {bal}. / 余额不足！需要 {item['price']} coins，你有 {bal} coins。",
+                ephemeral=True,
+            )
 
     # broadcast 必须有消息内容
     if item["item_type"] == "broadcast" and not broadcast_message:
@@ -658,142 +659,143 @@ async def buy_item(interaction: discord.Interaction, uid: str, item_id: int, bro
                     "This is not your order. / 这不是你的购买单。", ephemeral=True
                 )
 
-            conn2 = get_db(); cur2 = conn2.cursor()
-            bal2 = get_balance(uid)
-            if bal2 < item["price"]:
-                conn2.close(); return await btn_i.followup.send(
-                    f"Insufficient balance! {bal2} coins. / 余额不足！{bal2} coins。", ephemeral=True
-                )
+            with get_db_ctx() as conn2:
+                cur2 = conn2.cursor()
+                bal2 = get_balance(uid)
+                if bal2 < item["price"]:
+                    return await btn_i.followup.send(
+                        f"Insufficient balance! {bal2} coins. / 余额不足！{bal2} coins。", ephemeral=True
+                    )
 
-            # 扣钱 + 记录交易
-            cur2.execute("UPDATE users SET score = score - ? WHERE discord_id = ?", (item["price"], uid))
-            cur2.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                         (uid, -item["price"], f"Purchase: {item['name']} / 购买: {item['name']}"))
+                # 扣钱 + 记录交易
+                cur2.execute("UPDATE users SET score = score - ? WHERE discord_id = ?", (item["price"], uid))
+                cur2.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                             (uid, -item["price"], f"Purchase: {item['name']} / 购买: {item['name']}"))
 
-            item_type = item["item_type"]
-            result_msg = f"✅ Purchased! / 购买成功！**{item['name']}**  -{item['price']} coins"
+                item_type = item["item_type"]
+                result_msg = f"✅ Purchased! / 购买成功！**{item['name']}**  -{item['price']} coins"
 
-            if item_type in GAME_ITEMS:
-                # 存入背包
-                cur2.execute(
-                    "INSERT INTO user_inventory (user_id, item_id, quantity) VALUES (?,?,1) "
-                    "ON CONFLICT(user_id, item_id) DO UPDATE SET quantity = quantity + 1",
-                    (uid, item_id),
-                )
-                conn2.commit(); conn2.close()
+                if item_type in GAME_ITEMS:
+                    # 存入背包
+                    cur2.execute(
+                        "INSERT INTO user_inventory (user_id, item_id, quantity) VALUES (?,?,1) "
+                        "ON CONFLICT(user_id, item_id) DO UPDATE SET quantity = quantity + 1",
+                        (uid, item_id),
+                    )
+                    conn2.commit()
 
-                # shop-log 通知
-                if _bot:
-                    try:
-                        shop_ch = _bot.get_channel(SHOP_LOG_CHANNEL_ID)
-                        if shop_ch:
-                            await shop_ch.send(f"{btn_i.user.mention} 购买了 [{item['name']}] — 花费 {item['price']} coins")
-                    except Exception as e:
-                        log_error("economy", "confirm", e)
-
-            elif item_type in ADMIN_NOTIFY_TYPES:
-                conn2.commit(); conn2.close()
-                # 通知管理手动处理
-                if _bot:
-                    try:
-                        req_ch = _bot.get_channel(ITEM_REQUESTS_CHANNEL_ID)
-                        if req_ch:
-                            await req_ch.send(
-                                f"{btn_i.user.mention} 兑换了 **[{item['name']}]** — 需要管理手动处理（价格 {item['price']} coins）"
-                            )
-                    except Exception as e:
-                        log_error("economy", "confirm", e)
-
-            elif item_type == "private_vc":
-                conn2.commit(); conn2.close()
-                # Bot 创建语音频道
-                if _bot and interaction.guild:
-                    try:
-                        username = btn_i.user.display_name or btn_i.user.name
-                        vc = await interaction.guild.create_voice_channel(name=f"{username}的房间")
-                        result_msg += f"\n🎙️ Voice channel **{vc.name}** created! / 语音频道已创建！"
-                        # shop-log 通知
+                    # shop-log 通知
+                    if _bot:
                         try:
                             shop_ch = _bot.get_channel(SHOP_LOG_CHANNEL_ID)
                             if shop_ch:
-                                await shop_ch.send(
-                                    f"{btn_i.user.mention} 购买了 [Private VC] — 语音频道 **{vc.name}** 已创建（花费 {item['price']} coins）"
+                                await shop_ch.send(f"{btn_i.user.mention} 购买了 [{item['name']}] — 花费 {item['price']} coins")
+                        except Exception as e:
+                            log_error("economy", "confirm", e)
+
+                elif item_type in ADMIN_NOTIFY_TYPES:
+                    conn2.commit()
+                    # 通知管理手动处理
+                    if _bot:
+                        try:
+                            req_ch = _bot.get_channel(ITEM_REQUESTS_CHANNEL_ID)
+                            if req_ch:
+                                await req_ch.send(
+                                    f"{btn_i.user.mention} 兑换了 **[{item['name']}]** — 需要管理手动处理（价格 {item['price']} coins）"
                                 )
                         except Exception as e:
                             log_error("economy", "confirm", e)
-                    except Exception as e:
-                        result_msg += f"\n⚠️ Failed to create voice channel: {e}"
 
-            elif item_type == "broadcast":
-                conn2.commit(); conn2.close()
-                # 广播到 economy-info 频道
-                if _bot and broadcast_message:
-                    try:
-                        shop_ch = _bot.get_channel(SHOP_LOG_CHANNEL_ID)
-                        if shop_ch:
-                            await shop_ch.send(f"📢 {btn_i.user.mention} 全服广播：{broadcast_message}")
-                    except Exception as e:
-                        log_error("economy", "confirm", e)
-                result_msg += f"\n📢 Broadcast sent! / 全服广播已发送！"
+                elif item_type == "private_vc":
+                    conn2.commit()
+                    # Bot 创建语音频道
+                    if _bot and interaction.guild:
+                        try:
+                            username = btn_i.user.display_name or btn_i.user.name
+                            vc = await interaction.guild.create_voice_channel(name=f"{username}的房间")
+                            result_msg += f"\n🎙️ Voice channel **{vc.name}** created! / 语音频道已创建！"
+                            # shop-log 通知
+                            try:
+                                shop_ch = _bot.get_channel(SHOP_LOG_CHANNEL_ID)
+                                if shop_ch:
+                                    await shop_ch.send(
+                                        f"{btn_i.user.mention} 购买了 [Private VC] — 语音频道 **{vc.name}** 已创建（花费 {item['price']} coins）"
+                                    )
+                            except Exception as e:
+                                log_error("economy", "confirm", e)
+                        except Exception as e:
+                            result_msg += f"\n⚠️ Failed to create voice channel: {e}"
 
-            elif item_type == "giveaway_ticket":
-                cur2.execute(
-                    "INSERT INTO giveaway_tickets (discord_id, tickets) VALUES (?,1) "
-                    "ON CONFLICT(discord_id) DO UPDATE SET tickets = tickets + 1",
-                    (uid,),
-                )
-                cur2.execute("SELECT tickets FROM giveaway_tickets WHERE discord_id=?", (uid,))
-                total = cur2.fetchone()["tickets"]
-                conn2.commit(); conn2.close()
-                result_msg += f"\n🎟️ You now have **{total}** giveaway ticket(s)! / 你现在有 **{total}** 张抽奖券！"
-                # shop-log
-                if _bot:
-                    try:
-                        shop_ch = _bot.get_channel(SHOP_LOG_CHANNEL_ID)
-                        if shop_ch:
-                            await shop_ch.send(f"{btn_i.user.mention} 购买了 [Giveaway Ticket] x1 — 共持有 {total} 张（花费 {item['price']} coins）")
-                    except Exception as e:
-                        log_error("economy", "confirm", e)
+                elif item_type == "broadcast":
+                    conn2.commit()
+                    # 广播到 economy-info 频道
+                    if _bot and broadcast_message:
+                        try:
+                            shop_ch = _bot.get_channel(SHOP_LOG_CHANNEL_ID)
+                            if shop_ch:
+                                await shop_ch.send(f"📢 {btn_i.user.mention} 全服广播：{broadcast_message}")
+                        except Exception as e:
+                            log_error("economy", "confirm", e)
+                    result_msg += f"\n📢 Broadcast sent! / 全服广播已发送！"
 
-            elif item_type == "queue_skip":
-                cur2.execute(
-                    "INSERT INTO user_flags (discord_id, queue_skip) VALUES (?,1) "
-                    "ON CONFLICT(discord_id) DO UPDATE SET queue_skip = queue_skip + 1",
-                    (uid,),
-                )
-                cur2.execute("SELECT queue_skip FROM user_flags WHERE discord_id=?", (uid,))
-                skips = cur2.fetchone()["queue_skip"]
-                conn2.commit(); conn2.close()
-                result_msg += f"\n⏩ You have **{skips}** queue skip(s) available! / 你有 **{skips}** 次插队资格！"
+                elif item_type == "giveaway_ticket":
+                    cur2.execute(
+                        "INSERT INTO giveaway_tickets (discord_id, tickets) VALUES (?,1) "
+                        "ON CONFLICT(discord_id) DO UPDATE SET tickets = tickets + 1",
+                        (uid,),
+                    )
+                    cur2.execute("SELECT tickets FROM giveaway_tickets WHERE discord_id=?", (uid,))
+                    total = cur2.fetchone()["tickets"]
+                    conn2.commit()
+                    result_msg += f"\n🎟️ You now have **{total}** giveaway ticket(s)! / 你现在有 **{total}** 张抽奖券！"
+                    # shop-log
+                    if _bot:
+                        try:
+                            shop_ch = _bot.get_channel(SHOP_LOG_CHANNEL_ID)
+                            if shop_ch:
+                                await shop_ch.send(f"{btn_i.user.mention} 购买了 [Giveaway Ticket] x1 — 共持有 {total} 张（花费 {item['price']} coins）")
+                        except Exception as e:
+                            log_error("economy", "confirm", e)
 
-            elif item_type == "mode_pick":
-                cur2.execute(
-                    "INSERT INTO user_flags (discord_id, mode_pick) VALUES (?, 'pending') "
-                    "ON CONFLICT(discord_id) DO UPDATE SET mode_pick = 'pending'",
-                    (uid,),
-                )
-                conn2.commit(); conn2.close()
-                result_msg += f"\n🎯 Mode pick activated! Next match you can choose the game mode. / 自选模式已激活！下场比赛可选择模式。"
+                elif item_type == "queue_skip":
+                    cur2.execute(
+                        "INSERT INTO user_flags (discord_id, queue_skip) VALUES (?,1) "
+                        "ON CONFLICT(discord_id) DO UPDATE SET queue_skip = queue_skip + 1",
+                        (uid,),
+                    )
+                    cur2.execute("SELECT queue_skip FROM user_flags WHERE discord_id=?", (uid,))
+                    skips = cur2.fetchone()["queue_skip"]
+                    conn2.commit()
+                    result_msg += f"\n⏩ You have **{skips}** queue skip(s) available! / 你有 **{skips}** 次插队资格！"
 
-            else:
-                # 兜底：存入背包
-                cur2.execute(
-                    "INSERT INTO user_inventory (user_id, item_id, quantity) VALUES (?,?,1) "
-                    "ON CONFLICT(user_id, item_id) DO UPDATE SET quantity = quantity + 1",
-                    (uid, item_id),
-                )
-                conn2.commit(); conn2.close()
+                elif item_type == "mode_pick":
+                    cur2.execute(
+                        "INSERT INTO user_flags (discord_id, mode_pick) VALUES (?, 'pending') "
+                        "ON CONFLICT(discord_id) DO UPDATE SET mode_pick = 'pending'",
+                        (uid,),
+                    )
+                    conn2.commit()
+                    result_msg += f"\n🎯 Mode pick activated! Next match you can choose the game mode. / 自选模式已激活！下场比赛可选择模式。"
+
+                else:
+                    # 兜底：存入背包
+                    cur2.execute(
+                        "INSERT INTO user_inventory (user_id, item_id, quantity) VALUES (?,?,1) "
+                        "ON CONFLICT(user_id, item_id) DO UPDATE SET quantity = quantity + 1",
+                        (uid, item_id),
+                    )
+                    conn2.commit()
 
             for child in self.children: child.disabled = True
             await btn_i.edit_original_response(content=result_msg, view=self)
 
             # 成就检查
             check_achievement(uid, "在商店购买")
-            conn3 = get_db(); cur3 = conn3.cursor()
-            cur3.execute("SELECT COUNT(*) as cnt FROM transactions WHERE discord_id=? AND (reason LIKE '%Purchase%' OR reason LIKE '%购买%')", (uid,))
-            if cur3.fetchone()["cnt"] >= 5:
-                check_achievement(uid, "购买 5 次")
-            conn3.close()
+            with get_db_ctx() as conn3:
+                cur3 = conn3.cursor()
+                cur3.execute("SELECT COUNT(*) as cnt FROM transactions WHERE discord_id=? AND (reason LIKE '%Purchase%' OR reason LIKE '%购买%')", (uid,))
+                if cur3.fetchone()["cnt"] >= 5:
+                    check_achievement(uid, "购买 5 次")
 
         @discord.ui.button(label="Cancel / 取消", style=discord.ButtonStyle.secondary, emoji="❌")
         async def cancel(self, btn_i: discord.Interaction, button):
@@ -815,78 +817,79 @@ async def buy_item(interaction: discord.Interaction, uid: str, item_id: int, bro
 # ---------- 工具函数 ----------
 
 def add_coins(user_id: str, amount: int, reason: str):
-    conn = get_db(); cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING",
-        (user_id,),
-    )
-    cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (amount, user_id))
-    cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                 (user_id, amount, reason))
-    conn.commit(); conn.close()
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING",
+            (user_id,),
+        )
+        cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (amount, user_id))
+        cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                     (user_id, amount, reason))
+        conn.commit()
 
 
 def get_balance(user_id: str) -> int:
     """返回用户余额。首次访问自动创建用户行（初始500），确保后续 UPDATE 能生效。"""
-    conn = get_db(); cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO users (discord_id, username) VALUES (?, 'unknown') ON CONFLICT(discord_id) DO NOTHING",
-        (user_id,),
-    )
-    conn.commit()
-    cur.execute("SELECT score FROM users WHERE discord_id=?", (user_id,))
-    row = cur.fetchone(); conn.close()
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO users (discord_id, username) VALUES (?, 'unknown') ON CONFLICT(discord_id) DO NOTHING",
+            (user_id,),
+        )
+        conn.commit()
+        cur.execute("SELECT score FROM users WHERE discord_id=?", (user_id,))
+        row = cur.fetchone()
     return row["score"] if row else 500
 
 
 def check_achievement(user_id: str, key: str):
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) as cnt FROM achievements")
-    if cur.fetchone()["cnt"] == 0:
-        for a in ACHIEVEMENTS:
-            cur.execute("INSERT INTO achievements (name, description, reward, hidden) VALUES (?,?,?,?)",
-                        (a[0], a[1], a[2], a[3]))
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) as cnt FROM achievements")
+        if cur.fetchone()["cnt"] == 0:
+            for a in ACHIEVEMENTS:
+                cur.execute("INSERT INTO achievements (name, description, reward, hidden) VALUES (?,?,?,?)",
+                            (a[0], a[1], a[2], a[3]))
+            conn.commit()
+
+        cur.execute("""
+            SELECT a.id, a.name, a.description, a.reward, a.hidden
+            FROM achievements a
+            WHERE a.description LIKE ? AND a.id NOT IN (
+                SELECT achievement_id FROM user_achievements WHERE user_id=?
+            )
+        """, (f"%{key}%", user_id))
+        a = cur.fetchone()
+        if not a:
+            return None
+
+        # Bug fix: "连续签到" 成就需验证实际 streak 天数
+        if key == "连续签到":
+            streak_threshold_map = {
+                "7-day": 7, "30-day": 30, "60-day": 60, "100-day": 100,
+            }
+            desc = a["description"]
+            cur.execute("SELECT streak FROM daily_checkin WHERE discord_id=?", (user_id,))
+            sr = cur.fetchone()
+            actual_streak = sr["streak"] if sr else 0
+            matched = False
+            for k, threshold in streak_threshold_map.items():
+                if k in desc and actual_streak >= threshold:
+                    matched = True; break
+            if not matched:
+                return None
+
+        cur.execute("INSERT INTO user_achievements (user_id, achievement_id) VALUES (?,?)",
+                    (user_id, a["id"]))
+        if a["reward"] > 0:
+            cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (a["reward"], user_id))
+            cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                         (user_id, a["reward"], f"Achievement: {a['name']} / 成就: {a['name']}"))
         conn.commit()
 
-    cur.execute("""
-        SELECT a.id, a.name, a.description, a.reward, a.hidden
-        FROM achievements a
-        WHERE a.description LIKE ? AND a.id NOT IN (
-            SELECT achievement_id FROM user_achievements WHERE user_id=?
-        )
-    """, (f"%{key}%", user_id))
-    a = cur.fetchone()
-    if not a:
-        conn.close(); return None
-
-    # Bug fix: "连续签到" 成就需验证实际 streak 天数
-    if key == "连续签到":
-        streak_threshold_map = {
-            "7-day": 7, "30-day": 30, "60-day": 60, "100-day": 100,
-        }
-        desc = a["description"]
-        cur.execute("SELECT streak FROM daily_checkin WHERE discord_id=?", (user_id,))
-        sr = cur.fetchone()
-        actual_streak = sr["streak"] if sr else 0
-        matched = False
-        for k, threshold in streak_threshold_map.items():
-            if k in desc and actual_streak >= threshold:
-                matched = True; break
-        if not matched:
-            conn.close(); return None
-
-    cur.execute("INSERT INTO user_achievements (user_id, achievement_id) VALUES (?,?)",
-                (user_id, a["id"]))
-    if a["reward"] > 0:
-        cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (a["reward"], user_id))
-        cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                     (user_id, a["reward"], f"Achievement: {a['name']} / 成就: {a['name']}"))
-    conn.commit()
-
-    # 检查全成就解锁
-    completed = _check_completionist(cur, user_id, a["id"])
-
-    conn.close()
+        # 检查全成就解锁
+        completed = _check_completionist(cur, user_id, a["id"])
 
     # 成就解锁通知推送到 ACHIEVEMENTS_CHANNEL
     if _bot:
@@ -962,14 +965,14 @@ class Economy(CogBase):
         uid = str(interaction.user.id)
         bal = get_balance(uid)
 
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT streak FROM daily_checkin WHERE discord_id=?", (uid,))
-        d = cur.fetchone(); streak = d["streak"] if d else 0
-        cur.execute("SELECT COUNT(*) as cnt FROM registrations WHERE discord_id=?", (uid,))
-        matches = cur.fetchone()["cnt"]
-        cur.execute("SELECT COUNT(*) as cnt FROM user_achievements WHERE user_id=?", (uid,))
-        ach_ct = cur.fetchone()["cnt"]
-        conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT streak FROM daily_checkin WHERE discord_id=?", (uid,))
+            d = cur.fetchone(); streak = d["streak"] if d else 0
+            cur.execute("SELECT COUNT(*) as cnt FROM registrations WHERE discord_id=?", (uid,))
+            matches = cur.fetchone()["cnt"]
+            cur.execute("SELECT COUNT(*) as cnt FROM user_achievements WHERE user_id=?", (uid,))
+            ach_ct = cur.fetchone()["cnt"]
 
         embed = discord.Embed(
             title=f"{interaction.user.display_name}'s Assets / 资产",
@@ -984,10 +987,10 @@ class Economy(CogBase):
         await interaction.response.send_message(embed=embed)
 
         check_achievement(uid, "余额达到")
-        conn2 = get_db(); cur2 = conn2.cursor()
-        cur2.execute("SELECT COALESCE(SUM(amount),0) as total FROM transactions WHERE discord_id=? AND amount>0", (uid,))
-        earned = cur2.fetchone()["total"]
-        conn2.close()
+        with get_db_ctx() as conn2:
+            cur2 = conn2.cursor()
+            cur2.execute("SELECT COALESCE(SUM(amount),0) as total FROM transactions WHERE discord_id=? AND amount>0", (uid,))
+            earned = cur2.fetchone()["total"]
         if earned >= 5000: check_achievement(uid, "累计获得 5000")
         if earned >= 15000: check_achievement(uid, "累计获得 15000")
 
@@ -999,66 +1002,65 @@ class Economy(CogBase):
         target = user or interaction.user
         uid = str(target.id)
 
-        conn = get_db(); cur = conn.cursor()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
 
-        # 金银币 + MMR
-        cur.execute("SELECT score, mmr FROM users WHERE discord_id=?", (uid,))
-        ur = cur.fetchone()
-        coins = ur["score"] if ur else 0
-        mmr = ur["mmr"] if (ur and ur["mmr"]) else 1000
+            # 金银币 + MMR
+            cur.execute("SELECT score, mmr FROM users WHERE discord_id=?", (uid,))
+            ur = cur.fetchone()
+            coins = ur["score"] if ur else 0
+            mmr = ur["mmr"] if (ur and ur["mmr"]) else 1000
 
-        # 签到连胜
-        cur.execute("SELECT streak FROM daily_checkin WHERE discord_id=?", (uid,))
-        sr = cur.fetchone()
-        streak = sr["streak"] if sr else 0
+            # 签到连胜
+            cur.execute("SELECT streak FROM daily_checkin WHERE discord_id=?", (uid,))
+            sr = cur.fetchone()
+            streak = sr["streak"] if sr else 0
 
-        # 比赛场数 + 胜场 (tournament_players 表)
-        cur.execute("SELECT COALESCE(SUM(wins),0) as wins, COALESCE(SUM(losses),0) as losses FROM tournament_players WHERE discord_id=?", (uid,))
-        row = cur.fetchone()
-        total_matches = row["wins"] + row["losses"]
-        wins = row["wins"]
-        win_rate = f"{wins / total_matches * 100:.1f}%" if total_matches > 0 else "N/A"
+            # 比赛场数 + 胜场 (tournament_players 表)
+            cur.execute("SELECT COALESCE(SUM(wins),0) as wins, COALESCE(SUM(losses),0) as losses FROM tournament_players WHERE discord_id=?", (uid,))
+            row = cur.fetchone()
+            total_matches = row["wins"] + row["losses"]
+            wins = row["wins"]
+            win_rate = f"{wins / total_matches * 100:.1f}%" if total_matches > 0 else "N/A"
 
-        # 成就数
-        cur.execute("SELECT COUNT(*) as cnt FROM user_achievements WHERE user_id=?", (uid,))
-        ach_ct = cur.fetchone()["cnt"]
+            # 成就数
+            cur.execute("SELECT COUNT(*) as cnt FROM user_achievements WHERE user_id=?", (uid,))
+            ach_ct = cur.fetchone()["cnt"]
 
-        # 背包道具数
-        cur.execute("SELECT COUNT(*) as cnt FROM user_inventory WHERE user_id=? AND quantity > 0", (uid,))
-        inv_ct = cur.fetchone()["cnt"]
+            # 背包道具数
+            cur.execute("SELECT COUNT(*) as cnt FROM user_inventory WHERE user_id=? AND quantity > 0", (uid,))
+            inv_ct = cur.fetchone()["cnt"]
 
-        conn.close()
 
-        embed = discord.Embed(
-            title=f"{target.display_name}'s Profile / 资料卡",
-            color=discord.Color.blue(),
-        )
-        embed.set_thumbnail(url=target.display_avatar.url)
-        embed.add_field(name="🪙 Coins / 金币", value=str(coins), inline=True)
-        embed.add_field(name="🎯 MMR", value=str(mmr), inline=True)
-        embed.add_field(name="🔥 Streak / 连胜", value=f"{streak} days", inline=True)
-        embed.add_field(name="🎮 Matches / 比赛", value=str(total_matches), inline=True)
-        embed.add_field(name="🏆 Win Rate / 胜率", value=win_rate, inline=True)
-        embed.add_field(name="⭐ Achievements / 成就", value=f"{ach_ct}/{len(ACHIEVEMENTS)}", inline=True)
-        embed.add_field(name="🎒 Items / 道具", value=str(inv_ct), inline=True)
-
-        # XP & Level
-        cur = conn.cursor()
-        cur.execute("SELECT xp, level FROM users WHERE discord_id=?", (uid,))
-        xp_row = cur.fetchone()
-        if xp_row:
-            lvl = xp_row["level"] or 1
-            xp = xp_row["xp"] or 0
-            xp_needed = int(lvl ** 1.5 * 100)
-            pct = min(100, xp * 100 // xp_needed)
-            bar_filled = "█" * (pct // 10)
-            bar_empty = "░" * (10 - len(bar_filled))
-            embed.add_field(
-                name=f"📊 Level {lvl} | XP: {xp}/{xp_needed} [{bar_filled}{bar_empty}] {pct}%",
-                value="",
-                inline=False,
+            embed = discord.Embed(
+                title=f"{target.display_name}'s Profile / 资料卡",
+                color=discord.Color.blue(),
             )
-        conn.close()
+            embed.set_thumbnail(url=target.display_avatar.url)
+            embed.add_field(name="🪙 Coins / 金币", value=str(coins), inline=True)
+            embed.add_field(name="🎯 MMR", value=str(mmr), inline=True)
+            embed.add_field(name="🔥 Streak / 连胜", value=f"{streak} days", inline=True)
+            embed.add_field(name="🎮 Matches / 比赛", value=str(total_matches), inline=True)
+            embed.add_field(name="🏆 Win Rate / 胜率", value=win_rate, inline=True)
+            embed.add_field(name="⭐ Achievements / 成就", value=f"{ach_ct}/{len(ACHIEVEMENTS)}", inline=True)
+            embed.add_field(name="🎒 Items / 道具", value=str(inv_ct), inline=True)
+
+            # XP & Level
+            cur = conn.cursor()
+            cur.execute("SELECT xp, level FROM users WHERE discord_id=?", (uid,))
+            xp_row = cur.fetchone()
+            if xp_row:
+                lvl = xp_row["level"] or 1
+                xp = xp_row["xp"] or 0
+                xp_needed = int(lvl ** 1.5 * 100)
+                pct = min(100, xp * 100 // xp_needed)
+                bar_filled = "█" * (pct // 10)
+                bar_empty = "░" * (10 - len(bar_filled))
+                embed.add_field(
+                    name=f"📊 Level {lvl} | XP: {xp}/{xp_needed} [{bar_filled}{bar_empty}] {pct}%",
+                    value="",
+                    inline=False,
+                )
 
         await interaction.response.send_message(embed=embed)
 
@@ -1067,10 +1069,10 @@ class Economy(CogBase):
     @app_commands.command(name="gmpt-level", description="View your XP level and progress / 查看等级和XP进度")
     async def level_cmd(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT xp, level FROM users WHERE discord_id=?", (uid,))
-        row = cur.fetchone()
-        conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT xp, level FROM users WHERE discord_id=?", (uid,))
+            row = cur.fetchone()
 
         lvl = row["level"] if row else 1
         xp = row["xp"] if row else 0
@@ -1096,12 +1098,12 @@ class Economy(CogBase):
     @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
     @app_commands.command(name="gmpt-level-leaderboard", description="XP level leaderboard / 等级排行榜")
     async def level_leaderboard_cmd(self, interaction: discord.Interaction):
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(
-            "SELECT discord_id, username, xp, level FROM users WHERE xp > 0 ORDER BY xp DESC LIMIT 10"
-        )
-        rows = cur.fetchall()
-        conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT discord_id, username, xp, level FROM users WHERE xp > 0 ORDER BY xp DESC LIMIT 10"
+            )
+            rows = cur.fetchall()
 
         if not rows:
             return await interaction.response.send_message(
@@ -1125,9 +1127,10 @@ class Economy(CogBase):
     @app_commands.checks.cooldown(2, 5.0, key=lambda i: (i.guild_id, i.user.id))
     @app_commands.command(name="gmpt-allplayers", description="List all registered players / 列出所有已报名玩家")
     async def players_cmd(self, interaction: discord.Interaction):
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT DISTINCT r.discord_id, u.username FROM registrations r LEFT JOIN users u ON u.discord_id = r.discord_id ORDER BY u.username")
-        rows = cur.fetchall(); conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT DISTINCT r.discord_id, u.username FROM registrations r LEFT JOIN users u ON u.discord_id = r.discord_id ORDER BY u.username")
+            rows = cur.fetchall()
 
         if not rows:
             return await interaction.response.send_message("暂无已报名玩家 / No registered players")
@@ -1161,41 +1164,41 @@ class Economy(CogBase):
                 f"Insufficient balance! You have {bal} coins. / 余额不足！你有 {bal} coins。", ephemeral=True
             )
 
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("UPDATE users SET score = score - ? WHERE discord_id = ?", (amount, uid))
-        cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                     (uid, -amount, f"Gift to {player.display_name} / 赠送 {player.display_name}"))
-        cur.execute(
-            "INSERT INTO users (discord_id, username) VALUES (?,?) ON CONFLICT(discord_id) DO NOTHING",
-            (tid, player.name),
-        )
-        cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (amount, tid))
-        cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                     (tid, amount, f"Gift from {interaction.user.display_name} / 来自 {interaction.user.display_name} 的赠礼"))
-        conn.commit(); conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("UPDATE users SET score = score - ? WHERE discord_id = ?", (amount, uid))
+            cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                         (uid, -amount, f"Gift to {player.display_name} / 赠送 {player.display_name}"))
+            cur.execute(
+                "INSERT INTO users (discord_id, username) VALUES (?,?) ON CONFLICT(discord_id) DO NOTHING",
+                (tid, player.name),
+            )
+            cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (amount, tid))
+            cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                         (tid, amount, f"Gift from {interaction.user.display_name} / 来自 {interaction.user.display_name} 的赠礼"))
+            conn.commit()
 
-        await interaction.response.send_message(
-            f"{interaction.user.mention} → {player.mention} gifted **{amount}** coins! / 赠送了 **{amount}** coins！"
-        )
+            await interaction.response.send_message(
+                f"{interaction.user.mention} → {player.mention} gifted **{amount}** coins! / 赠送了 **{amount}** coins！"
+            )
 
-        # 送礼广播到 SHOP_LOG_CHANNEL
-        try:
-            gift_channel = interaction.guild.get_channel(SHOP_LOG_CHANNEL_ID)
-            if gift_channel:
-                embed = discord.Embed(title="💸 送礼 | Gift", color=0xE91E63)
-                embed.description = f"{interaction.user.mention} → {player.mention} **{amount}** coins / 金币"
-                await gift_channel.send(embed=embed)
-        except Exception:
-            pass
+            # 送礼广播到 SHOP_LOG_CHANNEL
+            try:
+                gift_channel = interaction.guild.get_channel(SHOP_LOG_CHANNEL_ID)
+                if gift_channel:
+                    embed = discord.Embed(title="💸 送礼 | Gift", color=0xE91E63)
+                    embed.description = f"{interaction.user.mention} → {player.mention} **{amount}** coins / 金币"
+                    await gift_channel.send(embed=embed)
+            except Exception:
+                pass
 
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(
-            "SELECT COALESCE(SUM(ABS(amount)),0) as total FROM transactions "
-            "WHERE discord_id=? AND (reason LIKE '%Gift to%' OR reason LIKE '%赠送%')",
-            (uid,),
-        )
-        total = cur.fetchone()["total"]
-        conn.close()
+            conn = get_db(); cur = conn.cursor()
+            cur.execute(
+                "SELECT COALESCE(SUM(ABS(amount)),0) as total FROM transactions "
+                "WHERE discord_id=? AND (reason LIKE '%Gift to%' OR reason LIKE '%赠送%')",
+                (uid,),
+            )
+            total = cur.fetchone()["total"]
         if total >= 1000: check_achievement(uid, "累计赠送 1000")
         if total >= 5000: check_achievement(uid, "累计赠送 5000")
 
@@ -1206,12 +1209,13 @@ class Economy(CogBase):
     async def tx_cmd(self, interaction: discord.Interaction, count: int = 10):
         uid = str(interaction.user.id)
         count = min(count, 20)
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(
-            "SELECT amount, reason, created_at FROM transactions WHERE discord_id=? ORDER BY id DESC LIMIT ?",
-            (uid, count),
-        )
-        rows = cur.fetchall(); conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT amount, reason, created_at FROM transactions WHERE discord_id=? ORDER BY id DESC LIMIT ?",
+                (uid, count),
+            )
+            rows = cur.fetchall()
 
         if not rows:
             return await interaction.response.send_message(
@@ -1232,21 +1236,21 @@ class Economy(CogBase):
         uid = str(interaction.user.id)
         bal = get_balance(uid)
 
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT item_type FROM shop_items")
-        existing_types = {r["item_type"] for r in cur.fetchall()}
-        missing = [item for item in DEFAULT_SHOP if item["type"] not in existing_types]
-        for item in missing:
-            cur.execute(
-                "INSERT INTO shop_items (name, description, price, item_type, category) VALUES (?,?,?,?,?)",
-                (item["name"], item["desc"], item["price"], item["type"], item.get("category", "其他")),
-            )
-        if missing:
-            conn.commit()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT item_type FROM shop_items")
+            existing_types = {r["item_type"] for r in cur.fetchall()}
+            missing = [item for item in DEFAULT_SHOP if item["type"] not in existing_types]
+            for item in missing:
+                cur.execute(
+                    "INSERT INTO shop_items (name, description, price, item_type, category) VALUES (?,?,?,?,?)",
+                    (item["name"], item["desc"], item["price"], item["type"], item.get("category", "其他")),
+                )
+            if missing:
+                conn.commit()
 
-        cur.execute("SELECT id, name, description, price, item_type, category FROM shop_items ORDER BY price")
-        all_items = [dict(r) for r in cur.fetchall()]
-        conn.close()
+            cur.execute("SELECT id, name, description, price, item_type, category FROM shop_items ORDER BY price")
+            all_items = [dict(r) for r in cur.fetchall()]
 
         for it in all_items:
             for d in DEFAULT_SHOP:
@@ -1280,14 +1284,15 @@ class Economy(CogBase):
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def inv_cmd(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("""
-            SELECT inv.item_id, si.name, si.description, si.item_type, inv.quantity
-            FROM user_inventory inv
-            JOIN shop_items si ON si.id = inv.item_id
-            WHERE inv.user_id=?
-        """, (uid,))
-        rows = cur.fetchall(); conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT inv.item_id, si.name, si.description, si.item_type, inv.quantity
+                FROM user_inventory inv
+                JOIN shop_items si ON si.id = inv.item_id
+                WHERE inv.user_id=?
+            """, (uid,))
+            rows = cur.fetchall()
 
         if not rows:
             return await interaction.response.send_message(
@@ -1304,16 +1309,16 @@ class Economy(CogBase):
     async def _use_autocomplete(self, interaction: discord.Interaction, current: str):
         """从用户背包中查询道具列表，供下拉选择"""
         uid = str(interaction.user.id)
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("""
-            SELECT inv.item_id, si.name, inv.quantity
-            FROM user_inventory inv
-            JOIN shop_items si ON si.id = inv.item_id
-            WHERE inv.user_id=? AND inv.quantity > 0
-            ORDER BY si.name
-        """, (uid,))
-        rows = cur.fetchall()
-        conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT inv.item_id, si.name, inv.quantity
+                FROM user_inventory inv
+                JOIN shop_items si ON si.id = inv.item_id
+                WHERE inv.user_id=? AND inv.quantity > 0
+                ORDER BY si.name
+            """, (uid,))
+            rows = cur.fetchall()
         choices = []
         for r in rows:
             label = f"{r['name']} — 数量 x{r['quantity']}"
@@ -1326,102 +1331,105 @@ class Economy(CogBase):
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def use_cmd(self, interaction: discord.Interaction, item_id: int):
         uid = str(interaction.user.id)
-        conn = get_db(); cur = conn.cursor()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
 
-        cur.execute("""
-            SELECT inv.quantity, si.name, si.item_type, si.description
-            FROM user_inventory inv
-            JOIN shop_items si ON si.id = inv.item_id
-            WHERE inv.user_id=? AND inv.item_id=?
-        """, (uid, item_id))
-        row = cur.fetchone()
+            cur.execute("""
+                SELECT inv.quantity, si.name, si.item_type, si.description
+                FROM user_inventory inv
+                JOIN shop_items si ON si.id = inv.item_id
+                WHERE inv.user_id=? AND inv.item_id=?
+            """, (uid, item_id))
+            row = cur.fetchone()
 
-        if not row:
-            conn.close()
-            return await interaction.response.send_message(
-                "You don't have this item. / 你没有这个物品。", ephemeral=True
-            )
+            if not row:
+                return await interaction.response.send_message(
+                    "You don't have this item. / 你没有这个物品。", ephemeral=True
+                )
 
-        qty = row["quantity"]
-        item_type = row["item_type"]
-        item_name = row["name"]
+            qty = row["quantity"]
+            item_type = row["item_type"]
+            item_name = row["name"]
 
-        # 扣减数量
-        if qty <= 1:
-            cur.execute("DELETE FROM user_inventory WHERE user_id=? AND item_id=?", (uid, item_id))
-        else:
-            cur.execute("UPDATE user_inventory SET quantity = quantity - 1 WHERE user_id=? AND item_id=?",
-                        (uid, item_id))
+            # 扣减数量
+            if qty <= 1:
+                cur.execute("DELETE FROM user_inventory WHERE user_id=? AND item_id=?", (uid, item_id))
+            else:
+                cur.execute("UPDATE user_inventory SET quantity = quantity - 1 WHERE user_id=? AND item_id=?",
+                            (uid, item_id))
 
-        # 记录使用
-        cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                     (uid, 0, f"Used item: {item_name} / 使用物品: {item_name}"))
-        conn.commit()
+            # 记录使用
+            cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                         (uid, 0, f"Used item: {item_name} / 使用物品: {item_name}"))
+            conn.commit()
 
-        # 执行效果
-        effect_msg = ""
-        if item_type == "gamble":
-            bal = get_balance(uid)
-            if random.random() < 0.5:
-                # 翻倍
-                cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (bal, uid))
-                cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                            (uid, bal, f"Gamble win (x2) / 赌博翻倍: {item_name}"))
-                conn.commit()
+            # 执行效果
+            effect_msg = ""
+            if item_type == "gamble":
+                bal = get_balance(uid)
+                if random.random() < 0.5:
+                    # 翻倍
+                    cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (bal, uid))
+                    cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                                (uid, bal, f"Gamble win (x2) / 赌博翻倍: {item_name}"))
+                    conn.commit()
+                    effect_msg = (
+                        f"🎉 **You won! / 你赢了！**\n"
+                        f"Balance doubled: 🪙 {bal} → 🪙 **{bal * 2}** / 余额翻倍！"
+                    )
+                else:
+                    cur.execute("UPDATE users SET score = 0 WHERE discord_id = ?", (uid,))
+                    cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                                (uid, -bal, f"Gamble loss / 赌博清零: {item_name}"))
+                    conn.commit()
+                    effect_msg = (
+                        f"💀 **You lost! / 你输了！**\n"
+                        f"Balance wiped: 🪙 {bal} → 🪙 **0** / 余额清零！"
+                    )
+            elif item_type == "xp_boost":
+                # 激活经验加成
+                with get_db_ctx() as conn3:
+                    cur3 = conn3.cursor()
+                    cur3.execute("INSERT INTO active_effects (user_id, effect_type) VALUES (?,?)", (uid, "xp_boost"))
+                    conn3.commit()
                 effect_msg = (
-                    f"🎉 **You won! / 你赢了！**\n"
-                    f"Balance doubled: 🪙 {bal} → 🪙 **{bal * 2}** / 余额翻倍！"
+                    "✅ **XP Boost Activated! / 经验加成已激活！**\n"
+                    "Next match: **+50% coins** / 下一场比赛**金币 +50%**。"
+                )
+            elif item_type == "mmr_protect":
+                with get_db_ctx() as conn3:
+                    cur3 = conn3.cursor()
+                    cur3.execute("INSERT INTO active_effects (user_id, effect_type) VALUES (?,?)", (uid, "mmr_protect"))
+                    conn3.commit()
+                effect_msg = (
+                    "🛡️ **MMR Protection Activated! / MMR保护已激活！**\n"
+                    "Your next loss will not reduce MMR. / 下一场输了不扣MMR。"
+                )
+            elif item_type == "double_mmr":
+                with get_db_ctx() as conn3:
+                    cur3 = conn3.cursor()
+                    cur3.execute("INSERT INTO active_effects (user_id, effect_type) VALUES (?,?)", (uid, "double_mmr"))
+                    conn3.commit()
+                effect_msg = (
+                    "⚡ **Double MMR Activated! / 双倍MMR已激活！**\n"
+                    "Your next win earns **2x MMR**. / 下一场赢了MMR**翻倍**。"
+                )
+            elif item_type == "steal_coins":
+                with get_db_ctx() as conn3:
+                    cur3 = conn3.cursor()
+                    cur3.execute("INSERT INTO active_effects (user_id, effect_type) VALUES (?,?)", (uid, "steal_coins"))
+                    conn3.commit()
+                effect_msg = (
+                    "🥷 **Coin Steal Ready! / 偷金币已就绪！**\n"
+                    "Will steal 30 coins from opponent on next match settle. / 下场结算时偷对手 30 coins。"
                 )
             else:
-                cur.execute("UPDATE users SET score = 0 WHERE discord_id = ?", (uid,))
-                cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                            (uid, -bal, f"Gamble loss / 赌博清零: {item_name}"))
-                conn.commit()
                 effect_msg = (
-                    f"💀 **You lost! / 你输了！**\n"
-                    f"Balance wiped: 🪙 {bal} → 🪙 **0** / 余额清零！"
+                    f"✅ **Used: {item_name} / 已使用: {item_name}**\n"
+                    "Item effect applied successfully. / 物品效果已生效。"
                 )
-        elif item_type == "xp_boost":
-            # 激活经验加成
-            conn3 = get_db(); cur3 = conn3.cursor()
-            cur3.execute("INSERT INTO active_effects (user_id, effect_type) VALUES (?,?)", (uid, "xp_boost"))
-            conn3.commit(); conn3.close()
-            effect_msg = (
-                "✅ **XP Boost Activated! / 经验加成已激活！**\n"
-                "Next match: **+50% coins** / 下一场比赛**金币 +50%**。"
-            )
-        elif item_type == "mmr_protect":
-            conn3 = get_db(); cur3 = conn3.cursor()
-            cur3.execute("INSERT INTO active_effects (user_id, effect_type) VALUES (?,?)", (uid, "mmr_protect"))
-            conn3.commit(); conn3.close()
-            effect_msg = (
-                "🛡️ **MMR Protection Activated! / MMR保护已激活！**\n"
-                "Your next loss will not reduce MMR. / 下一场输了不扣MMR。"
-            )
-        elif item_type == "double_mmr":
-            conn3 = get_db(); cur3 = conn3.cursor()
-            cur3.execute("INSERT INTO active_effects (user_id, effect_type) VALUES (?,?)", (uid, "double_mmr"))
-            conn3.commit(); conn3.close()
-            effect_msg = (
-                "⚡ **Double MMR Activated! / 双倍MMR已激活！**\n"
-                "Your next win earns **2x MMR**. / 下一场赢了MMR**翻倍**。"
-            )
-        elif item_type == "steal_coins":
-            conn3 = get_db(); cur3 = conn3.cursor()
-            cur3.execute("INSERT INTO active_effects (user_id, effect_type) VALUES (?,?)", (uid, "steal_coins"))
-            conn3.commit(); conn3.close()
-            effect_msg = (
-                "🥷 **Coin Steal Ready! / 偷金币已就绪！**\n"
-                "Will steal 30 coins from opponent on next match settle. / 下场结算时偷对手 30 coins。"
-            )
-        else:
-            effect_msg = (
-                f"✅ **Used: {item_name} / 已使用: {item_name}**\n"
-                "Item effect applied successfully. / 物品效果已生效。"
-            )
 
-        qty_after = qty - 1
-        conn.close()
+            qty_after = qty - 1
 
         await interaction.response.send_message(
             f"{effect_msg}\n\n"
@@ -1429,13 +1437,13 @@ class Economy(CogBase):
         )
 
         # 检查物品使用成就
-        conn2 = get_db(); cur2 = conn2.cursor()
-        cur2.execute(
-            "SELECT COUNT(*) as cnt FROM transactions WHERE discord_id=? AND (reason LIKE '%Used item%' OR reason LIKE '%使用物品%')",
-            (uid,),
-        )
-        use_count = cur2.fetchone()["cnt"]
-        conn2.close()
+        with get_db_ctx() as conn2:
+            cur2 = conn2.cursor()
+            cur2.execute(
+                "SELECT COUNT(*) as cnt FROM transactions WHERE discord_id=? AND (reason LIKE '%Used item%' OR reason LIKE '%使用物品%')",
+                (uid,),
+            )
+            use_count = cur2.fetchone()["cnt"]
         if use_count >= 10:
             check_achievement(uid, "使用物品 10 次")
         if use_count >= 50:
@@ -1446,24 +1454,24 @@ class Economy(CogBase):
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def ach_cmd(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
-        conn = get_db(); cur = conn.cursor()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
 
-        cur.execute("SELECT COUNT(*) as cnt FROM achievements")
-        if cur.fetchone()["cnt"] == 0:
-            for a in ACHIEVEMENTS:
-                cur.execute("INSERT INTO achievements (name, description, reward, hidden) VALUES (?,?,?,?)",
-                            (a[0], a[1], a[2], a[3]))
-            conn.commit()
+            cur.execute("SELECT COUNT(*) as cnt FROM achievements")
+            if cur.fetchone()["cnt"] == 0:
+                for a in ACHIEVEMENTS:
+                    cur.execute("INSERT INTO achievements (name, description, reward, hidden) VALUES (?,?,?,?)",
+                                (a[0], a[1], a[2], a[3]))
+                conn.commit()
 
-        cur.execute("""
-            SELECT a.id, a.name, a.description, a.reward, a.hidden,
-                   CASE WHEN ua.user_id IS NOT NULL THEN 1 ELSE 0 END as unlocked
-            FROM achievements a
-            LEFT JOIN user_achievements ua ON ua.achievement_id = a.id AND ua.user_id=?
-            ORDER BY a.id
-        """, (uid,))
-        rows = [dict(r) for r in cur.fetchall()]
-        conn.close()
+            cur.execute("""
+                SELECT a.id, a.name, a.description, a.reward, a.hidden,
+                       CASE WHEN ua.user_id IS NOT NULL THEN 1 ELSE 0 END as unlocked
+                FROM achievements a
+                LEFT JOIN user_achievements ua ON ua.achievement_id = a.id AND ua.user_id=?
+                ORDER BY a.id
+            """, (uid,))
+            rows = [dict(r) for r in cur.fetchall()]
 
         for idx, r in enumerate(rows):
             if idx < len(ACHIEVEMENTS):
@@ -1508,12 +1516,13 @@ class Economy(CogBase):
             )
 
         uid = str(player.id)
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO users (discord_id, username) VALUES (?,?) ON CONFLICT(discord_id) DO NOTHING",
-            (uid, player.name),
-        )
-        conn.commit(); conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO users (discord_id, username) VALUES (?,?) ON CONFLICT(discord_id) DO NOTHING",
+                (uid, player.name),
+            )
+            conn.commit()
 
         reason = f"Admin adjustment by {interaction.user.display_name} / 管理员调整"
         add_coins(uid, amount, reason)
@@ -1562,18 +1571,18 @@ class Economy(CogBase):
                 "Price must be > 0. / 价格必须大于 0。", ephemeral=True
             )
 
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT * FROM shop_items WHERE id=?", (item_id,))
-        item = cur.fetchone()
-        if not item:
-            conn.close()
-            return await interaction.response.send_message(
-                "Item not found. / 物品不存在。", ephemeral=True
-            )
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM shop_items WHERE id=?", (item_id,))
+            item = cur.fetchone()
+            if not item:
+                return await interaction.response.send_message(
+                    "Item not found. / 物品不存在。", ephemeral=True
+                )
 
-        old_price = item["price"]
-        cur.execute("UPDATE shop_items SET price=? WHERE id=?", (new_price, item_id))
-        conn.commit(); conn.close()
+            old_price = item["price"]
+            cur.execute("UPDATE shop_items SET price=? WHERE id=?", (new_price, item_id))
+            conn.commit()
 
         await interaction.response.send_message(
             f"✅ **{item['name']}** price updated / 价格已更新: 🪙 {old_price} → 🪙 {new_price}"
@@ -1603,73 +1612,69 @@ class Economy(CogBase):
                 "下注金额需在 1-500 之间 / Bet amount must be 1-500.", ephemeral=True,
             )
 
-        conn = get_db(); cur = conn.cursor()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
 
-        # Check match status
-        cur.execute("SELECT id, status FROM tournaments WHERE id=?", (match_id,))
-        match = cur.fetchone()
-        if not match:
-            conn.close()
-            return await interaction.response.send_message(
-                "比赛不存在 / Match not found.", ephemeral=True,
+            # Check match status
+            cur.execute("SELECT id, status FROM tournaments WHERE id=?", (match_id,))
+            match = cur.fetchone()
+            if not match:
+                return await interaction.response.send_message(
+                    "比赛不存在 / Match not found.", ephemeral=True,
+                )
+            if match["status"] == "finished":
+                return await interaction.response.send_message(
+                    "比赛已结算，无法下注 / Match already settled.", ephemeral=True,
+                )
+
+            # Resolve "A"/"B" to actual team
+            cur.execute(
+                "SELECT id, name FROM teams WHERE tournament_id=? ORDER BY id",
+                (match_id,),
             )
-        if match["status"] == "finished":
-            conn.close()
-            return await interaction.response.send_message(
-                "比赛已结算，无法下注 / Match already settled.", ephemeral=True,
+            teams = cur.fetchall()
+            if len(teams) < 2:
+                return await interaction.response.send_message(
+                    "比赛队伍不足 / Not enough teams in match.", ephemeral=True,
+                )
+            team_idx = 0 if team == "A" else 1
+            team_row = teams[team_idx]
+
+            # Check balance
+            cur.execute(
+                "INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING",
+                (uid,),
             )
+            cur.execute("SELECT score FROM users WHERE discord_id=?", (uid,))
+            user = cur.fetchone()
+            balance = user["score"] if user and user["score"] is not None else 0
 
-        # Resolve "A"/"B" to actual team
-        cur.execute(
-            "SELECT id, name FROM teams WHERE tournament_id=? ORDER BY id",
-            (match_id,),
-        )
-        teams = cur.fetchall()
-        if len(teams) < 2:
-            conn.close()
-            return await interaction.response.send_message(
-                "比赛队伍不足 / Not enough teams in match.", ephemeral=True,
+            if balance < amount:
+                return await interaction.response.send_message(
+                    f"金币不足 / Insufficient coins. 余额: 🪙 {balance}", ephemeral=True,
+                )
+
+            # Check if already bet on this match
+            cur.execute(
+                "SELECT id FROM bets WHERE match_id=? AND discord_id=?",
+                (match_id, uid),
             )
-        team_idx = 0 if team == "A" else 1
-        team_row = teams[team_idx]
+            if cur.fetchone():
+                return await interaction.response.send_message(
+                    "你已在本场比赛下注 / Already placed a bet on this match.", ephemeral=True,
+                )
 
-        # Check balance
-        cur.execute(
-            "INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING",
-            (uid,),
-        )
-        cur.execute("SELECT score FROM users WHERE discord_id=?", (uid,))
-        user = cur.fetchone()
-        balance = user["score"] if user and user["score"] is not None else 0
-
-        if balance < amount:
-            conn.close()
-            return await interaction.response.send_message(
-                f"金币不足 / Insufficient coins. 余额: 🪙 {balance}", ephemeral=True,
+            # Deduct coins and place bet
+            cur.execute("UPDATE users SET score=score-? WHERE discord_id=?", (amount, uid))
+            cur.execute(
+                "INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                (uid, -amount, f"下注比赛 #{match_id} — {team_row['name']}"),
             )
-
-        # Check if already bet on this match
-        cur.execute(
-            "SELECT id FROM bets WHERE match_id=? AND discord_id=?",
-            (match_id, uid),
-        )
-        if cur.fetchone():
-            conn.close()
-            return await interaction.response.send_message(
-                "你已在本场比赛下注 / Already placed a bet on this match.", ephemeral=True,
+            cur.execute(
+                "INSERT INTO bets (match_id, discord_id, amount, team) VALUES (?,?,?,?)",
+                (match_id, uid, amount, str(team)),
             )
-
-        # Deduct coins and place bet
-        cur.execute("UPDATE users SET score=score-? WHERE discord_id=?", (amount, uid))
-        cur.execute(
-            "INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-            (uid, -amount, f"下注比赛 #{match_id} — {team_row['name']}"),
-        )
-        cur.execute(
-            "INSERT INTO bets (match_id, discord_id, amount, team) VALUES (?,?,?,?)",
-            (match_id, uid, amount, str(team)),
-        )
-        conn.commit(); conn.close()
+            conn.commit()
 
         await interaction.response.send_message(
             f"✅ {interaction.user.mention} 下注 🪙 **{amount}** → "
@@ -1686,29 +1691,30 @@ class Economy(CogBase):
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def bet_stats_cmd(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
-        conn = get_db(); cur = conn.cursor()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
 
-        # Stats
-        cur.execute("SELECT COUNT(*) as total FROM bets WHERE discord_id=?", (uid,))
-        total = cur.fetchone()["total"]
+            # Stats
+            cur.execute("SELECT COUNT(*) as total FROM bets WHERE discord_id=?", (uid,))
+            total = cur.fetchone()["total"]
 
-        cur.execute(
-            "SELECT COUNT(*) as wins FROM bets WHERE discord_id=? AND settled=1 AND won=1",
-            (uid,),
-        )
-        wins = cur.fetchone()["wins"]
-        win_pct = round(wins / total * 100, 1) if total > 0 else 0
+            cur.execute(
+                "SELECT COUNT(*) as wins FROM bets WHERE discord_id=? AND settled=1 AND won=1",
+                (uid,),
+            )
+            wins = cur.fetchone()["wins"]
+            win_pct = round(wins / total * 100, 1) if total > 0 else 0
 
-        # Recent bets
-        cur.execute(
-            """SELECT b.match_id, b.amount, b.team, b.placed_at, b.settled, b.won, t.name as match_name
-               FROM bets b
-               LEFT JOIN tournaments t ON b.match_id = t.id
-               WHERE b.discord_id=?
-               ORDER BY b.placed_at DESC LIMIT 10""",
-            (uid,),
-        )
-        recent = cur.fetchall(); conn.close()
+            # Recent bets
+            cur.execute(
+                """SELECT b.match_id, b.amount, b.team, b.placed_at, b.settled, b.won, t.name as match_name
+                   FROM bets b
+                   LEFT JOIN tournaments t ON b.match_id = t.id
+                   WHERE b.discord_id=?
+                   ORDER BY b.placed_at DESC LIMIT 10""",
+                (uid,),
+            )
+            recent = cur.fetchall()
 
         embed = discord.Embed(
             title="🎲 下注统计 / Betting Stats",
@@ -1745,35 +1751,35 @@ class Economy(CogBase):
     async def history_cmd(self, interaction: discord.Interaction, user: discord.Member = None, page: int = 1):
         target = user or interaction.user
         uid = str(target.id)
-        conn = get_db(); cur = conn.cursor()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
 
-        # Total stats
-        cur.execute("""
-            SELECT COUNT(*) as total, SUM(wins) as wins, SUM(losses) as losses, SUM(draws) as draws
-            FROM tournament_players tp
-            JOIN tournaments t ON t.id = tp.tournament_id
-            WHERE tp.discord_id=? AND t.status='finished'
-        """, (uid,))
-        stats = cur.fetchone()
-        total = stats["total"] or 0
-        w_total = stats["wins"] or 0
-        l_total = stats["losses"] or 0
-        wr = round(w_total / max(total, 1) * 100, 1)
+            # Total stats
+            cur.execute("""
+                SELECT COUNT(*) as total, SUM(wins) as wins, SUM(losses) as losses, SUM(draws) as draws
+                FROM tournament_players tp
+                JOIN tournaments t ON t.id = tp.tournament_id
+                WHERE tp.discord_id=? AND t.status='finished'
+            """, (uid,))
+            stats = cur.fetchone()
+            total = stats["total"] or 0
+            w_total = stats["wins"] or 0
+            l_total = stats["losses"] or 0
+            wr = round(w_total / max(total, 1) * 100, 1)
 
-        # Recent 10 matches
-        cur.execute("""
-            SELECT tp.tournament_id, t.name as match_name, t.created_at, t.bo_type,
-                   tp.wins, tp.losses, tp.draws, r.team_id, rt.name as team_name
-            FROM tournament_players tp
-            JOIN tournaments t ON t.id = tp.tournament_id
-            LEFT JOIN registrations r ON r.tournament_id = tp.tournament_id AND r.discord_id = tp.discord_id
-            LEFT JOIN teams rt ON rt.id = r.team_id
-            WHERE tp.discord_id=? AND t.status='finished'
-            ORDER BY t.created_at DESC
-            LIMIT 10 OFFSET ?
-        """, (uid, (page - 1) * 10))
-        rows = cur.fetchall()
-        conn.close()
+            # Recent 10 matches
+            cur.execute("""
+                SELECT tp.tournament_id, t.name as match_name, t.created_at, t.bo_type,
+                       tp.wins, tp.losses, tp.draws, r.team_id, rt.name as team_name
+                FROM tournament_players tp
+                JOIN tournaments t ON t.id = tp.tournament_id
+                LEFT JOIN registrations r ON r.tournament_id = tp.tournament_id AND r.discord_id = tp.discord_id
+                LEFT JOIN teams rt ON rt.id = r.team_id
+                WHERE tp.discord_id=? AND t.status='finished'
+                ORDER BY t.created_at DESC
+                LIMIT 10 OFFSET ?
+            """, (uid, (page - 1) * 10))
+            rows = cur.fetchall()
 
         if total == 0:
             return await interaction.response.send_message(
@@ -1820,23 +1826,24 @@ class Economy(CogBase):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("Admin only. / 仅管理员。", ephemeral=True)
 
-        conn = get_db(); cur = conn.cursor()
-        now_str = datetime.now().strftime("%Y-%m-%d")
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            now_str = datetime.now().strftime("%Y-%m-%d")
 
-        # 结束当前活跃赛季
-        cur.execute("UPDATE seasons SET active=0, end_date=? WHERE active=1", (now_str,))
-        # 归档当前 MMR
-        cur.execute("""
-            INSERT INTO season_standings (season_id, discord_id, mmr, wins, losses, rank)
-            SELECT (SELECT id FROM seasons WHERE active=1), discord_id, mmr,
-                   COALESCE((SELECT wins FROM mmr WHERE mmr.discord_id=users.discord_id), 0),
-                   COALESCE((SELECT losses FROM mmr WHERE mmr.discord_id=users.discord_id), 0),
-                   'Unranked'
-            FROM users WHERE mmr IS NOT NULL
-        """)
-        # 创建新赛季
-        cur.execute("INSERT INTO seasons (name, start_date, active) VALUES (?, ?, 1)", (name, now_str))
-        conn.commit(); conn.close()
+            # 结束当前活跃赛季
+            cur.execute("UPDATE seasons SET active=0, end_date=? WHERE active=1", (now_str,))
+            # 归档当前 MMR
+            cur.execute("""
+                INSERT INTO season_standings (season_id, discord_id, mmr, wins, losses, rank)
+                SELECT (SELECT id FROM seasons WHERE active=1), discord_id, mmr,
+                       COALESCE((SELECT wins FROM mmr WHERE mmr.discord_id=users.discord_id), 0),
+                       COALESCE((SELECT losses FROM mmr WHERE mmr.discord_id=users.discord_id), 0),
+                       'Unranked'
+                FROM users WHERE mmr IS NOT NULL
+            """)
+            # 创建新赛季
+            cur.execute("INSERT INTO seasons (name, start_date, active) VALUES (?, ?, 1)", (name, now_str))
+            conn.commit()
 
         await interaction.response.send_message(
             f"✅ Season **{name}** started! / 新赛季 **{name}** 已开启！\n"
@@ -1848,37 +1855,37 @@ class Economy(CogBase):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("Admin only. / 仅管理员。", ephemeral=True)
 
-        conn = get_db(); cur = conn.cursor()
-        now_str = datetime.now().strftime("%Y-%m-%d")
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            now_str = datetime.now().strftime("%Y-%m-%d")
 
-        cur.execute("SELECT id, name FROM seasons WHERE active=1")
-        season = cur.fetchone()
-        if not season:
-            conn.close()
-            return await interaction.response.send_message("No active season. / 没有活跃赛季。", ephemeral=True)
+            cur.execute("SELECT id, name FROM seasons WHERE active=1")
+            season = cur.fetchone()
+            if not season:
+                return await interaction.response.send_message("No active season. / 没有活跃赛季。", ephemeral=True)
 
-        # 归档当前 MMR
-        cur.execute("""
-            INSERT INTO season_standings (season_id, discord_id, mmr, wins, losses, rank)
-            SELECT ?, discord_id, mmr,
-                   COALESCE((SELECT wins FROM mmr WHERE mmr.discord_id=users.discord_id), 0),
-                   COALESCE((SELECT losses FROM mmr WHERE mmr.discord_id=users.discord_id), 0),
-                   'Unranked'
-            FROM users WHERE mmr IS NOT NULL
-            ON CONFLICT(season_id, discord_id) DO UPDATE SET mmr=excluded.mmr
-        """, (season["id"],))
-        cur.execute("UPDATE seasons SET active=0, end_date=? WHERE id=?", (now_str, season["id"]))
+            # 归档当前 MMR
+            cur.execute("""
+                INSERT INTO season_standings (season_id, discord_id, mmr, wins, losses, rank)
+                SELECT ?, discord_id, mmr,
+                       COALESCE((SELECT wins FROM mmr WHERE mmr.discord_id=users.discord_id), 0),
+                       COALESCE((SELECT losses FROM mmr WHERE mmr.discord_id=users.discord_id), 0),
+                       'Unranked'
+                FROM users WHERE mmr IS NOT NULL
+                ON CONFLICT(season_id, discord_id) DO UPDATE SET mmr=excluded.mmr
+            """, (season["id"],))
+            cur.execute("UPDATE seasons SET active=0, end_date=? WHERE id=?", (now_str, season["id"]))
 
-        # Top 3 奖励
-        cur.execute("SELECT discord_id, mmr FROM users ORDER BY mmr DESC LIMIT 3")
-        top3 = cur.fetchall()
-        rewards = [2000, 1000, 500]
-        for i, row in enumerate(top3):
-            cur.execute("UPDATE users SET score=score+? WHERE discord_id=?", (rewards[i], row["discord_id"]))
-            cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                       (row["discord_id"], rewards[i], f"Season {season['name']} Top {i+1}"))
+            # Top 3 奖励
+            cur.execute("SELECT discord_id, mmr FROM users ORDER BY mmr DESC LIMIT 3")
+            top3 = cur.fetchall()
+            rewards = [2000, 1000, 500]
+            for i, row in enumerate(top3):
+                cur.execute("UPDATE users SET score=score+? WHERE discord_id=?", (rewards[i], row["discord_id"]))
+                cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                           (row["discord_id"], rewards[i], f"Season {season['name']} Top {i+1}"))
 
-        conn.commit(); conn.close()
+            conn.commit()
 
         msg = f"✅ Season **{season['name']}** ended! / 赛季结束！\n"
         for i, row in enumerate(top3):
@@ -1887,19 +1894,19 @@ class Economy(CogBase):
 
     @season_group.command(name="standings", description="View season leaderboard / 赛季排行榜")
     async def season_standings(self, interaction: discord.Interaction):
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT id, name FROM seasons WHERE active=1")
-        season = cur.fetchone()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT id, name FROM seasons WHERE active=1")
+            season = cur.fetchone()
 
-        if season:
-            cur.execute("SELECT discord_id, mmr FROM users ORDER BY mmr DESC LIMIT 20")
-            rows = cur.fetchall()
-            season_label = f"Current: {season['name']}"
-        else:
-            cur.execute("SELECT discord_id, mmr FROM users ORDER BY mmr DESC LIMIT 20")
-            rows = cur.fetchall()
-            season_label = "No active season"
-        conn.close()
+            if season:
+                cur.execute("SELECT discord_id, mmr FROM users ORDER BY mmr DESC LIMIT 20")
+                rows = cur.fetchall()
+                season_label = f"Current: {season['name']}"
+            else:
+                cur.execute("SELECT discord_id, mmr FROM users ORDER BY mmr DESC LIMIT 20")
+                rows = cur.fetchall()
+                season_label = "No active season"
 
         embed = discord.Embed(
             title=f"Season Standings / 赛季排行榜 — {season_label}",
@@ -1935,37 +1942,38 @@ class Economy(CogBase):
     async def weekly_cmd(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
         await interaction.response.defer()
-        conn = get_db(); cur = conn.cursor()
-        now_str = datetime.now().strftime("%Y-%m-%d")
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            now_str = datetime.now().strftime("%Y-%m-%d")
 
-        # 如果没有本周挑战或已过期，生成新挑战
-        cur.execute("SELECT id, week_start FROM weekly_challenges WHERE week_start <= ? ORDER BY week_start DESC LIMIT 1", (now_str,))
-        latest = cur.fetchone()
-        week_start = datetime.now().strftime("%Y-%m-%d")
+            # 如果没有本周挑战或已过期，生成新挑战
+            cur.execute("SELECT id, week_start FROM weekly_challenges WHERE week_start <= ? ORDER BY week_start DESC LIMIT 1", (now_str,))
+            latest = cur.fetchone()
+            week_start = datetime.now().strftime("%Y-%m-%d")
 
-        if not latest or latest["week_start"] < week_start:
-            # 每周一刷新（简单判断：用当前周一的日期）
-            import random as _random
-            selected = _random.sample(self.WEEKLY_CHALLENGE_POOL, min(3, len(self.WEEKLY_CHALLENGE_POOL)))
-            for ch in selected:
-                cur.execute(
-                    "INSERT INTO weekly_challenges (week_start, title, description, reward, target, task_type) VALUES (?,?,?,?,?,?)",
-                    (week_start, ch["title"], ch["desc"], ch["reward"], ch["target"], ch["task_type"]),
-                )
-        else:
-            week_start = latest["week_start"]
+            if not latest or latest["week_start"] < week_start:
+                # 每周一刷新（简单判断：用当前周一的日期）
+                import random as _random
+                selected = _random.sample(self.WEEKLY_CHALLENGE_POOL, min(3, len(self.WEEKLY_CHALLENGE_POOL)))
+                for ch in selected:
+                    cur.execute(
+                        "INSERT INTO weekly_challenges (week_start, title, description, reward, target, task_type) VALUES (?,?,?,?,?,?)",
+                        (week_start, ch["title"], ch["desc"], ch["reward"], ch["target"], ch["task_type"]),
+                    )
+            else:
+                week_start = latest["week_start"]
 
-        # 查询本周挑战 + 用户进度
-        cur.execute("""
-            SELECT wc.id, wc.title, wc.description, wc.reward, wc.target, wc.task_type,
-                   COALESCE(uc.progress, 0) as progress, COALESCE(uc.completed, 0) as completed
-            FROM weekly_challenges wc
-            LEFT JOIN user_challenges uc ON uc.challenge_id = wc.id AND uc.discord_id = ?
-            WHERE wc.week_start = ?
-            ORDER BY wc.id
-        """, (uid, week_start))
-        challenges = cur.fetchall()
-        conn.commit(); conn.close()
+            # 查询本周挑战 + 用户进度
+            cur.execute("""
+                SELECT wc.id, wc.title, wc.description, wc.reward, wc.target, wc.task_type,
+                       COALESCE(uc.progress, 0) as progress, COALESCE(uc.completed, 0) as completed
+                FROM weekly_challenges wc
+                LEFT JOIN user_challenges uc ON uc.challenge_id = wc.id AND uc.discord_id = ?
+                WHERE wc.week_start = ?
+                ORDER BY wc.id
+            """, (uid, week_start))
+            challenges = cur.fetchall()
+            conn.commit()
 
         if not challenges:
             return await interaction.response.send_message("本周暂无挑战 / No challenges this week.")
@@ -1992,88 +2000,90 @@ class Economy(CogBase):
 def update_weekly_progress(user_id: str, task_type: str, amount: int = 1):
     """更新玩家每周挑战进度，完成后自动发放奖励"""
     from datetime import datetime
-    conn = get_db(); cur = conn.cursor()
-    now_str = datetime.now().strftime("%Y-%m-%d")
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
+        now_str = datetime.now().strftime("%Y-%m-%d")
 
-    cur.execute("""
-        SELECT wc.id, wc.reward, uc.progress, uc.completed
-        FROM weekly_challenges wc
-        LEFT JOIN user_challenges uc ON uc.challenge_id = wc.id AND uc.discord_id = ?
-        WHERE wc.week_start <= ? AND wc.task_type = ?
-        ORDER BY wc.week_start DESC LIMIT 1
-    """, (user_id, now_str, task_type))
-    row = cur.fetchone()
-    if not row:
-        conn.close(); return
+        cur.execute("""
+            SELECT wc.id, wc.reward, uc.progress, uc.completed
+            FROM weekly_challenges wc
+            LEFT JOIN user_challenges uc ON uc.challenge_id = wc.id AND uc.discord_id = ?
+            WHERE wc.week_start <= ? AND wc.task_type = ?
+            ORDER BY wc.week_start DESC LIMIT 1
+        """, (user_id, now_str, task_type))
+        row = cur.fetchone()
+        if not row:
+            return
 
-    if row["completed"]:
-        conn.close(); return
+        if row["completed"]:
+            return
 
-    new_progress = (row["progress"] or 0) + amount
-    cur.execute("""
-        INSERT INTO user_challenges (discord_id, challenge_id, progress, completed)
-        VALUES (?, ?, ?, 0)
-        ON CONFLICT(discord_id, challenge_id) DO UPDATE SET progress = ?
-    """, (user_id, row["id"], new_progress, new_progress))
+        new_progress = (row["progress"] or 0) + amount
+        cur.execute("""
+            INSERT INTO user_challenges (discord_id, challenge_id, progress, completed)
+            VALUES (?, ?, ?, 0)
+            ON CONFLICT(discord_id, challenge_id) DO UPDATE SET progress = ?
+        """, (user_id, row["id"], new_progress, new_progress))
 
-    # 检查是否完成
-    cur.execute("SELECT target, reward, title FROM weekly_challenges WHERE id=?", (row["id"],))
-    ch = cur.fetchone()
-    if ch and new_progress >= ch["target"]:
-        cur.execute("UPDATE user_challenges SET completed=1 WHERE discord_id=? AND challenge_id=?",
-                   (user_id, row["id"]))
-        cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (ch["reward"], user_id))
-        cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                   (user_id, ch["reward"], f"Weekly Challenge: {ch['title']}"))
+        # 检查是否完成
+        cur.execute("SELECT target, reward, title FROM weekly_challenges WHERE id=?", (row["id"],))
+        ch = cur.fetchone()
+        if ch and new_progress >= ch["target"]:
+            cur.execute("UPDATE user_challenges SET completed=1 WHERE discord_id=? AND challenge_id=?",
+                       (user_id, row["id"]))
+            cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (ch["reward"], user_id))
+            cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                       (user_id, ch["reward"], f"Weekly Challenge: {ch['title']}"))
 
-    conn.commit(); conn.close()
+        conn.commit()
 
 
 # ══════════ Betting Settlement / 下注结算 ══════════
 
 def settle_bets(match_id: int, winning_team_id: int) -> list:
     """结算指定比赛的所有下注。投对的 2x 返还，投错的没收。返回结果摘要行列表。"""
-    conn = get_db(); cur = conn.cursor()
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
 
-    # Map winning_team_id to "A"/"B" (teams ORDER BY id)
-    cur.execute("SELECT id FROM teams WHERE tournament_id=? ORDER BY id", (match_id,))
-    match_teams = cur.fetchall()
-    winning_team = None
-    for idx, t in enumerate(match_teams):
-        if t["id"] == winning_team_id:
-            winning_team = "A" if idx == 0 else "B"
-            break
+        # Map winning_team_id to "A"/"B" (teams ORDER BY id)
+        cur.execute("SELECT id FROM teams WHERE tournament_id=? ORDER BY id", (match_id,))
+        match_teams = cur.fetchall()
+        winning_team = None
+        for idx, t in enumerate(match_teams):
+            if t["id"] == winning_team_id:
+                winning_team = "A" if idx == 0 else "B"
+                break
 
-    cur.execute(
-        "SELECT id, discord_id, amount, team FROM bets WHERE match_id=? AND settled=0",
-        (match_id,),
-    )
-    bets = cur.fetchall()
-
-    settled = 0
-    won = 0
-    result_lines = []
-
-    for b in bets:
-        won_flag = 1 if b["team"] == winning_team else 0
         cur.execute(
-            "UPDATE bets SET settled=1, won=? WHERE id=?",
-            (won_flag, b["id"]),
+            "SELECT id, discord_id, amount, team FROM bets WHERE match_id=? AND settled=0",
+            (match_id,),
         )
-        settled += 1
-        if won_flag:
-            won += 1
-            payout = b["amount"] * 2
-            cur.execute(
-                "UPDATE users SET score=score+? WHERE discord_id=?",
-                (payout, b["discord_id"]),
-            )
-            cur.execute(
-                "INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                (b["discord_id"], payout, f"下注获胜 #{match_id} — 2x 返还"),
-            )
+        bets = cur.fetchall()
 
-    conn.commit(); conn.close()
+        settled = 0
+        won = 0
+        result_lines = []
+
+        for b in bets:
+            won_flag = 1 if b["team"] == winning_team else 0
+            cur.execute(
+                "UPDATE bets SET settled=1, won=? WHERE id=?",
+                (won_flag, b["id"]),
+            )
+            settled += 1
+            if won_flag:
+                won += 1
+                payout = b["amount"] * 2
+                cur.execute(
+                    "UPDATE users SET score=score+? WHERE discord_id=?",
+                    (payout, b["discord_id"]),
+                )
+                cur.execute(
+                    "INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                    (b["discord_id"], payout, f"下注获胜 #{match_id} — 2x 返还"),
+                )
+
+        conn.commit()
 
     total = settled
     lost = total - won
@@ -2136,10 +2146,10 @@ class AdminCoinsView(discord.ui.View):
     @discord.ui.button(label="查看全部 View All", style=discord.ButtonStyle.secondary, emoji="📋", row=1)
     async def view_all_btn(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT discord_id, username, score FROM users ORDER BY score DESC")
-        all_users = cur.fetchall()
-        conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT discord_id, username, score FROM users ORDER BY score DESC")
+            all_users = cur.fetchall()
 
         if not all_users:
             return await interaction.followup.send("数据库中没有用户 / No users in database.", ephemeral=True)
@@ -2205,17 +2215,18 @@ class ResetUserModal(discord.ui.Modal, title="重置单人金币 / Reset User Co
                 content="已取消 / Cancelled.", embed=None, view=None
             )
 
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO users (discord_id, username, score) VALUES (?, ?, ?) "
-            "ON CONFLICT(discord_id) DO UPDATE SET score=?",
-            (self.user_id, self.user_name, amt, amt),
-        )
-        cur.execute(
-            "INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-            (self.user_id, 0, f"Admin reset coins to {amt} by {interaction.user.display_name} / 管理员重置金币"),
-        )
-        conn.commit(); conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO users (discord_id, username, score) VALUES (?, ?, ?) "
+                "ON CONFLICT(discord_id) DO UPDATE SET score=?",
+                (self.user_id, self.user_name, amt, amt),
+            )
+            cur.execute(
+                "INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                (self.user_id, 0, f"Admin reset coins to {amt} by {interaction.user.display_name} / 管理员重置金币"),
+            )
+            conn.commit()
 
         await interaction.edit_original_response(
             content=f"✅ {mention} 的金币已重置为 **{amt}** / coins reset to **{amt}**.",
@@ -2241,41 +2252,41 @@ class ResetAllModal(discord.ui.Modal, title="重置全部金币 / Reset All Coin
         if amt < 0:
             return await interaction.response.send_message("金币数量不能为负 / Amount cannot be negative.", ephemeral=True)
 
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT discord_id, username FROM users")
-        all_users = cur.fetchall()
-        conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT discord_id, username FROM users")
+            all_users = cur.fetchall()
 
-        if not all_users:
-            return await interaction.response.send_message("数据库中没有用户 / No users in database.", ephemeral=True)
+            if not all_users:
+                return await interaction.response.send_message("数据库中没有用户 / No users in database.", ephemeral=True)
 
-        embed = discord.Embed(
-            title="⚠️ 确认批量重置 / Confirm Mass Reset",
-            description=(
-                f"将重置 **{len(all_users)}** 名用户的金币为 **{amt}**\n"
-                f"Will reset **{len(all_users)}** users' coins to **{amt}**\n\n"
-                f"此操作不可撤销 / This action is irreversible\n"
-                f"点击确认执行 / Click confirm to proceed"
-            ),
-            color=discord.Color.red(),
-        )
-        confirm_view = ConfirmView(timeout=60)
-        await interaction.response.send_message(embed=embed, view=confirm_view, ephemeral=True)
-        await confirm_view.wait()
-
-        if confirm_view.value is None or not confirm_view.value:
-            return await interaction.edit_original_response(
-                content="已取消 / Cancelled.", embed=None, view=None
+            embed = discord.Embed(
+                title="⚠️ 确认批量重置 / Confirm Mass Reset",
+                description=(
+                    f"将重置 **{len(all_users)}** 名用户的金币为 **{amt}**\n"
+                    f"Will reset **{len(all_users)}** users' coins to **{amt}**\n\n"
+                    f"此操作不可撤销 / This action is irreversible\n"
+                    f"点击确认执行 / Click confirm to proceed"
+                ),
+                color=discord.Color.red(),
             )
+            confirm_view = ConfirmView(timeout=60)
+            await interaction.response.send_message(embed=embed, view=confirm_view, ephemeral=True)
+            await confirm_view.wait()
 
-        conn = get_db(); cur = conn.cursor()
-        for u in all_users:
-            cur.execute("UPDATE users SET score=? WHERE discord_id=?", (amt, u["discord_id"]))
-            cur.execute(
-                "INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                (u["discord_id"], 0, f"Admin mass reset coins to {amt} by {interaction.user.display_name} / 管理员批量重置金币"),
-            )
-        conn.commit(); conn.close()
+            if confirm_view.value is None or not confirm_view.value:
+                return await interaction.edit_original_response(
+                    content="已取消 / Cancelled.", embed=None, view=None
+                )
+
+            conn = get_db(); cur = conn.cursor()
+            for u in all_users:
+                cur.execute("UPDATE users SET score=? WHERE discord_id=?", (amt, u["discord_id"]))
+                cur.execute(
+                    "INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                    (u["discord_id"], 0, f"Admin mass reset coins to {amt} by {interaction.user.display_name} / 管理员批量重置金币"),
+                )
+            conn.commit()
 
         await interaction.edit_original_response(
             content=f"✅ 已重置 **{len(all_users)}** 名用户的金币为 **{amt}** / reset all **{len(all_users)}** users to **{amt}**.",
@@ -2359,36 +2370,36 @@ class ResetAllModal(discord.ui.Modal, title="重置全部金币 / Reset All Coin
                 "Target is not in the server. / 目标成员不在服务器中。", ephemeral=True
             )
 
-        conn = get_db(); cur = conn.cursor()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
 
-        # 查找背包中该道具
-        cur.execute("""
-            SELECT inv.item_id, inv.quantity, si.name
-            FROM user_inventory inv
-            JOIN shop_items si ON si.id = inv.item_id
-            WHERE inv.user_id=? AND si.item_type=?
-        """, (uid, item_type))
-        row = cur.fetchone()
+            # 查找背包中该道具
+            cur.execute("""
+                SELECT inv.item_id, inv.quantity, si.name
+                FROM user_inventory inv
+                JOIN shop_items si ON si.id = inv.item_id
+                WHERE inv.user_id=? AND si.item_type=?
+            """, (uid, item_type))
+            row = cur.fetchone()
 
-        if not row:
-            conn.close()
-            return await interaction.response.send_message(
-                f"You don't have `{item_type}` in your backpack. / 背包没有该道具。", ephemeral=True
-            )
+            if not row:
+                return await interaction.response.send_message(
+                    f"You don't have `{item_type}` in your backpack. / 背包没有该道具。", ephemeral=True
+                )
 
-        item_id = row["item_id"]
-        item_name = row["name"]
-        qty = row["quantity"]
+            item_id = row["item_id"]
+            item_name = row["name"]
+            qty = row["quantity"]
 
-        # 扣减1件
-        if qty <= 1:
-            cur.execute("DELETE FROM user_inventory WHERE user_id=? AND item_id=?", (uid, item_id))
-        else:
-            cur.execute("UPDATE user_inventory SET quantity = quantity - 1 WHERE user_id=? AND item_id=?",
-                        (uid, item_id))
-        cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                     (uid, 0, f"Used item on {target.display_name}: {item_name} / 对 {target.display_name} 使用: {item_name}"))
-        conn.commit(); conn.close()
+            # 扣减1件
+            if qty <= 1:
+                cur.execute("DELETE FROM user_inventory WHERE user_id=? AND item_id=?", (uid, item_id))
+            else:
+                cur.execute("UPDATE user_inventory SET quantity = quantity - 1 WHERE user_id=? AND item_id=?",
+                            (uid, item_id))
+            cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                         (uid, 0, f"Used item on {target.display_name}: {item_name} / 对 {target.display_name} 使用: {item_name}"))
+            conn.commit()
 
         # 构建 embed 公告
         dur_str = f"{duration}秒" if duration else ("全局" if duration is None else "即时")
@@ -2425,13 +2436,14 @@ class ResetAllModal(discord.ui.Modal, title="重置全部金币 / Reset All Coin
     @app_commands.default_permissions(administrator=True)
     @app_commands.describe(prize="Prize name / 奖品名称", draw_at="Draw time (YYYY-MM-DD HH:MM format, KST) / 开奖时间")
     async def giveaway_create(self, interaction: discord.Interaction, prize: str, draw_at: str):
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO giveaways (channel_id, prize, created_by, draw_at) VALUES (?,?,?,?)",
-            (str(interaction.channel_id), prize, str(interaction.user.id), draw_at),
-        )
-        gid = cur.lastrowid
-        conn.commit(); conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO giveaways (channel_id, prize, created_by, draw_at) VALUES (?,?,?,?)",
+                (str(interaction.channel_id), prize, str(interaction.user.id), draw_at),
+            )
+            gid = cur.lastrowid
+            conn.commit()
 
         await interaction.response.send_message(
             f"🎉 **Giveaway #{gid} Created! / 抽奖已创建！**\n"
@@ -2444,75 +2456,73 @@ class ResetAllModal(discord.ui.Modal, title="重置全部金币 / Reset All Coin
     @app_commands.describe(giveaway_id="Giveaway ID / 抽奖编号")
     async def giveaway_enter(self, interaction: discord.Interaction, giveaway_id: int):
         uid = str(interaction.user.id)
-        conn = get_db(); cur = conn.cursor()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
 
-        cur.execute("SELECT * FROM giveaways WHERE id=? AND drawn=0", (giveaway_id,))
-        ga = cur.fetchone()
-        if not ga:
-            conn.close()
-            return await interaction.response.send_message("Giveaway not found or already drawn. / 抽奖不存在或已开奖。", ephemeral=True)
+            cur.execute("SELECT * FROM giveaways WHERE id=? AND drawn=0", (giveaway_id,))
+            ga = cur.fetchone()
+            if not ga:
+                return await interaction.response.send_message("Giveaway not found or already drawn. / 抽奖不存在或已开奖。", ephemeral=True)
 
-        cur.execute("SELECT tickets FROM giveaway_tickets WHERE discord_id=?", (uid,))
-        row = cur.fetchone()
-        if not row or row["tickets"] <= 0:
-            conn.close()
-            return await interaction.response.send_message(
-                "You have no giveaway tickets! Buy them from `/gmpt-shop`. / 你没有抽奖券！去商店购买吧。",
-                ephemeral=True,
-            )
-
-        tickets = row["tickets"]
-
-        class EnterConfirm(discord.ui.View):
-            def __init__(self):
-                super().__init__(timeout=None)
-
-            @discord.ui.button(label="Use 1 Ticket / 使用1张券", style=discord.ButtonStyle.success, emoji="🎟️")
-            async def use_one(self, btn_i: discord.Interaction, button):
-                await interaction.response.defer(ephemeral=True)
-                if str(btn_i.user.id) != uid:
-                    return await btn_i.response.send_message("Not your entry. / 不是你的参与。", ephemeral=True)
-                conn2 = get_db(); cur2 = conn2.cursor()
-                cur2.execute("UPDATE giveaway_tickets SET tickets = tickets - 1 WHERE discord_id=?", (uid,))
-                cur2.execute("INSERT INTO giveaway_entries (giveaway_id, discord_id, tickets_used) VALUES (?,?,1)", (giveaway_id, uid))
-                conn2.commit(); conn2.close()
-                for child in self.children: child.disabled = True
-                await btn_i.response.edit_message(
-                    content=f"✅ Entered giveaway #{giveaway_id} with 1 ticket! / 已用1张券参与抽奖 #{giveaway_id}！",
-                    view=self,
+            cur.execute("SELECT tickets FROM giveaway_tickets WHERE discord_id=?", (uid,))
+            row = cur.fetchone()
+            if not row or row["tickets"] <= 0:
+                return await interaction.response.send_message(
+                    "You have no giveaway tickets! Buy them from `/gmpt-shop`. / 你没有抽奖券！去商店购买吧。",
+                    ephemeral=True,
                 )
 
-            @discord.ui.button(label="Use ALL Tickets / 全部投入", style=discord.ButtonStyle.primary, emoji="🎰")
-            async def use_all(self, btn_i: discord.Interaction, button):
-                await interaction.response.defer(ephemeral=True)
-                if str(btn_i.user.id) != uid:
-                    return await btn_i.response.send_message("Not your entry. / 不是你的参与。", ephemeral=True)
-                conn2 = get_db(); cur2 = conn2.cursor()
-                cur2.execute("SELECT tickets FROM giveaway_tickets WHERE discord_id=?", (uid,))
-                r = cur2.fetchone()
-                tix = r["tickets"] if r else 0
-                if tix <= 0:
-                    conn2.close()
-                    return await btn_i.response.send_message("No tickets! / 没有券了！", ephemeral=True)
-                cur2.execute("UPDATE giveaway_tickets SET tickets = 0 WHERE discord_id=?", (uid,))
-                cur2.execute("INSERT INTO giveaway_entries (giveaway_id, discord_id, tickets_used) VALUES (?,?,?)",
-                            (giveaway_id, uid, tix))
-                conn2.commit(); conn2.close()
-                for child in self.children: child.disabled = True
-                await btn_i.response.edit_message(
-                    content=f"✅ Entered giveaway #{giveaway_id} with ALL **{tix}** tickets! / 已投入全部 **{tix}** 张券参与抽奖 #{giveaway_id}！",
-                    view=self,
-                )
+            tickets = row["tickets"]
 
-            @discord.ui.button(label="Cancel / 取消", style=discord.ButtonStyle.secondary, emoji="❌")
-            async def cancel(self, btn_i: discord.Interaction, button):
-                await interaction.response.defer(ephemeral=True)
-                if str(btn_i.user.id) != uid:
-                    return await btn_i.response.send_message("Not your entry. / 不是你的参与。", ephemeral=True)
-                for child in self.children: child.disabled = True
-                await btn_i.response.edit_message(content="Cancelled. / 已取消。", view=self)
+            class EnterConfirm(discord.ui.View):
+                def __init__(self):
+                    super().__init__(timeout=None)
 
-        conn.close()
+                @discord.ui.button(label="Use 1 Ticket / 使用1张券", style=discord.ButtonStyle.success, emoji="🎟️")
+                async def use_one(self, btn_i: discord.Interaction, button):
+                    await interaction.response.defer(ephemeral=True)
+                    if str(btn_i.user.id) != uid:
+                        return await btn_i.response.send_message("Not your entry. / 不是你的参与。", ephemeral=True)
+                    with get_db_ctx() as conn2:
+                        cur2 = conn2.cursor()
+                        cur2.execute("UPDATE giveaway_tickets SET tickets = tickets - 1 WHERE discord_id=?", (uid,))
+                        cur2.execute("INSERT INTO giveaway_entries (giveaway_id, discord_id, tickets_used) VALUES (?,?,1)", (giveaway_id, uid))
+                        conn2.commit()
+                    for child in self.children: child.disabled = True
+                    await btn_i.response.edit_message(
+                        content=f"✅ Entered giveaway #{giveaway_id} with 1 ticket! / 已用1张券参与抽奖 #{giveaway_id}！",
+                        view=self,
+                    )
+
+                @discord.ui.button(label="Use ALL Tickets / 全部投入", style=discord.ButtonStyle.primary, emoji="🎰")
+                async def use_all(self, btn_i: discord.Interaction, button):
+                    await interaction.response.defer(ephemeral=True)
+                    if str(btn_i.user.id) != uid:
+                        return await btn_i.response.send_message("Not your entry. / 不是你的参与。", ephemeral=True)
+                    with get_db_ctx() as conn2:
+                        cur2 = conn2.cursor()
+                        cur2.execute("SELECT tickets FROM giveaway_tickets WHERE discord_id=?", (uid,))
+                        r = cur2.fetchone()
+                        tix = r["tickets"] if r else 0
+                        if tix <= 0:
+                            return await btn_i.response.send_message("No tickets! / 没有券了！", ephemeral=True)
+                        cur2.execute("UPDATE giveaway_tickets SET tickets = 0 WHERE discord_id=?", (uid,))
+                        cur2.execute("INSERT INTO giveaway_entries (giveaway_id, discord_id, tickets_used) VALUES (?,?,?)",
+                                    (giveaway_id, uid, tix))
+                        conn2.commit()
+                    for child in self.children: child.disabled = True
+                    await btn_i.response.edit_message(
+                        content=f"✅ Entered giveaway #{giveaway_id} with ALL **{tix}** tickets! / 已投入全部 **{tix}** 张券参与抽奖 #{giveaway_id}！",
+                        view=self,
+                    )
+
+                @discord.ui.button(label="Cancel / 取消", style=discord.ButtonStyle.secondary, emoji="❌")
+                async def cancel(self, btn_i: discord.Interaction, button):
+                    await interaction.response.defer(ephemeral=True)
+                    if str(btn_i.user.id) != uid:
+                        return await btn_i.response.send_message("Not your entry. / 不是你的参与。", ephemeral=True)
+                    for child in self.children: child.disabled = True
+                    await btn_i.response.edit_message(content="Cancelled. / 已取消。", view=self)
         await interaction.response.send_message(
             f"🎟️ **Enter Giveaway #{giveaway_id}**\nPrize: **{ga['prize']}**\nYou have **{tickets}** ticket(s).\nHow many to use? / 使用几张券？",
             view=EnterConfirm(),
@@ -2523,26 +2533,25 @@ class ResetAllModal(discord.ui.Modal, title="重置全部金币 / Reset All Coin
     @app_commands.default_permissions(administrator=True)
     @app_commands.describe(giveaway_id="Giveaway ID / 抽奖编号")
     async def giveaway_draw(self, interaction: discord.Interaction, giveaway_id: int):
-        conn = get_db(); cur = conn.cursor()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
 
-        cur.execute("SELECT * FROM giveaways WHERE id=? AND drawn=0", (giveaway_id,))
-        ga = cur.fetchone()
-        if not ga:
-            conn.close()
-            return await interaction.response.send_message("Giveaway not found or already drawn. / 抽奖不存在或已开奖。", ephemeral=True)
+            cur.execute("SELECT * FROM giveaways WHERE id=? AND drawn=0", (giveaway_id,))
+            ga = cur.fetchone()
+            if not ga:
+                return await interaction.response.send_message("Giveaway not found or already drawn. / 抽奖不存在或已开奖。", ephemeral=True)
 
-        cur.execute("SELECT discord_id FROM giveaway_entries WHERE giveaway_id=?", (giveaway_id,))
-        entries = cur.fetchall()
-        if not entries:
-            conn.close()
-            return await interaction.response.send_message("No entries for this giveaway! / 没有人参与这个抽奖！", ephemeral=True)
+            cur.execute("SELECT discord_id FROM giveaway_entries WHERE giveaway_id=?", (giveaway_id,))
+            entries = cur.fetchall()
+            if not entries:
+                return await interaction.response.send_message("No entries for this giveaway! / 没有人参与这个抽奖！", ephemeral=True)
 
-        # 多券 = 多条目（每张券在 entries 表中独立一条），实现加权随机
-        all_entries = [e["discord_id"] for e in entries]
-        winner = random.choice(all_entries)
+            # 多券 = 多条目（每张券在 entries 表中独立一条），实现加权随机
+            all_entries = [e["discord_id"] for e in entries]
+            winner = random.choice(all_entries)
 
-        cur.execute("UPDATE giveaways SET drawn=1, winner_id=? WHERE id=?", (winner, giveaway_id))
-        conn.commit(); conn.close()
+            cur.execute("UPDATE giveaways SET drawn=1, winner_id=? WHERE id=?", (winner, giveaway_id))
+            conn.commit()
 
         await interaction.response.send_message(
             f"🎉 **Giveaway #{giveaway_id} Winner! / 抽奖 #{giveaway_id} 开奖！**\n"
@@ -2554,9 +2563,10 @@ class ResetAllModal(discord.ui.Modal, title="重置全部金币 / Reset All Coin
     @giveaway_group.command(name="tickets", description="Check your giveaway tickets / 查看抽奖券数量")
     async def giveaway_tickets_cmd(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT tickets FROM giveaway_tickets WHERE discord_id=?", (uid,))
-        row = cur.fetchone(); conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT tickets FROM giveaway_tickets WHERE discord_id=?", (uid,))
+            row = cur.fetchone()
         tix = row["tickets"] if row else 0
         await interaction.response.send_message(
             f"🎟️ You have **{tix}** giveaway ticket(s). / 你有 **{tix}** 张抽奖券。", ephemeral=True
@@ -2582,70 +2592,70 @@ class ResetAllModal(discord.ui.Modal, title="重置全部金币 / Reset All Coin
             target_name = interaction.user.display_name
             user = interaction.user
 
-        conn = get_db(); cur = conn.cursor()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
 
-        # Total income and expenses
-        cur.execute(
-            "SELECT SUM(amount) as total FROM transactions WHERE discord_id=? AND amount > 0",
-            (target_uid,),
-        )
-        income_row = cur.fetchone()
-        total_income = income_row["total"] if income_row["total"] else 0
+            # Total income and expenses
+            cur.execute(
+                "SELECT SUM(amount) as total FROM transactions WHERE discord_id=? AND amount > 0",
+                (target_uid,),
+            )
+            income_row = cur.fetchone()
+            total_income = income_row["total"] if income_row["total"] else 0
 
-        cur.execute(
-            "SELECT SUM(ABS(amount)) as total FROM transactions WHERE discord_id=? AND amount < 0",
-            (target_uid,),
-        )
-        expense_row = cur.fetchone()
-        total_expense = expense_row["total"] if expense_row["total"] else 0
+            cur.execute(
+                "SELECT SUM(ABS(amount)) as total FROM transactions WHERE discord_id=? AND amount < 0",
+                (target_uid,),
+            )
+            expense_row = cur.fetchone()
+            total_expense = expense_row["total"] if expense_row["total"] else 0
 
-        # Current balance
-        cur.execute(
-            "SELECT score FROM users WHERE discord_id=?",
-            (target_uid,),
-        )
-        balance_row = cur.fetchone()
-        current_balance = balance_row["score"] if balance_row and balance_row["score"] is not None else 0
+            # Current balance
+            cur.execute(
+                "SELECT score FROM users WHERE discord_id=?",
+                (target_uid,),
+            )
+            balance_row = cur.fetchone()
+            current_balance = balance_row["score"] if balance_row and balance_row["score"] is not None else 0
 
-        # By category (parse reason string)
-        categories = {
-            "签到": 0, "比赛": 0, "小游戏": 0, "商店": 0,
-            "互动": 0, "赠送": 0, "成就": 0, "赛季": 0, "其他": 0,
-        }
+            # By category (parse reason string)
+            categories = {
+                "签到": 0, "比赛": 0, "小游戏": 0, "商店": 0,
+                "互动": 0, "赠送": 0, "成就": 0, "赛季": 0, "其他": 0,
+            }
 
-        cur.execute(
-            "SELECT reason, SUM(amount) as cat_total FROM transactions WHERE discord_id=? GROUP BY reason",
-            (target_uid,),
-        )
-        for row in cur.fetchall():
-            reason = row["reason"].lower() if row["reason"] else ""
-            amt = row["cat_total"]
-            if any(kw in reason for kw in ["签到", "daily"]):
-                categories["签到"] += amt
-            elif any(kw in reason for kw in ["比赛", "match", "settle"]):
-                categories["比赛"] += amt
-            elif any(kw in reason for kw in ["老虎机", "slots", "coinflip", "猜硬币", "trivia", "猜英雄", "guess"]):
-                categories["小游戏"] += amt
-            elif any(kw in reason for kw in ["商店", "shop", "buy"]):
-                categories["商店"] += amt
-            elif any(kw in reason for kw in ["互动", "hug", "slap", "pat", "kiss", "kill"]):
-                categories["互动"] += amt
-            elif any(kw in reason for kw in ["赠送", "gift"]):
-                categories["赠送"] += amt
-            elif any(kw in reason for kw in ["成就", "achievement"]):
-                categories["成就"] += amt
-            elif any(kw in reason for kw in ["赛季", "season"]):
-                categories["赛季"] += amt
-            else:
-                categories["其他"] += amt
+            cur.execute(
+                "SELECT reason, SUM(amount) as cat_total FROM transactions WHERE discord_id=? GROUP BY reason",
+                (target_uid,),
+            )
+            for row in cur.fetchall():
+                reason = row["reason"].lower() if row["reason"] else ""
+                amt = row["cat_total"]
+                if any(kw in reason for kw in ["签到", "daily"]):
+                    categories["签到"] += amt
+                elif any(kw in reason for kw in ["比赛", "match", "settle"]):
+                    categories["比赛"] += amt
+                elif any(kw in reason for kw in ["老虎机", "slots", "coinflip", "猜硬币", "trivia", "猜英雄", "guess"]):
+                    categories["小游戏"] += amt
+                elif any(kw in reason for kw in ["商店", "shop", "buy"]):
+                    categories["商店"] += amt
+                elif any(kw in reason for kw in ["互动", "hug", "slap", "pat", "kiss", "kill"]):
+                    categories["互动"] += amt
+                elif any(kw in reason for kw in ["赠送", "gift"]):
+                    categories["赠送"] += amt
+                elif any(kw in reason for kw in ["成就", "achievement"]):
+                    categories["成就"] += amt
+                elif any(kw in reason for kw in ["赛季", "season"]):
+                    categories["赛季"] += amt
+                else:
+                    categories["其他"] += amt
 
-        # Top transactions
-        cur.execute(
-            "SELECT amount, reason FROM transactions WHERE discord_id=? ORDER BY ABS(amount) DESC LIMIT 5",
-            (target_uid,),
-        )
-        top_txns = cur.fetchall()
-        conn.close()
+            # Top transactions
+            cur.execute(
+                "SELECT amount, reason FROM transactions WHERE discord_id=? ORDER BY ABS(amount) DESC LIMIT 5",
+                (target_uid,),
+            )
+            top_txns = cur.fetchall()
 
         net = total_income - total_expense
 
@@ -2805,71 +2815,67 @@ class BetModal(discord.ui.Modal, title="下注 / Place Bet"):
                 "下注金额需在 1-500 之间 / Bet amount must be 1-500.", ephemeral=True,
             )
 
-        conn = get_db(); cur = conn.cursor()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
 
-        # Check match exists and not finished
-        cur.execute("SELECT id, status FROM tournaments WHERE id=?", (self.match_id,))
-        match = cur.fetchone()
-        if not match:
-            conn.close()
-            return await interaction.response.send_message(
-                "比赛不存在 / Match not found.", ephemeral=True,
+            # Check match exists and not finished
+            cur.execute("SELECT id, status FROM tournaments WHERE id=?", (self.match_id,))
+            match = cur.fetchone()
+            if not match:
+                return await interaction.response.send_message(
+                    "比赛不存在 / Match not found.", ephemeral=True,
+                )
+            if match["status"] == "finished":
+                return await interaction.response.send_message(
+                    "比赛已结算，无法下注 / Match already settled.", ephemeral=True,
+                )
+
+            # Verify teams exist
+            cur.execute(
+                "SELECT id, name FROM teams WHERE tournament_id=? ORDER BY id",
+                (self.match_id,),
             )
-        if match["status"] == "finished":
-            conn.close()
-            return await interaction.response.send_message(
-                "比赛已结算，无法下注 / Match already settled.", ephemeral=True,
+            teams = cur.fetchall()
+            if len(teams) < 2:
+                return await interaction.response.send_message(
+                    "比赛尚未分队，请等待管理员分队后再下注 / Teams not assigned yet.", ephemeral=True,
+                )
+
+            # Check balance
+            cur.execute(
+                "INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING",
+                (uid,),
             )
+            cur.execute("SELECT score FROM users WHERE discord_id=?", (uid,))
+            user = cur.fetchone()
+            balance = user["score"] if user and user["score"] is not None else 0
 
-        # Verify teams exist
-        cur.execute(
-            "SELECT id, name FROM teams WHERE tournament_id=? ORDER BY id",
-            (self.match_id,),
-        )
-        teams = cur.fetchall()
-        if len(teams) < 2:
-            conn.close()
-            return await interaction.response.send_message(
-                "比赛尚未分队，请等待管理员分队后再下注 / Teams not assigned yet.", ephemeral=True,
+            if balance < amount:
+                return await interaction.response.send_message(
+                    f"金币不足 / Insufficient coins. 余额: 🪙 {balance}", ephemeral=True,
+                )
+
+            # Check duplicate bet
+            cur.execute(
+                "SELECT id FROM bets WHERE match_id=? AND discord_id=?",
+                (self.match_id, uid),
             )
+            if cur.fetchone():
+                return await interaction.response.send_message(
+                    "你已在本场比赛下注 / Already placed a bet on this match.", ephemeral=True,
+                )
 
-        # Check balance
-        cur.execute(
-            "INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING",
-            (uid,),
-        )
-        cur.execute("SELECT score FROM users WHERE discord_id=?", (uid,))
-        user = cur.fetchone()
-        balance = user["score"] if user and user["score"] is not None else 0
-
-        if balance < amount:
-            conn.close()
-            return await interaction.response.send_message(
-                f"金币不足 / Insufficient coins. 余额: 🪙 {balance}", ephemeral=True,
+            # Deduct coins and place bet
+            cur.execute("UPDATE users SET score=score-? WHERE discord_id=?", (amount, uid))
+            cur.execute(
+                "INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                (uid, -amount, f"下注比赛 #{self.match_id} — {self.team_label}"),
             )
-
-        # Check duplicate bet
-        cur.execute(
-            "SELECT id FROM bets WHERE match_id=? AND discord_id=?",
-            (self.match_id, uid),
-        )
-        if cur.fetchone():
-            conn.close()
-            return await interaction.response.send_message(
-                "你已在本场比赛下注 / Already placed a bet on this match.", ephemeral=True,
+            cur.execute(
+                "INSERT INTO bets (match_id, discord_id, amount, team) VALUES (?,?,?,?)",
+                (self.match_id, uid, amount, self.team),
             )
-
-        # Deduct coins and place bet
-        cur.execute("UPDATE users SET score=score-? WHERE discord_id=?", (amount, uid))
-        cur.execute(
-            "INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-            (uid, -amount, f"下注比赛 #{self.match_id} — {self.team_label}"),
-        )
-        cur.execute(
-            "INSERT INTO bets (match_id, discord_id, amount, team) VALUES (?,?,?,?)",
-            (self.match_id, uid, amount, self.team),
-        )
-        conn.commit(); conn.close()
+            conn.commit()
 
         await interaction.response.send_message(
             f"✅ {interaction.user.mention} 下注 🪙 **{amount}** → "
@@ -2886,10 +2892,10 @@ class BetView(discord.ui.View):
         self.match_id = match_id
 
     async def _get_team_labels(self):
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT name FROM teams WHERE tournament_id=? ORDER BY id", (self.match_id,))
-        rows = cur.fetchall()
-        conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT name FROM teams WHERE tournament_id=? ORDER BY id", (self.match_id,))
+            rows = cur.fetchall()
         if len(rows) >= 2:
             return rows[0]["name"], rows[1]["name"]
         return "Team A", "Team B"

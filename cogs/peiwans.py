@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 import discord
 from discord import app_commands
 from discord.ext import commands
-from database import get_db
+from database import get_db, get_db_ctx
 from utils.cog_base import CogBase
 from utils.logger import log_error
 
@@ -34,55 +34,54 @@ class Peiwan(CogBase):
     @staticmethod
     def init_db():
         """Create peiwans tables if not exist. Called from database.init_db()."""
-        conn = get_db()
-        cur = conn.cursor()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
 
-        cur.executescript("""
-            CREATE TABLE IF NOT EXISTS peiwans_profiles (
-                user_id INTEGER PRIMARY KEY,
-                game TEXT,
-                rank TEXT,
-                price INTEGER,
-                intro TEXT,
-                status TEXT DEFAULT 'offline',
-                total_orders INTEGER DEFAULT 0,
-                avg_rating REAL DEFAULT 0,
-                total_earnings INTEGER DEFAULT 0,
-                created_at TEXT
-            );
+            cur.executescript("""
+                CREATE TABLE IF NOT EXISTS peiwans_profiles (
+                    user_id INTEGER PRIMARY KEY,
+                    game TEXT,
+                    rank TEXT,
+                    price INTEGER,
+                    intro TEXT,
+                    status TEXT DEFAULT 'offline',
+                    total_orders INTEGER DEFAULT 0,
+                    avg_rating REAL DEFAULT 0,
+                    total_earnings INTEGER DEFAULT 0,
+                    created_at TEXT
+                );
 
-            CREATE TABLE IF NOT EXISTS peiwans_orders (
-                order_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                customer_id INTEGER,
-                peiwans_id INTEGER,
-                game TEXT,
-                price INTEGER,
-                status TEXT DEFAULT 'pending',
-                created_at TEXT,
-                completed_at TEXT
-            );
+                CREATE TABLE IF NOT EXISTS peiwans_orders (
+                    order_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    customer_id INTEGER,
+                    peiwans_id INTEGER,
+                    game TEXT,
+                    price INTEGER,
+                    status TEXT DEFAULT 'pending',
+                    created_at TEXT,
+                    completed_at TEXT
+                );
 
-            CREATE TABLE IF NOT EXISTS peiwans_reviews (
-                review_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                order_id INTEGER,
-                reviewer_id INTEGER,
-                peiwans_id INTEGER,
-                rating INTEGER,
-                comment TEXT,
-                created_at TEXT
-            );
+                CREATE TABLE IF NOT EXISTS peiwans_reviews (
+                    review_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    order_id INTEGER,
+                    reviewer_id INTEGER,
+                    peiwans_id INTEGER,
+                    rating INTEGER,
+                    comment TEXT,
+                    created_at TEXT
+                );
 
-            CREATE TABLE IF NOT EXISTS peiwans_earnings (
-                earning_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                peiwans_id INTEGER,
-                order_id INTEGER,
-                amount INTEGER,
-                created_at TEXT
-            );
-        """)
+                CREATE TABLE IF NOT EXISTS peiwans_earnings (
+                    earning_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    peiwans_id INTEGER,
+                    order_id INTEGER,
+                    amount INTEGER,
+                    created_at TEXT
+                );
+            """)
 
-        conn.commit()
-        conn.close()
+            conn.commit()
 
     # ─────────────────────────────────────────────
     # Helper: build profile embed
@@ -124,27 +123,26 @@ class Peiwan(CogBase):
         uid = interaction.user.id
         now = datetime.now(datetime.timezone.utc).isoformat()
 
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute("SELECT * FROM peiwans_profiles WHERE user_id = ?", (uid,))
-        existing = cur.fetchone()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM peiwans_profiles WHERE user_id = ?", (uid,))
+            existing = cur.fetchone()
 
-        if existing:
-            cur.execute(
-                "UPDATE peiwans_profiles SET game=?, rank=?, price=?, intro=? WHERE user_id=?",
-                (game, rank, price, intro, uid),
-            )
-            msg = "陪玩信息已更新 | Profile updated"
-        else:
-            cur.execute(
-                "INSERT INTO peiwans_profiles (user_id, game, rank, price, intro, status, created_at) "
-                "VALUES (?, ?, ?, ?, ?, 'offline', ?)",
-                (uid, game, rank, price, intro, now),
-            )
-            msg = "申请成功，默认离线状态，使用 /pw-online 上线 | Applied! Use /pw-online to go online"
+            if existing:
+                cur.execute(
+                    "UPDATE peiwans_profiles SET game=?, rank=?, price=?, intro=? WHERE user_id=?",
+                    (game, rank, price, intro, uid),
+                )
+                msg = "陪玩信息已更新 | Profile updated"
+            else:
+                cur.execute(
+                    "INSERT INTO peiwans_profiles (user_id, game, rank, price, intro, status, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, 'offline', ?)",
+                    (uid, game, rank, price, intro, now),
+                )
+                msg = "申请成功，默认离线状态，使用 /pw-online 上线 | Applied! Use /pw-online to go online"
 
-        conn.commit()
-        conn.close()
+            conn.commit()
 
         await interaction.response.send_message(msg, ephemeral=True)
 
@@ -158,11 +156,10 @@ class Peiwan(CogBase):
         target = user or interaction.user
         uid = target.id
 
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute("SELECT * FROM peiwans_profiles WHERE user_id = ?", (uid,))
-        row = cur.fetchone()
-        conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM peiwans_profiles WHERE user_id = ?", (uid,))
+            row = cur.fetchone()
 
         if row is None:
             await interaction.response.send_message(
@@ -181,22 +178,20 @@ class Peiwan(CogBase):
     async def online(self, interaction: discord.Interaction):
         uid = interaction.user.id
 
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute("SELECT * FROM peiwans_profiles WHERE user_id = ?", (uid,))
-        row = cur.fetchone()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM peiwans_profiles WHERE user_id = ?", (uid,))
+            row = cur.fetchone()
 
-        if row is None:
-            conn.close()
-            await interaction.response.send_message(
-                "请先使用 /pw-apply 注册陪玩 | Register first with /pw-apply",
-                ephemeral=True,
-            )
-            return
+            if row is None:
+                await interaction.response.send_message(
+                    "请先使用 /pw-apply 注册陪玩 | Register first with /pw-apply",
+                    ephemeral=True,
+                )
+                return
 
-        cur.execute("UPDATE peiwans_profiles SET status='online' WHERE user_id=?", (uid,))
-        conn.commit()
-        conn.close()
+            cur.execute("UPDATE peiwans_profiles SET status='online' WHERE user_id=?", (uid,))
+            conn.commit()
 
         await interaction.response.send_message("已上线，开始接单 | You are now online and accepting orders 🟢")
 
@@ -207,22 +202,20 @@ class Peiwan(CogBase):
     async def offline(self, interaction: discord.Interaction):
         uid = interaction.user.id
 
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute("SELECT * FROM peiwans_profiles WHERE user_id = ?", (uid,))
-        row = cur.fetchone()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM peiwans_profiles WHERE user_id = ?", (uid,))
+            row = cur.fetchone()
 
-        if row is None:
-            conn.close()
-            await interaction.response.send_message(
-                "请先使用 /pw-apply 注册陪玩 | Register first with /pw-apply",
-                ephemeral=True,
-            )
-            return
+            if row is None:
+                await interaction.response.send_message(
+                    "请先使用 /pw-apply 注册陪玩 | Register first with /pw-apply",
+                    ephemeral=True,
+                )
+                return
 
-        cur.execute("UPDATE peiwans_profiles SET status='offline' WHERE user_id=?", (uid,))
-        conn.commit()
-        conn.close()
+            cur.execute("UPDATE peiwans_profiles SET status='offline' WHERE user_id=?", (uid,))
+            conn.commit()
 
         await interaction.response.send_message("已下线 | You are now offline 🔴")
 
@@ -233,19 +226,18 @@ class Peiwan(CogBase):
     @app_commands.describe(game="按游戏筛选（可选）| Filter by game (optional)")
     @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
     async def list_companions(self, interaction: discord.Interaction, game: str = None):
-        conn = get_db()
-        cur = conn.cursor()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
 
-        if game:
-            cur.execute(
-                "SELECT * FROM peiwans_profiles WHERE status='online' AND game LIKE ? ORDER BY avg_rating DESC",
-                (f"%{game}%",),
-            )
-        else:
-            cur.execute("SELECT * FROM peiwans_profiles WHERE status='online' ORDER BY avg_rating DESC")
+            if game:
+                cur.execute(
+                    "SELECT * FROM peiwans_profiles WHERE status='online' AND game LIKE ? ORDER BY avg_rating DESC",
+                    (f"%{game}%",),
+                )
+            else:
+                cur.execute("SELECT * FROM peiwans_profiles WHERE status='online' ORDER BY avg_rating DESC")
 
-        rows = cur.fetchall()
-        conn.close()
+            rows = cur.fetchall()
 
         if not rows:
             await interaction.response.send_message(
@@ -288,38 +280,35 @@ class Peiwan(CogBase):
             await interaction.response.send_message("不能给自己下单 | Cannot order yourself", ephemeral=True)
             return
 
-        conn = get_db()
-        cur = conn.cursor()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
 
-        cur.execute("SELECT * FROM peiwans_profiles WHERE user_id = ?", (pw_id,))
-        pw_row = cur.fetchone()
+            cur.execute("SELECT * FROM peiwans_profiles WHERE user_id = ?", (pw_id,))
+            pw_row = cur.fetchone()
 
-        if pw_row is None:
-            conn.close()
-            await interaction.response.send_message("该用户尚未注册陪玩 | User not registered", ephemeral=True)
-            return
+            if pw_row is None:
+                await interaction.response.send_message("该用户尚未注册陪玩 | User not registered", ephemeral=True)
+                return
 
-        profile = dict(pw_row)
+            profile = dict(pw_row)
 
-        if profile["status"] != "online":
-            conn.close()
-            await interaction.response.send_message(
-                "该陪玩当前不在线 | This companion is currently offline",
-                ephemeral=True,
+            if profile["status"] != "online":
+                await interaction.response.send_message(
+                    "该陪玩当前不在线 | This companion is currently offline",
+                    ephemeral=True,
+                )
+                return
+
+            price = profile["price"]
+            now = datetime.now(datetime.timezone.utc).isoformat()
+
+            cur.execute(
+                "INSERT INTO peiwans_orders (customer_id, peiwans_id, game, price, status, created_at) "
+                "VALUES (?, ?, ?, ?, 'pending', ?)",
+                (customer_id, pw_id, game, price, now),
             )
-            return
-
-        price = profile["price"]
-        now = datetime.now(datetime.timezone.utc).isoformat()
-
-        cur.execute(
-            "INSERT INTO peiwans_orders (customer_id, peiwans_id, game, price, status, created_at) "
-            "VALUES (?, ?, ?, ?, 'pending', ?)",
-            (customer_id, pw_id, game, price, now),
-        )
-        order_id = cur.lastrowid
-        conn.commit()
-        conn.close()
+            order_id = cur.lastrowid
+            conn.commit()
 
         embed = discord.Embed(
             title="订单已创建 | Order Created",
@@ -348,36 +337,34 @@ class Peiwan(CogBase):
     async def order_match(self, interaction: discord.Interaction, game: str):
         customer_id = interaction.user.id
 
-        conn = get_db()
-        cur = conn.cursor()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
 
-        cur.execute(
-            "SELECT * FROM peiwans_profiles WHERE status='online' AND game LIKE ? ORDER BY avg_rating DESC LIMIT 1",
-            (f"%{game}%",),
-        )
-        pw_row = cur.fetchone()
-
-        if pw_row is None:
-            conn.close()
-            await interaction.response.send_message(
-                f"没有在线的 {game} 陪玩 | No online companions for {game}",
-                ephemeral=True,
+            cur.execute(
+                "SELECT * FROM peiwans_profiles WHERE status='online' AND game LIKE ? ORDER BY avg_rating DESC LIMIT 1",
+                (f"%{game}%",),
             )
-            return
+            pw_row = cur.fetchone()
 
-        profile = dict(pw_row)
-        pw_id = profile["user_id"]
-        price = profile["price"]
-        now = datetime.now(datetime.timezone.utc).isoformat()
+            if pw_row is None:
+                await interaction.response.send_message(
+                    f"没有在线的 {game} 陪玩 | No online companions for {game}",
+                    ephemeral=True,
+                )
+                return
 
-        cur.execute(
-            "INSERT INTO peiwans_orders (customer_id, peiwans_id, game, price, status, created_at) "
-            "VALUES (?, ?, ?, ?, 'pending', ?)",
-            (customer_id, pw_id, game, price, now),
-        )
-        order_id = cur.lastrowid
-        conn.commit()
-        conn.close()
+            profile = dict(pw_row)
+            pw_id = profile["user_id"]
+            price = profile["price"]
+            now = datetime.now(datetime.timezone.utc).isoformat()
+
+            cur.execute(
+                "INSERT INTO peiwans_orders (customer_id, peiwans_id, game, price, status, created_at) "
+                "VALUES (?, ?, ?, ?, 'pending', ?)",
+                (customer_id, pw_id, game, price, now),
+            )
+            order_id = cur.lastrowid
+            conn.commit()
 
         pw_user = self.bot.get_user(pw_id)
 
@@ -413,36 +400,32 @@ class Peiwan(CogBase):
     async def accept(self, interaction: discord.Interaction, order_id: int):
         uid = interaction.user.id
 
-        conn = get_db()
-        cur = conn.cursor()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
 
-        cur.execute("SELECT * FROM peiwans_orders WHERE order_id = ?", (order_id,))
-        row = cur.fetchone()
+            cur.execute("SELECT * FROM peiwans_orders WHERE order_id = ?", (order_id,))
+            row = cur.fetchone()
 
-        if row is None:
-            conn.close()
-            await interaction.response.send_message("订单不存在 | Order not found", ephemeral=True)
-            return
+            if row is None:
+                await interaction.response.send_message("订单不存在 | Order not found", ephemeral=True)
+                return
 
-        order = dict(row)
+            order = dict(row)
 
-        if order["peiwans_id"] != uid:
-            conn.close()
-            await interaction.response.send_message("这不是你的订单 | This is not your order", ephemeral=True)
-            return
+            if order["peiwans_id"] != uid:
+                await interaction.response.send_message("这不是你的订单 | This is not your order", ephemeral=True)
+                return
 
-        if order["status"] != "pending":
-            conn.close()
-            await interaction.response.send_message(
-                f"订单状态为 {order['status']}，无法接单 | Order status is {order['status']}",
-                ephemeral=True,
-            )
-            return
+            if order["status"] != "pending":
+                await interaction.response.send_message(
+                    f"订单状态为 {order['status']}，无法接单 | Order status is {order['status']}",
+                    ephemeral=True,
+                )
+                return
 
-        cur.execute("UPDATE peiwans_orders SET status='accepted' WHERE order_id=?", (order_id,))
-        cur.execute("UPDATE peiwans_profiles SET status='busy' WHERE user_id=?", (uid,))
-        conn.commit()
-        conn.close()
+            cur.execute("UPDATE peiwans_orders SET status='accepted' WHERE order_id=?", (order_id,))
+            cur.execute("UPDATE peiwans_profiles SET status='busy' WHERE user_id=?", (uid,))
+            conn.commit()
 
         await interaction.response.send_message(f"已接单 #{order_id} | Order accepted ✅")
 
@@ -464,35 +447,31 @@ class Peiwan(CogBase):
     async def reject(self, interaction: discord.Interaction, order_id: int):
         uid = interaction.user.id
 
-        conn = get_db()
-        cur = conn.cursor()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
 
-        cur.execute("SELECT * FROM peiwans_orders WHERE order_id = ?", (order_id,))
-        row = cur.fetchone()
+            cur.execute("SELECT * FROM peiwans_orders WHERE order_id = ?", (order_id,))
+            row = cur.fetchone()
 
-        if row is None:
-            conn.close()
-            await interaction.response.send_message("订单不存在 | Order not found", ephemeral=True)
-            return
+            if row is None:
+                await interaction.response.send_message("订单不存在 | Order not found", ephemeral=True)
+                return
 
-        order = dict(row)
+            order = dict(row)
 
-        if order["peiwans_id"] != uid:
-            conn.close()
-            await interaction.response.send_message("这不是你的订单 | This is not your order", ephemeral=True)
-            return
+            if order["peiwans_id"] != uid:
+                await interaction.response.send_message("这不是你的订单 | This is not your order", ephemeral=True)
+                return
 
-        if order["status"] != "pending":
-            conn.close()
-            await interaction.response.send_message(
-                f"订单状态为 {order['status']}，无法拒单 | Order status is {order['status']}",
-                ephemeral=True,
-            )
-            return
+            if order["status"] != "pending":
+                await interaction.response.send_message(
+                    f"订单状态为 {order['status']}，无法拒单 | Order status is {order['status']}",
+                    ephemeral=True,
+                )
+                return
 
-        cur.execute("UPDATE peiwans_orders SET status='cancelled' WHERE order_id=?", (order_id,))
-        conn.commit()
-        conn.close()
+            cur.execute("UPDATE peiwans_orders SET status='cancelled' WHERE order_id=?", (order_id,))
+            conn.commit()
 
         await interaction.response.send_message(f"已拒单 #{order_id} | Order rejected ❌")
 
@@ -513,54 +492,50 @@ class Peiwan(CogBase):
     async def complete(self, interaction: discord.Interaction, order_id: int):
         uid = interaction.user.id
 
-        conn = get_db()
-        cur = conn.cursor()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
 
-        cur.execute("SELECT * FROM peiwans_orders WHERE order_id = ?", (order_id,))
-        row = cur.fetchone()
+            cur.execute("SELECT * FROM peiwans_orders WHERE order_id = ?", (order_id,))
+            row = cur.fetchone()
 
-        if row is None:
-            conn.close()
-            await interaction.response.send_message("订单不存在 | Order not found", ephemeral=True)
-            return
+            if row is None:
+                await interaction.response.send_message("订单不存在 | Order not found", ephemeral=True)
+                return
 
-        order = dict(row)
+            order = dict(row)
 
-        if order["peiwans_id"] != uid:
-            conn.close()
-            await interaction.response.send_message("这不是你的订单 | This is not your order", ephemeral=True)
-            return
+            if order["peiwans_id"] != uid:
+                await interaction.response.send_message("这不是你的订单 | This is not your order", ephemeral=True)
+                return
 
-        if order["status"] != "accepted":
-            conn.close()
-            await interaction.response.send_message(
-                f"订单状态为 {order['status']}，无法完成 | Order status is {order['status']}",
-                ephemeral=True,
+            if order["status"] != "accepted":
+                await interaction.response.send_message(
+                    f"订单状态为 {order['status']}，无法完成 | Order status is {order['status']}",
+                    ephemeral=True,
+                )
+                return
+
+            now = datetime.now(datetime.timezone.utc).isoformat()
+
+            cur.execute(
+                "UPDATE peiwans_orders SET status='completed', completed_at=? WHERE order_id=?",
+                (now, order_id),
             )
-            return
 
-        now = datetime.now(datetime.timezone.utc).isoformat()
+            # Record earnings
+            cur.execute(
+                "INSERT INTO peiwans_earnings (peiwans_id, order_id, amount, created_at) VALUES (?, ?, ?, ?)",
+                (uid, order_id, order["price"], now),
+            )
 
-        cur.execute(
-            "UPDATE peiwans_orders SET status='completed', completed_at=? WHERE order_id=?",
-            (now, order_id),
-        )
+            # Update profile stats
+            cur.execute(
+                "UPDATE peiwans_profiles SET total_orders = total_orders + 1, "
+                "total_earnings = total_earnings + ?, status='online' WHERE user_id = ?",
+                (order["price"], uid),
+            )
 
-        # Record earnings
-        cur.execute(
-            "INSERT INTO peiwans_earnings (peiwans_id, order_id, amount, created_at) VALUES (?, ?, ?, ?)",
-            (uid, order_id, order["price"], now),
-        )
-
-        # Update profile stats
-        cur.execute(
-            "UPDATE peiwans_profiles SET total_orders = total_orders + 1, "
-            "total_earnings = total_earnings + ?, status='online' WHERE user_id = ?",
-            (order["price"], uid),
-        )
-
-        conn.commit()
-        conn.close()
+            conn.commit()
 
         await interaction.response.send_message(
             f"订单 #{order_id} 已完成！| Order completed! 🎉\n收益: {order['price']} 金币"
@@ -585,50 +560,46 @@ class Peiwan(CogBase):
     async def cancel(self, interaction: discord.Interaction, order_id: int):
         uid = interaction.user.id
 
-        conn = get_db()
-        cur = conn.cursor()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
 
-        cur.execute("SELECT * FROM peiwans_orders WHERE order_id = ?", (order_id,))
-        row = cur.fetchone()
+            cur.execute("SELECT * FROM peiwans_orders WHERE order_id = ?", (order_id,))
+            row = cur.fetchone()
 
-        if row is None:
-            conn.close()
-            await interaction.response.send_message("订单不存在 | Order not found", ephemeral=True)
-            return
+            if row is None:
+                await interaction.response.send_message("订单不存在 | Order not found", ephemeral=True)
+                return
 
-        order = dict(row)
+            order = dict(row)
 
-        # Only customer or peiwans can cancel
-        if order["customer_id"] != uid and order["peiwans_id"] != uid:
-            conn.close()
-            await interaction.response.send_message("这不是你的订单 | This is not your order", ephemeral=True)
-            return
+            # Only customer or peiwans can cancel
+            if order["customer_id"] != uid and order["peiwans_id"] != uid:
+                await interaction.response.send_message("这不是你的订单 | This is not your order", ephemeral=True)
+                return
 
-        if order["status"] not in ("pending", "accepted"):
-            conn.close()
-            await interaction.response.send_message(
-                f"订单状态为 {order['status']}，无法取消 | Cannot cancel order with status {order['status']}",
-                ephemeral=True,
-            )
-            return
+            if order["status"] not in ("pending", "accepted"):
+                await interaction.response.send_message(
+                    f"订单状态为 {order['status']}，无法取消 | Cannot cancel order with status {order['status']}",
+                    ephemeral=True,
+                )
+                return
 
-        cur.execute("UPDATE peiwans_orders SET status='cancelled' WHERE order_id=?", (order_id,))
+            cur.execute("UPDATE peiwans_orders SET status='cancelled' WHERE order_id=?", (order_id,))
 
-        # If peiwans was busy, set back to online
-        cur.execute("SELECT status FROM peiwans_profiles WHERE user_id = ?", (order["peiwans_id"],))
-        pw_row = cur.fetchone()
-        if pw_row and pw_row["status"] == "busy":
-            # Check if there are other accepted orders
-            cur.execute(
-                "SELECT COUNT(*) as cnt FROM peiwans_orders WHERE peiwans_id = ? AND status = 'accepted'",
-                (order["peiwans_id"],),
-            )
-            other = cur.fetchone()
-            if other["cnt"] == 0:
-                cur.execute("UPDATE peiwans_profiles SET status='online' WHERE user_id=?", (order["peiwans_id"],))
+            # If peiwans was busy, set back to online
+            cur.execute("SELECT status FROM peiwans_profiles WHERE user_id = ?", (order["peiwans_id"],))
+            pw_row = cur.fetchone()
+            if pw_row and pw_row["status"] == "busy":
+                # Check if there are other accepted orders
+                cur.execute(
+                    "SELECT COUNT(*) as cnt FROM peiwans_orders WHERE peiwans_id = ? AND status = 'accepted'",
+                    (order["peiwans_id"],),
+                )
+                other = cur.fetchone()
+                if other["cnt"] == 0:
+                    cur.execute("UPDATE peiwans_profiles SET status='online' WHERE user_id=?", (order["peiwans_id"],))
 
-        conn.commit()
-        conn.close()
+            conn.commit()
 
         await interaction.response.send_message(f"订单 #{order_id} 已取消 | Order cancelled")
 
@@ -648,62 +619,57 @@ class Peiwan(CogBase):
             await interaction.response.send_message("评分需在 1-5 之间 | Rating must be 1-5", ephemeral=True)
             return
 
-        conn = get_db()
-        cur = conn.cursor()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
 
-        cur.execute("SELECT * FROM peiwans_orders WHERE order_id = ?", (order_id,))
-        row = cur.fetchone()
+            cur.execute("SELECT * FROM peiwans_orders WHERE order_id = ?", (order_id,))
+            row = cur.fetchone()
 
-        if row is None:
-            conn.close()
-            await interaction.response.send_message("订单不存在 | Order not found", ephemeral=True)
-            return
+            if row is None:
+                await interaction.response.send_message("订单不存在 | Order not found", ephemeral=True)
+                return
 
-        order = dict(row)
+            order = dict(row)
 
-        if order["customer_id"] != uid:
-            conn.close()
-            await interaction.response.send_message("只能评价自己的订单 | Can only rate your own orders", ephemeral=True)
-            return
+            if order["customer_id"] != uid:
+                await interaction.response.send_message("只能评价自己的订单 | Can only rate your own orders", ephemeral=True)
+                return
 
-        if order["status"] != "completed":
-            conn.close()
-            await interaction.response.send_message(
-                "只能评价已完成的订单 | Can only rate completed orders",
-                ephemeral=True,
+            if order["status"] != "completed":
+                await interaction.response.send_message(
+                    "只能评价已完成的订单 | Can only rate completed orders",
+                    ephemeral=True,
+                )
+                return
+
+            # Check if already reviewed
+            cur.execute("SELECT * FROM peiwans_reviews WHERE order_id = ? AND reviewer_id = ?", (order_id, uid))
+            if cur.fetchone():
+                await interaction.response.send_message("你已经评价过此订单 | You already rated this order", ephemeral=True)
+                return
+
+            now = datetime.now(datetime.timezone.utc).isoformat()
+
+            cur.execute(
+                "INSERT INTO peiwans_reviews (order_id, reviewer_id, peiwans_id, rating, comment, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (order_id, uid, order["peiwans_id"], rating, comment, now),
             )
-            return
 
-        # Check if already reviewed
-        cur.execute("SELECT * FROM peiwans_reviews WHERE order_id = ? AND reviewer_id = ?", (order_id, uid))
-        if cur.fetchone():
-            conn.close()
-            await interaction.response.send_message("你已经评价过此订单 | You already rated this order", ephemeral=True)
-            return
+            # Update avg_rating
+            cur.execute(
+                "SELECT AVG(rating) as avg_r FROM peiwans_reviews WHERE peiwans_id = ?",
+                (order["peiwans_id"],),
+            )
+            avg_row = cur.fetchone()
+            new_avg = round(avg_row["avg_r"], 1) if avg_row["avg_r"] else rating
 
-        now = datetime.now(datetime.timezone.utc).isoformat()
+            cur.execute(
+                "UPDATE peiwans_profiles SET avg_rating = ? WHERE user_id = ?",
+                (new_avg, order["peiwans_id"]),
+            )
 
-        cur.execute(
-            "INSERT INTO peiwans_reviews (order_id, reviewer_id, peiwans_id, rating, comment, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (order_id, uid, order["peiwans_id"], rating, comment, now),
-        )
-
-        # Update avg_rating
-        cur.execute(
-            "SELECT AVG(rating) as avg_r FROM peiwans_reviews WHERE peiwans_id = ?",
-            (order["peiwans_id"],),
-        )
-        avg_row = cur.fetchone()
-        new_avg = round(avg_row["avg_r"], 1) if avg_row["avg_r"] else rating
-
-        cur.execute(
-            "UPDATE peiwans_profiles SET avg_rating = ? WHERE user_id = ?",
-            (new_avg, order["peiwans_id"]),
-        )
-
-        conn.commit()
-        conn.close()
+            conn.commit()
 
         await interaction.response.send_message(
             f"评价成功 | Rated! ⭐ {rating}/5" + (f" — {comment}" if comment else "")
@@ -716,26 +682,24 @@ class Peiwan(CogBase):
     async def earnings(self, interaction: discord.Interaction):
         uid = interaction.user.id
 
-        conn = get_db()
-        cur = conn.cursor()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
 
-        cur.execute("SELECT total_earnings, total_orders, avg_rating FROM peiwans_profiles WHERE user_id = ?", (uid,))
-        profile = cur.fetchone()
+            cur.execute("SELECT total_earnings, total_orders, avg_rating FROM peiwans_profiles WHERE user_id = ?", (uid,))
+            profile = cur.fetchone()
 
-        if profile is None:
-            conn.close()
-            await interaction.response.send_message(
-                "请先注册陪玩 | Register first with /pw-apply",
-                ephemeral=True,
+            if profile is None:
+                await interaction.response.send_message(
+                    "请先注册陪玩 | Register first with /pw-apply",
+                    ephemeral=True,
+                )
+                return
+
+            cur.execute(
+                "SELECT * FROM peiwans_earnings WHERE peiwans_id = ? ORDER BY created_at DESC LIMIT 20",
+                (uid,),
             )
-            return
-
-        cur.execute(
-            "SELECT * FROM peiwans_earnings WHERE peiwans_id = ? ORDER BY created_at DESC LIMIT 20",
-            (uid,),
-        )
-        rows = cur.fetchall()
-        conn.close()
+            rows = cur.fetchall()
 
         embed = discord.Embed(title="我的收益 | My Earnings", color=PW_GREEN)
         embed.add_field(name="总收益 | Total Earnings", value=f"{profile['total_earnings']} 金币", inline=True)
@@ -757,17 +721,16 @@ class Peiwan(CogBase):
     async def orders(self, interaction: discord.Interaction):
         uid = interaction.user.id
         await interaction.response.defer()
-        conn = get_db()
-        cur = conn.cursor()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
 
-        # Show both as customer and as peiwans
-        cur.execute(
-            "SELECT * FROM peiwans_orders WHERE customer_id = ? OR peiwans_id = ? "
-            "ORDER BY created_at DESC LIMIT 20",
-            (uid, uid),
-        )
-        rows = cur.fetchall()
-        conn.close()
+            # Show both as customer and as peiwans
+            cur.execute(
+                "SELECT * FROM peiwans_orders WHERE customer_id = ? OR peiwans_id = ? "
+                "ORDER BY created_at DESC LIMIT 20",
+                (uid, uid),
+            )
+            rows = cur.fetchall()
 
         if not rows:
             await interaction.response.send_message("暂无订单 | No orders yet", ephemeral=True)

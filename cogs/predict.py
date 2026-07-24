@@ -6,7 +6,7 @@ import asyncio
 import discord
 from discord import app_commands
 from discord.ext import commands
-from database import get_db
+from database import get_db, get_db_ctx
 from datetime import datetime, timedelta
 import logging
 from utils.logger import log_error
@@ -15,26 +15,27 @@ logger = logging.getLogger(__name__)
 
 
 def _get_balance(uid: str) -> int:
-    conn = get_db(); cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO users (discord_id, username) VALUES (?, 'unknown') ON CONFLICT(discord_id) DO NOTHING",
-        (uid,),
-    )
-    cur.execute("SELECT score FROM users WHERE discord_id=?", (uid,))
-    row = cur.fetchone()
-    conn.close()
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO users (discord_id, username) VALUES (?, 'unknown') ON CONFLICT(discord_id) DO NOTHING",
+            (uid,),
+        )
+        cur.execute("SELECT score FROM users WHERE discord_id=?", (uid,))
+        row = cur.fetchone()
     return row["score"] if row and row["score"] is not None else 0
 
 
 def _add_coins(uid: str, amount: int, reason: str):
-    conn = get_db(); cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO users (discord_id, username) VALUES (?, 'unknown') ON CONFLICT(discord_id) DO NOTHING",
-        (uid,),
-    )
-    cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (amount, uid))
-    cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)", (uid, amount, reason))
-    conn.commit(); conn.close()
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO users (discord_id, username) VALUES (?, 'unknown') ON CONFLICT(discord_id) DO NOTHING",
+            (uid,),
+        )
+        cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (amount, uid))
+        cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)", (uid, amount, reason))
+        conn.commit()
 
 
 def _parse_match_time(time_str: str) -> tuple[str, str]:
@@ -75,13 +76,13 @@ def _parse_match_time(time_str: str) -> tuple[str, str]:
 
 def _calculate_odds(predict_id: int) -> dict:
     """Calculate current dynamic odds for both teams."""
-    conn = get_db(); cur = conn.cursor()
-    cur.execute(
-        "SELECT team, SUM(amount) as total FROM predict_bets WHERE predict_id=? GROUP BY team",
-        (predict_id,),
-    )
-    rows = cur.fetchall()
-    conn.close()
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT team, SUM(amount) as total FROM predict_bets WHERE predict_id=? GROUP BY team",
+            (predict_id,),
+        )
+        rows = cur.fetchall()
 
     total_a = 0
     total_b = 0
@@ -129,45 +130,42 @@ class PredictBetModal(discord.ui.Modal, title="下注 / Place Bet"):
         if amount <= 0:
             return await interaction.response.send_message("下注金额必须为正整数 / Amount must be positive.", ephemeral=True)
 
-        conn = get_db(); cur = conn.cursor()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
 
-        # Check game status
-        cur.execute("SELECT * FROM predict_games WHERE id=? AND status='open'", (self.predict_id,))
-        game = cur.fetchone()
-        if not game:
-            conn.close()
-            return await interaction.response.send_message("预测已截止或不存在 / Prediction closed or not found.", ephemeral=True)
+            # Check game status
+            cur.execute("SELECT * FROM predict_games WHERE id=? AND status='open'", (self.predict_id,))
+            game = cur.fetchone()
+            if not game:
+                return await interaction.response.send_message("预测已截止或不存在 / Prediction closed or not found.", ephemeral=True)
 
-        # Check cutoff
-        now = datetime.now().strftime("%Y-%m-%d %H:%M")
-        if game["cutoff_time"] and now >= game["cutoff_time"]:
-            conn.close()
-            return await interaction.response.send_message("投注已截止 / Betting is closed.", ephemeral=True)
+            # Check cutoff
+            now = datetime.now().strftime("%Y-%m-%d %H:%M")
+            if game["cutoff_time"] and now >= game["cutoff_time"]:
+                return await interaction.response.send_message("投注已截止 / Betting is closed.", ephemeral=True)
 
-        # Check if already bet
-        cur.execute(
-            "SELECT id FROM predict_bets WHERE predict_id=? AND user_id=?",
-            (self.predict_id, uid),
-        )
-        if cur.fetchone():
-            conn.close()
-            return await interaction.response.send_message("你已在此预测投注过 / You already bet on this match.", ephemeral=True)
-
-        # Check balance
-        balance = _get_balance(uid)
-        if balance < amount:
-            conn.close()
-            return await interaction.response.send_message(
-                f"金币不足 / Insufficient coins. 余额: 🪙 {balance}", ephemeral=True
+            # Check if already bet
+            cur.execute(
+                "SELECT id FROM predict_bets WHERE predict_id=? AND user_id=?",
+                (self.predict_id, uid),
             )
+            if cur.fetchone():
+                return await interaction.response.send_message("你已在此预测投注过 / You already bet on this match.", ephemeral=True)
 
-        # Deduct and place bet
-        _add_coins(uid, -amount, f"预测下注 #{self.predict_id} — {game['team_a' if self.team == 'A' else 'team_b']}")
-        cur.execute(
-            "INSERT INTO predict_bets (predict_id, user_id, team, amount) VALUES (?,?,?,?)",
-            (self.predict_id, uid, self.team, amount),
-        )
-        conn.commit(); conn.close()
+            # Check balance
+            balance = _get_balance(uid)
+            if balance < amount:
+                return await interaction.response.send_message(
+                    f"金币不足 / Insufficient coins. 余额: 🪙 {balance}", ephemeral=True
+                )
+
+            # Deduct and place bet
+            _add_coins(uid, -amount, f"预测下注 #{self.predict_id} — {game['team_a' if self.team == 'A' else 'team_b']}")
+            cur.execute(
+                "INSERT INTO predict_bets (predict_id, user_id, team, amount) VALUES (?,?,?,?)",
+                (self.predict_id, uid, self.team, amount),
+            )
+            conn.commit()
 
         odds = _calculate_odds(self.predict_id)
 
@@ -228,13 +226,14 @@ class Predict(commands.Cog):
         except ValueError as e:
             return await interaction.response.send_message(str(e), ephemeral=True)
 
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO predict_games (team_a, team_b, match_time, cutoff_time, creator_id) VALUES (?,?,?,?,?)",
-            (team_a, team_b, mt_str, ct_str, str(interaction.user.id)),
-        )
-        predict_id = cur.lastrowid
-        conn.commit(); conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO predict_games (team_a, team_b, match_time, cutoff_time, creator_id) VALUES (?,?,?,?,?)",
+                (team_a, team_b, mt_str, ct_str, str(interaction.user.id)),
+            )
+            predict_id = cur.lastrowid
+            conn.commit()
 
         embed = discord.Embed(
             title="🏆 比赛预测",
@@ -260,57 +259,56 @@ class Predict(commands.Cog):
         app_commands.Choice(name="Team B", value="B"),
     ])
     async def predict_settle(self, interaction: discord.Interaction, predict_id: int, winner: str):
-        conn = get_db(); cur = conn.cursor()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
 
-        cur.execute("SELECT * FROM predict_games WHERE id=?", (predict_id,))
-        game = cur.fetchone()
-        if not game:
-            conn.close()
-            return await interaction.response.send_message("预测盘不存在 / Prediction not found.", ephemeral=True)
-        if game["status"] != "open" and game["status"] != "closed":
-            conn.close()
-            return await interaction.response.send_message("该预测盘已结算 / Already settled.", ephemeral=True)
+            cur.execute("SELECT * FROM predict_games WHERE id=?", (predict_id,))
+            game = cur.fetchone()
+            if not game:
+                return await interaction.response.send_message("预测盘不存在 / Prediction not found.", ephemeral=True)
+            if game["status"] != "open" and game["status"] != "closed":
+                return await interaction.response.send_message("该预测盘已结算 / Already settled.", ephemeral=True)
 
-        # Calculate odds
-        cur.execute(
-            "SELECT team, SUM(amount) as total FROM predict_bets WHERE predict_id=? GROUP BY team",
-            (predict_id,),
-        )
-        rows = cur.fetchall()
-        total_a = 0; total_b = 0
-        for r in rows:
-            if r["team"] == "A":
-                total_a = r["total"]
-            elif r["team"] == "B":
-                total_b = r["total"]
+            # Calculate odds
+            cur.execute(
+                "SELECT team, SUM(amount) as total FROM predict_bets WHERE predict_id=? GROUP BY team",
+                (predict_id,),
+            )
+            rows = cur.fetchall()
+            total_a = 0; total_b = 0
+            for r in rows:
+                if r["team"] == "A":
+                    total_a = r["total"]
+                elif r["team"] == "B":
+                    total_b = r["total"]
 
-        total_pool = total_a + total_b
-        winners_total = total_a if winner == "A" else total_b
+            total_pool = total_a + total_b
+            winners_total = total_a if winner == "A" else total_b
 
-        # Get all bets
-        cur.execute("SELECT * FROM predict_bets WHERE predict_id=?", (predict_id,))
-        bets = cur.fetchall()
+            # Get all bets
+            cur.execute("SELECT * FROM predict_bets WHERE predict_id=?", (predict_id,))
+            bets = cur.fetchall()
 
-        won_count = 0
-        lost_count = 0
-        for bet in bets:
-            if bet["team"] == winner:
-                won_count += 1
-                # Payout = amount * (total_pool / winner_pool), with div-by-zero guard
-                payout = int(bet["amount"] * total_pool / max(1, winners_total))
-                _add_coins(
-                    bet["user_id"],
-                    payout,
-                    f"预测获胜 #{predict_id} — {game['team_a'] if winner == 'A' else game['team_b']} 获胜"
-                )
-            else:
-                lost_count += 1
+            won_count = 0
+            lost_count = 0
+            for bet in bets:
+                if bet["team"] == winner:
+                    won_count += 1
+                    # Payout = amount * (total_pool / winner_pool), with div-by-zero guard
+                    payout = int(bet["amount"] * total_pool / max(1, winners_total))
+                    _add_coins(
+                        bet["user_id"],
+                        payout,
+                        f"预测获胜 #{predict_id} — {game['team_a'] if winner == 'A' else game['team_b']} 获胜"
+                    )
+                else:
+                    lost_count += 1
 
-        cur.execute(
-            "UPDATE predict_games SET status='settled', winner=? WHERE id=?",
-            (winner, predict_id),
-        )
-        conn.commit(); conn.close()
+            cur.execute(
+                "UPDATE predict_games SET status='settled', winner=? WHERE id=?",
+                (winner, predict_id),
+            )
+            conn.commit()
 
         winner_name = game["team_a"] if winner == "A" else game["team_b"]
         odds_val = round(total_pool / max(1, winners_total), 1)
@@ -324,12 +322,12 @@ class Predict(commands.Cog):
 
     @predict_group.command(name="list", description="List all prediction games / 列出所有预测盘")
     async def predict_list(self, interaction: discord.Interaction):
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(
-            "SELECT * FROM predict_games ORDER BY CASE status WHEN 'open' THEN 0 WHEN 'closed' THEN 1 ELSE 2 END, created_at DESC LIMIT 20"
-        )
-        games = cur.fetchall()
-        conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT * FROM predict_games ORDER BY CASE status WHEN 'open' THEN 0 WHEN 'closed' THEN 1 ELSE 2 END, created_at DESC LIMIT 20"
+            )
+            games = cur.fetchall()
 
         if not games:
             return await interaction.response.send_message("暂无预测盘 / No prediction games yet.")

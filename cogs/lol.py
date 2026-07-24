@@ -6,7 +6,7 @@ import io
 import discord
 from discord import app_commands
 from discord.ext import commands
-from database import get_db
+from database import get_db, get_db_ctx
 from utils.cog_base import CogBase
 from config import RIOT_API_KEY
 from cogs.economy import check_achievement, add_coins, MATCH_WIN_COINS, MATCH_PARTICIPATE_COINS, BetView
@@ -180,33 +180,33 @@ class MatchListView(discord.ui.View):
     # Data loading (single DB round-trip)
     # ------------------------------------------------------------------
     def _load_data(self):
-        conn = get_db(); cur = conn.cursor()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
 
-        # Counts for button visibility
-        cur.execute("SELECT COUNT(*) as cnt FROM tournaments WHERE status IN ('open','closed')")
-        active_cnt = cur.fetchone()["cnt"]
-        cur.execute("SELECT COUNT(*) as cnt FROM tournaments WHERE status='finished'")
-        finished_cnt = cur.fetchone()["cnt"]
+            # Counts for button visibility
+            cur.execute("SELECT COUNT(*) as cnt FROM tournaments WHERE status IN ('open','closed')")
+            active_cnt = cur.fetchone()["cnt"]
+            cur.execute("SELECT COUNT(*) as cnt FROM tournaments WHERE status='finished'")
+            finished_cnt = cur.fetchone()["cnt"]
 
-        # Page rows with registration counts
-        if self.mode == "active":
-            status_filter = "t.status IN ('open','closed')"
-        else:
-            status_filter = "t.status = 'finished'"
+            # Page rows with registration counts
+            if self.mode == "active":
+                status_filter = "t.status IN ('open','closed')"
+            else:
+                status_filter = "t.status = 'finished'"
 
-        cur.execute(
-            f"SELECT t.id, t.name, t.status, t.max_teams, t.team_size, "
-            f"t.created_by, t.created_at, "
-            f"COALESCE(r.cnt, 0) as reg_count "
-            f"FROM tournaments t "
-            f"LEFT JOIN ("
-            f"  SELECT tournament_id, COUNT(*) as cnt FROM registrations GROUP BY tournament_id"
-            f") r ON r.tournament_id = t.id "
-            f"WHERE {status_filter} "
-            f"ORDER BY t.id DESC"
-        )
-        all_rows = [dict(r) for r in cur.fetchall()]
-        conn.close()
+            cur.execute(
+                f"SELECT t.id, t.name, t.status, t.max_teams, t.team_size, "
+                f"t.created_by, t.created_at, "
+                f"COALESCE(r.cnt, 0) as reg_count "
+                f"FROM tournaments t "
+                f"LEFT JOIN ("
+                f"  SELECT tournament_id, COUNT(*) as cnt FROM registrations GROUP BY tournament_id"
+                f") r ON r.tournament_id = t.id "
+                f"WHERE {status_filter} "
+                f"ORDER BY t.id DESC"
+            )
+            all_rows = [dict(r) for r in cur.fetchall()]
 
         total = len(all_rows)
         total_pages = max(1, (total + self.PER_PAGE - 1) // self.PER_PAGE)
@@ -464,12 +464,13 @@ class GMPT(CogBase):
                 "人数必须为大于2的偶数。", ephemeral=True,
             )
         team_size = max_players // 2
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO tournaments (name, max_teams, team_size, created_by) VALUES (?, 2, ?, ?)",
-            (match_name, team_size, str(interaction.user.id)),
-        )
-        conn.commit(); tid = cur.lastrowid; conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO tournaments (name, max_teams, team_size, created_by) VALUES (?, 2, ?, ?)",
+                (match_name, team_size, str(interaction.user.id)),
+            )
+            conn.commit(); tid = cur.lastrowid
 
         embed = discord.Embed(
             title=f"Match: {match_name}",
@@ -517,27 +518,26 @@ class GMPT(CogBase):
         self, interaction: discord.Interaction,
         match_id: int,
     ):
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT * FROM tournaments WHERE id=?", (match_id,))
-        t = cur.fetchone()
-        if not t: conn.close(); return await interaction.response.send_message("比赛不存在。", ephemeral=True)
-        if t["status"] != "open": conn.close(); return await interaction.response.send_message("报名已关闭。", ephemeral=True)
-        max_p = t["max_teams"] * t["team_size"]
-        cur.execute("SELECT COUNT(*) as cnt FROM registrations WHERE tournament_id=?", (match_id,))
-        cnt = cur.fetchone()["cnt"]
-        if cnt >= max_p: conn.close(); return await interaction.response.send_message("报名已满。", ephemeral=True)
-        uid = str(interaction.user.id)
-        try:
-            cur.execute("INSERT INTO registrations (tournament_id, discord_id) VALUES (?,?)", (match_id, uid))
-            cur.execute("INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)", (uid, interaction.user.name))
-            conn.commit()
-        except Exception as e:
-            conn.close()
-            if isinstance(e, __import__("sqlite3").IntegrityError):
-                return await interaction.response.send_message("已报名。", ephemeral=True)
-            logger.error(f"报名失败 match_id={match_id} uid={uid}: {e}", exc_info=True)
-            return await interaction.response.send_message("报名失败，请稍后重试。", ephemeral=True)
-        conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM tournaments WHERE id=?", (match_id,))
+            t = cur.fetchone()
+            if not t: return await interaction.response.send_message("比赛不存在。", ephemeral=True)
+            if t["status"] != "open": return await interaction.response.send_message("报名已关闭。", ephemeral=True)
+            max_p = t["max_teams"] * t["team_size"]
+            cur.execute("SELECT COUNT(*) as cnt FROM registrations WHERE tournament_id=?", (match_id,))
+            cnt = cur.fetchone()["cnt"]
+            if cnt >= max_p: return await interaction.response.send_message("报名已满。", ephemeral=True)
+            uid = str(interaction.user.id)
+            try:
+                cur.execute("INSERT INTO registrations (tournament_id, discord_id) VALUES (?,?)", (match_id, uid))
+                cur.execute("INSERT OR IGNORE INTO users (discord_id, username) VALUES (?,?)", (uid, interaction.user.name))
+                conn.commit()
+            except Exception as e:
+                if isinstance(e, __import__("sqlite3").IntegrityError):
+                    return await interaction.response.send_message("已报名。", ephemeral=True)
+                logger.error(f"报名失败 match_id={match_id} uid={uid}: {e}", exc_info=True)
+                return await interaction.response.send_message("报名失败，请稍后重试。", ephemeral=True)
         await interaction.response.send_message(f"{interaction.user.mention} 报名成功！({cnt+1}/{max_p})")
 
     # ============ 分队 ============
@@ -548,35 +548,36 @@ class GMPT(CogBase):
     @app_commands.describe(match_id="Match ID")
     @app_commands.autocomplete(match_id=match_id_autocomplete)
     async def shuffle(self, interaction: discord.Interaction, match_id: int):
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT * FROM tournaments WHERE id=?", (match_id,))
-        t = cur.fetchone()
-        if not t: conn.close(); return await interaction.response.send_message("比赛不存在。", ephemeral=True)
-        if t["status"] != "open": conn.close(); return await interaction.response.send_message("已分队。", ephemeral=True)
-        cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=? ORDER BY RANDOM()", (match_id,))
-        players = [r["discord_id"] for r in cur.fetchall()]
-        if len(players) < 2: conn.close(); return await interaction.response.send_message("人数不足。", ephemeral=True)
-        mid = min(t["team_size"], len(players)//2)
-        ta, tb = players[:mid], players[mid:mid*2]
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM tournaments WHERE id=?", (match_id,))
+            t = cur.fetchone()
+            if not t: return await interaction.response.send_message("比赛不存在。", ephemeral=True)
+            if t["status"] != "open": return await interaction.response.send_message("已分队。", ephemeral=True)
+            cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=? ORDER BY RANDOM()", (match_id,))
+            players = [r["discord_id"] for r in cur.fetchall()]
+            if len(players) < 2: return await interaction.response.send_message("人数不足。", ephemeral=True)
+            mid = min(t["team_size"], len(players)//2)
+            ta, tb = players[:mid], players[mid:mid*2]
 
-        # 获取用户名用于图片
-        blue_names = []
-        red_names = []
-        for uid in ta:
-            member = interaction.guild.get_member(int(uid))
-            blue_names.append(member.display_name if member else f"<@{uid}>")
-        for uid in tb:
-            member = interaction.guild.get_member(int(uid))
-            red_names.append(member.display_name if member else f"<@{uid}>")
+            # 获取用户名用于图片
+            blue_names = []
+            red_names = []
+            for uid in ta:
+                member = interaction.guild.get_member(int(uid))
+                blue_names.append(member.display_name if member else f"<@{uid}>")
+            for uid in tb:
+                member = interaction.guild.get_member(int(uid))
+                red_names.append(member.display_name if member else f"<@{uid}>")
 
-        cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (match_id, "蓝队 Blue"))
-        aid = cur.lastrowid
-        for u in ta: cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (aid, match_id, u))
-        cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (match_id, "红队 Red"))
-        bid = cur.lastrowid
-        for u in tb: cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (bid, match_id, u))
-        cur.execute("UPDATE tournaments SET status='closed' WHERE id=?", (match_id,))
-        conn.commit(); conn.close()
+            cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (match_id, "蓝队 Blue"))
+            aid = cur.lastrowid
+            for u in ta: cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (aid, match_id, u))
+            cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (match_id, "红队 Red"))
+            bid = cur.lastrowid
+            for u in tb: cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (bid, match_id, u))
+            cur.execute("UPDATE tournaments SET status='closed' WHERE id=?", (match_id,))
+            conn.commit()
 
         # 生成对战图
         if PIL_AVAILABLE:
@@ -614,89 +615,88 @@ class GMPT(CogBase):
         match_id: int, win_team_id: int,
         mvp: discord.Member = None,
     ):
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT * FROM tournaments WHERE id=?", (match_id,))
-        t = cur.fetchone()
-        if not t: conn.close(); return await interaction.response.send_message("比赛不存在。", ephemeral=True)
-        if t["status"] == "finished": conn.close(); return await interaction.response.send_message("已结算。", ephemeral=True)
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM tournaments WHERE id=?", (match_id,))
+            t = cur.fetchone()
+            if not t: return await interaction.response.send_message("比赛不存在。", ephemeral=True)
+            if t["status"] == "finished": return await interaction.response.send_message("已结算。", ephemeral=True)
 
-        # 胜方 +150 coins
-        cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=? AND team_id=?", (match_id, win_team_id))
-        winner_ids = [r["discord_id"] for r in cur.fetchall()]
-        for wid in winner_ids:
-            cur.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (wid,))
-            cur.execute("UPDATE users SET score=score+? WHERE discord_id=?", (MATCH_WIN_COINS, wid))
-            cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                         (wid, MATCH_WIN_COINS, f"比赛胜利 #{match_id}"))
-        cur.execute("INSERT INTO results (tournament_id,team_id,rank,score_awarded) VALUES (?,?,1,?)", (match_id, win_team_id, MATCH_WIN_COINS))
+            # 胜方 +150 coins
+            cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=? AND team_id=?", (match_id, win_team_id))
+            winner_ids = [r["discord_id"] for r in cur.fetchall()]
+            for wid in winner_ids:
+                cur.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (wid,))
+                cur.execute("UPDATE users SET score=score+? WHERE discord_id=?", (MATCH_WIN_COINS, wid))
+                cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                             (wid, MATCH_WIN_COINS, f"比赛胜利 #{match_id}"))
+            cur.execute("INSERT INTO results (tournament_id,team_id,rank,score_awarded) VALUES (?,?,1,?)", (match_id, win_team_id, MATCH_WIN_COINS))
 
-        # 败方 +50 coins
-        cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=? AND team_id!=?", (match_id, win_team_id))
-        loser_ids = [r["discord_id"] for r in cur.fetchall()]
-        for lid in loser_ids:
-            cur.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (lid,))
-            cur.execute("UPDATE users SET score=score+? WHERE discord_id=?", (MATCH_PARTICIPATE_COINS, lid))
-            cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                         (lid, MATCH_PARTICIPATE_COINS, f"比赛参与 #{match_id}"))
+            # 败方 +50 coins
+            cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=? AND team_id!=?", (match_id, win_team_id))
+            loser_ids = [r["discord_id"] for r in cur.fetchall()]
+            for lid in loser_ids:
+                cur.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (lid,))
+                cur.execute("UPDATE users SET score=score+? WHERE discord_id=?", (MATCH_PARTICIPATE_COINS, lid))
+                cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                             (lid, MATCH_PARTICIPATE_COINS, f"比赛参与 #{match_id}"))
 
-        mvp_text = ""
-        mvp_id = ""
-        if mvp:
-            mvp_id = str(mvp.id)
-            cur.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (mvp_id,))
-            cur.execute("UPDATE users SET score=score+? WHERE discord_id=?", (MATCH_PARTICIPATE_COINS, mvp_id))
-            cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                         (mvp_id, MATCH_PARTICIPATE_COINS, f"MVP #{match_id}"))
-            mvp_text = f"\n🏅 MVP: {mvp.mention} +50"
+            mvp_text = ""
+            mvp_id = ""
+            if mvp:
+                mvp_id = str(mvp.id)
+                cur.execute("INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING", (mvp_id,))
+                cur.execute("UPDATE users SET score=score+? WHERE discord_id=?", (MATCH_PARTICIPATE_COINS, mvp_id))
+                cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                             (mvp_id, MATCH_PARTICIPATE_COINS, f"MVP #{match_id}"))
+                mvp_text = f"\n🏅 MVP: {mvp.mention} +50"
 
-        cur.execute("UPDATE tournaments SET status='finished' WHERE id=?", (match_id,))
-        conn.commit()
+            cur.execute("UPDATE tournaments SET status='finished' WHERE id=?", (match_id,))
+            conn.commit()
 
-        # === 成就检测 (batch query to avoid N+1) ===
-        all_participants = winner_ids + loser_ids
-        unique_pids = list(set(all_participants))
-        if unique_pids:
-            placeholders = ",".join("?" * len(unique_pids))
-            conn2 = get_db(); cur2 = conn2.cursor()
-            cur2.execute(
-                f"SELECT discord_id, COUNT(*) as cnt FROM registrations WHERE discord_id IN ({placeholders}) GROUP BY discord_id",
-                unique_pids,
-            )
-            cnt_map = {row["discord_id"]: row["cnt"] for row in cur2.fetchall()}
-            conn2.close()
-            for pid in unique_pids:
-                match_cnt = cnt_map.get(pid, 0)
-                check_achievement(pid, "首次参赛")
-                if match_cnt >= 5:
-                    check_achievement(pid, "参加 5 场")
-                if match_cnt >= 10:
-                    check_achievement(pid, "参加 10 场")
-                if match_cnt >= 25:
-                    check_achievement(pid, "参加 25 场")
+            # === 成就检测 (batch query to avoid N+1) ===
+            all_participants = winner_ids + loser_ids
+            unique_pids = list(set(all_participants))
+            if unique_pids:
+                placeholders = ",".join("?" * len(unique_pids))
+                with get_db_ctx() as conn2:
+                    cur2 = conn2.cursor()
+                    cur2.execute(
+                        f"SELECT discord_id, COUNT(*) as cnt FROM registrations WHERE discord_id IN ({placeholders}) GROUP BY discord_id",
+                        unique_pids,
+                    )
+                    cnt_map = {row["discord_id"]: row["cnt"] for row in cur2.fetchall()}
+                for pid in unique_pids:
+                    match_cnt = cnt_map.get(pid, 0)
+                    check_achievement(pid, "首次参赛")
+                    if match_cnt >= 5:
+                        check_achievement(pid, "参加 5 场")
+                    if match_cnt >= 10:
+                        check_achievement(pid, "参加 10 场")
+                    if match_cnt >= 25:
+                        check_achievement(pid, "参加 25 场")
 
-        for wid in winner_ids:
-            check_achievement(wid, "首胜")
+            for wid in winner_ids:
+                check_achievement(wid, "首胜")
 
-        if mvp_id:
-            check_achievement(mvp_id, "MVP")
+            if mvp_id:
+                check_achievement(mvp_id, "MVP")
 
-        # 获取两队玩家名用于生成结果图
-        winner_name = cur.execute("SELECT name FROM teams WHERE id=?", (win_team_id,)).fetchone()
-        winner_name = winner_name["name"] if winner_name else "胜方"
-        cur.execute("SELECT name FROM teams WHERE tournament_id=? AND id!=?", (match_id, win_team_id))
-        loser_row = cur.fetchone()
-        loser_name = loser_row["name"] if loser_row else "败方"
+            # 获取两队玩家名用于生成结果图
+            winner_name = cur.execute("SELECT name FROM teams WHERE id=?", (win_team_id,)).fetchone()
+            winner_name = winner_name["name"] if winner_name else "胜方"
+            cur.execute("SELECT name FROM teams WHERE tournament_id=? AND id!=?", (match_id, win_team_id))
+            loser_row = cur.fetchone()
+            loser_name = loser_row["name"] if loser_row else "败方"
 
-        win_names = []
-        los_names = []
-        for uid in winner_ids:
-            m = interaction.guild.get_member(int(uid))
-            win_names.append(m.display_name if m else f"<@{uid}>")
-        for uid in loser_ids:
-            m = interaction.guild.get_member(int(uid))
-            los_names.append(m.display_name if m else f"<@{uid}>")
-
-        conn.close()
+            win_names = []
+            los_names = []
+            for uid in winner_ids:
+                m = interaction.guild.get_member(int(uid))
+                win_names.append(m.display_name if m else f"<@{uid}>")
+            for uid in loser_ids:
+                m = interaction.guild.get_member(int(uid))
+                los_names.append(m.display_name if m else f"<@{uid}>")
 
         if PIL_AVAILABLE:
             img_buf = _generate_result_image(t["name"], winner_name, win_names, los_names)
@@ -726,12 +726,13 @@ class GMPT(CogBase):
     @app_commands.describe(match_id="Match ID")
     @app_commands.autocomplete(match_id=match_id_autocomplete)
     async def players(self, interaction: discord.Interaction, match_id: int):
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT * FROM tournaments WHERE id=?", (match_id,))
-        t = cur.fetchone()
-        if not t: conn.close(); return await interaction.response.send_message("比赛不存在。", ephemeral=True)
-        cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=?", (match_id,))
-        rows = cur.fetchall(); conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM tournaments WHERE id=?", (match_id,))
+            t = cur.fetchone()
+            if not t: return await interaction.response.send_message("比赛不存在。", ephemeral=True)
+            cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=?", (match_id,))
+            rows = cur.fetchall()
         if not rows: return await interaction.response.send_message("暂无玩家报名。")
         max_p = t["max_teams"] * t["team_size"]
         pings = " ".join(f"<@{r['discord_id']}>" for r in rows)
@@ -750,14 +751,15 @@ class GMPT(CogBase):
         self, interaction: discord.Interaction,
         match_id: int, player: discord.Member,
     ):
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT created_by FROM tournaments WHERE id=?", (match_id,))
-        t = cur.fetchone()
-        if not t: conn.close(); return await interaction.response.send_message("比赛不存在。", ephemeral=True)
-        if str(interaction.user.id) != t["created_by"]:
-            conn.close(); return await interaction.response.send_message("只有比赛创建者可以踢人。", ephemeral=True)
-        cur.execute("DELETE FROM registrations WHERE tournament_id=? AND discord_id=?", (match_id, str(player.id)))
-        conn.commit(); conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT created_by FROM tournaments WHERE id=?", (match_id,))
+            t = cur.fetchone()
+            if not t: return await interaction.response.send_message("比赛不存在。", ephemeral=True)
+            if str(interaction.user.id) != t["created_by"]:
+                return await interaction.response.send_message("只有比赛创建者可以踢人。", ephemeral=True)
+            cur.execute("DELETE FROM registrations WHERE tournament_id=? AND discord_id=?", (match_id, str(player.id)))
+            conn.commit()
         await interaction.response.send_message(f"{player.mention} 已被踢出比赛。")
         # 刷新报名列表
         await _refresh_player_list_from_cmd(match_id, interaction.channel, interaction.guild)
@@ -770,17 +772,18 @@ class GMPT(CogBase):
     @app_commands.describe(match_id="Match ID")
     @app_commands.autocomplete(match_id=match_id_autocomplete)
     async def cancel(self, interaction: discord.Interaction, match_id: int):
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT created_by, status FROM tournaments WHERE id=?", (match_id,))
-        t = cur.fetchone()
-        if not t: conn.close(); return await interaction.response.send_message("比赛不存在。", ephemeral=True)
-        if str(interaction.user.id) != t["created_by"]:
-            conn.close(); return await interaction.response.send_message("只有创建者可以取消。", ephemeral=True)
-        cur.execute("DELETE FROM registrations WHERE tournament_id=?", (match_id,))
-        cur.execute("DELETE FROM teams WHERE tournament_id=?", (match_id,))
-        cur.execute("DELETE FROM results WHERE tournament_id=?", (match_id,))
-        cur.execute("DELETE FROM tournaments WHERE id=?", (match_id,))
-        conn.commit(); conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT created_by, status FROM tournaments WHERE id=?", (match_id,))
+            t = cur.fetchone()
+            if not t: return await interaction.response.send_message("比赛不存在。", ephemeral=True)
+            if str(interaction.user.id) != t["created_by"]:
+                return await interaction.response.send_message("只有创建者可以取消。", ephemeral=True)
+            cur.execute("DELETE FROM registrations WHERE tournament_id=?", (match_id,))
+            cur.execute("DELETE FROM teams WHERE tournament_id=?", (match_id,))
+            cur.execute("DELETE FROM results WHERE tournament_id=?", (match_id,))
+            cur.execute("DELETE FROM tournaments WHERE id=?", (match_id,))
+            conn.commit()
         await interaction.response.send_message(f"比赛 {match_id} 已取消，所有报名数据已清除。")
         # 删除报名列表消息
         from cogs.dashboard import get_player_list_msg, remove_player_list_msg
@@ -800,30 +803,30 @@ class GMPT(CogBase):
     )
     @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
     async def history(self, interaction: discord.Interaction):
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("""
-            SELECT t.id, t.name, t.team_size, r.win_team, r.mvp_id, t.created_at
-            FROM tournaments t
-            LEFT JOIN (
-                SELECT tournament_id,
-                       MAX(CASE WHEN rank=1 THEN team_id END) as win_team,
-                       NULL as mvp_id
-                FROM results GROUP BY tournament_id
-            ) r ON t.id = r.tournament_id
-            WHERE t.status='finished'
-            ORDER BY t.created_at DESC LIMIT 10
-        """)
-        rows = cur.fetchall()
-        if not rows: conn.close(); return await interaction.response.send_message("暂无历史比赛。")
-        lines = ["**历史比赛 Top 10**\n"]
-        for i, row in enumerate(rows, 1):
-            cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=? AND team_id=?", (row["id"], row["win_team"]))
-            winners = [f"<@{r['discord_id']}>" for r in cur.fetchall()]
-            lines.append(
-                f"`#{i}` **{row['name']}** | {row['team_size']}v{row['team_size']} | "
-                f"胜方: {' '.join(winners) if winners else '?'}"
-            )
-        conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT t.id, t.name, t.team_size, r.win_team, r.mvp_id, t.created_at
+                FROM tournaments t
+                LEFT JOIN (
+                    SELECT tournament_id,
+                           MAX(CASE WHEN rank=1 THEN team_id END) as win_team,
+                           NULL as mvp_id
+                    FROM results GROUP BY tournament_id
+                ) r ON t.id = r.tournament_id
+                WHERE t.status='finished'
+                ORDER BY t.created_at DESC LIMIT 10
+            """)
+            rows = cur.fetchall()
+            if not rows: return await interaction.response.send_message("暂无历史比赛。")
+            lines = ["**历史比赛 Top 10**\n"]
+            for i, row in enumerate(rows, 1):
+                cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=? AND team_id=?", (row["id"], row["win_team"]))
+                winners = [f"<@{r['discord_id']}>" for r in cur.fetchall()]
+                lines.append(
+                    f"`#{i}` **{row['name']}** | {row['team_size']}v{row['team_size']} | "
+                    f"胜方: {' '.join(winners) if winners else '?'}"
+                )
         await interaction.response.send_message("\n".join(lines))
 
     # ============ 选手直播通知 ============
@@ -837,23 +840,24 @@ class GMPT(CogBase):
     )
     @app_commands.autocomplete(match_id=match_id_autocomplete)
     async def stream(self, interaction: discord.Interaction, match_id: int, link: str):
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT id, name FROM tournaments WHERE id=?", (match_id,))
-        t = cur.fetchone()
-        if not t:
-            conn.close(); return await interaction.response.send_message("比赛不存在。", ephemeral=True)
-        cur.execute(
-            "SELECT discord_id FROM registrations WHERE tournament_id=? AND discord_id=?",
-            (match_id, str(interaction.user.id)),
-        )
-        reg = cur.fetchone()
-        if not reg:
-            conn.close(); return await interaction.response.send_message("你未报名该比赛。", ephemeral=True)
-        cur.execute(
-            "SELECT discord_id FROM registrations WHERE tournament_id=? AND discord_id!=?",
-            (match_id, str(interaction.user.id)),
-        )
-        others = cur.fetchall(); conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT id, name FROM tournaments WHERE id=?", (match_id,))
+            t = cur.fetchone()
+            if not t:
+                return await interaction.response.send_message("比赛不存在。", ephemeral=True)
+            cur.execute(
+                "SELECT discord_id FROM registrations WHERE tournament_id=? AND discord_id=?",
+                (match_id, str(interaction.user.id)),
+            )
+            reg = cur.fetchone()
+            if not reg:
+                return await interaction.response.send_message("你未报名该比赛。", ephemeral=True)
+            cur.execute(
+                "SELECT discord_id FROM registrations WHERE tournament_id=? AND discord_id!=?",
+                (match_id, str(interaction.user.id)),
+            )
+            others = cur.fetchall()
 
         pings = " ".join([f"<@{r['discord_id']}>" for r in others])
         if not pings:
@@ -872,9 +876,10 @@ class GMPT(CogBase):
     )
     @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
     async def rank(self, interaction: discord.Interaction):
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT username, score FROM users WHERE score>0 ORDER BY score DESC LIMIT 20")
-        rows = cur.fetchall(); conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT username, score FROM users WHERE score>0 ORDER BY score DESC LIMIT 20")
+            rows = cur.fetchall()
         if not rows: return await interaction.response.send_message("暂无积分。")
         lines = ["**积分排行榜 Top 20**\n"]
         for i, r in enumerate(rows, 1):
@@ -1177,14 +1182,15 @@ class GMPT(CogBase):
         summoner_name: str, tag_line: str, region: str,
     ):
         uid = str(interaction.user.id)
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO player_riot (discord_id, summoner_name, tag_line, region) "
-            "VALUES (?,?,?,?) ON CONFLICT(discord_id) "
-            "DO UPDATE SET summoner_name=?, tag_line=?, region=?",
-            (uid, summoner_name, tag_line, region, summoner_name, tag_line, region),
-        )
-        conn.commit(); conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO player_riot (discord_id, summoner_name, tag_line, region) "
+                "VALUES (?,?,?,?) ON CONFLICT(discord_id) "
+                "DO UPDATE SET summoner_name=?, tag_line=?, region=?",
+                (uid, summoner_name, tag_line, region, summoner_name, tag_line, region),
+            )
+            conn.commit()
         await interaction.response.send_message(
             f"✅ Riot account linked: **{summoner_name}#{tag_line}** ({region.upper()})",
             ephemeral=True,
@@ -1198,64 +1204,61 @@ class GMPT(CogBase):
     async def ranks_cmd(self, interaction: discord.Interaction):
         await interaction.response.defer()
 
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT DISTINCT discord_id, username FROM registrations r LEFT JOIN users u ON u.discord_id = r.discord_id ORDER BY u.username")
-        rows = cur.fetchall()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT DISTINCT discord_id, username FROM registrations r LEFT JOIN users u ON u.discord_id = r.discord_id ORDER BY u.username")
+            rows = cur.fetchall()
 
-        if not rows:
-            conn.close()
-            return await interaction.followup.send("暂无已报名玩家 / No registered players")
+            if not rows:
+                return await interaction.followup.send("暂无已报名玩家 / No registered players")
 
-        if not RIOT_API_KEY or not self.session:
-            conn.close()
+            if not RIOT_API_KEY or not self.session:
+                lines = []
+                for i, row in enumerate(rows, 1):
+                    name = row["username"] if row["username"] else row["discord_id"]
+                    lines.append(f"{i}. {name} — Riot API Key 未配置")
+                return await interaction.followup.send("\n".join(lines))
+
             lines = []
             for i, row in enumerate(rows, 1):
-                name = row["username"] if row["username"] else row["discord_id"]
-                lines.append(f"{i}. {name} — Riot API Key 未配置")
-            return await interaction.followup.send("\n".join(lines))
+                uid = row["discord_id"]
+                name = row["username"] if row["username"] else uid
 
-        lines = []
-        for i, row in enumerate(rows, 1):
-            uid = row["discord_id"]
-            name = row["username"] if row["username"] else uid
+                cur.execute("SELECT summoner_name, tag_line, region FROM player_riot WHERE discord_id=?", (uid,))
+                riot = cur.fetchone()
 
-            cur.execute("SELECT summoner_name, tag_line, region FROM player_riot WHERE discord_id=?", (uid,))
-            riot = cur.fetchone()
+                if not riot:
+                    lines.append(f"{i}. {name} — 未关联 / Not linked")
+                    continue
 
-            if not riot:
-                lines.append(f"{i}. {name} — 未关联 / Not linked")
-                continue
+                cont_region = REGIONS[riot["region"]][1]
+                puuid, err = await get_puuid(self.session, cont_region, riot["summoner_name"], riot["tag_line"])
+                if err:
+                    lines.append(f"{i}. {name} ({riot['summoner_name']}#{riot['tag_line']}) — 查询失败: {err[:50]}")
+                    continue
 
-            cont_region = REGIONS[riot["region"]][1]
-            puuid, err = await get_puuid(self.session, cont_region, riot["summoner_name"], riot["tag_line"])
-            if err:
-                lines.append(f"{i}. {name} ({riot['summoner_name']}#{riot['tag_line']}) — 查询失败: {err[:50]}")
-                continue
+                url = f"https://{riot['region']}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/{puuid}"
+                code, summ = await riot_request(self.session, url)
+                if code != 200:
+                    lines.append(f"{i}. {name} ({riot['summoner_name']}#{riot['tag_line']}) — 获取召唤师失败")
+                    continue
 
-            url = f"https://{riot['region']}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/{puuid}"
-            code, summ = await riot_request(self.session, url)
-            if code != 200:
-                lines.append(f"{i}. {name} ({riot['summoner_name']}#{riot['tag_line']}) — 获取召唤师失败")
-                continue
+                url2 = f"https://{riot['region']}.api.riotgames.com/lol/league/v4/entries/by-summoner/{summ['id']}"
+                _, leagues = await riot_request(self.session, url2)
+                leagues = leagues or []
 
-            url2 = f"https://{riot['region']}.api.riotgames.com/lol/league/v4/entries/by-summoner/{summ['id']}"
-            _, leagues = await riot_request(self.session, url2)
-            leagues = leagues or []
-
-            solo = next((l for l in leagues if l["queueType"] == "RANKED_SOLO_5x5"), None)
-            rank_str = ""
-            if solo:
-                rank_str = f"{tier_emoji(solo['tier'])} {solo['tier']} {solo['rank']} ({solo['leaguePoints']}LP)"
-            else:
-                flex = next((l for l in leagues if l["queueType"] == "RANKED_FLEX_SR"), None)
-                if flex:
-                    rank_str = f"{tier_emoji(flex['tier'])} {flex['tier']} {flex['rank']} (Flex)"
+                solo = next((l for l in leagues if l["queueType"] == "RANKED_SOLO_5x5"), None)
+                rank_str = ""
+                if solo:
+                    rank_str = f"{tier_emoji(solo['tier'])} {solo['tier']} {solo['rank']} ({solo['leaguePoints']}LP)"
                 else:
-                    rank_str = "Unranked 未定级"
+                    flex = next((l for l in leagues if l["queueType"] == "RANKED_FLEX_SR"), None)
+                    if flex:
+                        rank_str = f"{tier_emoji(flex['tier'])} {flex['tier']} {flex['rank']} (Flex)"
+                    else:
+                        rank_str = "Unranked 未定级"
 
-            lines.append(f"{i}. {name} — {rank_str}")
-
-        conn.close()
+                lines.append(f"{i}. {name} — {rank_str}")
         await interaction.followup.send("\n".join(lines))
 
     # ============ 自定义分队 ============
@@ -1266,20 +1269,18 @@ class GMPT(CogBase):
     @app_commands.describe(match_id="Match ID / 比赛ID")
     @app_commands.autocomplete(match_id=match_id_autocomplete)
     async def custom_team(self, interaction: discord.Interaction, match_id: int):
-        conn = get_db(); cur = conn.cursor()
-        await interaction.response.defer()
-        cur.execute("SELECT * FROM tournaments WHERE id=?", (match_id,))
-        t = cur.fetchone()
-        if not t:
-            conn.close()
-            return await interaction.response.send_message("比赛不存在。", ephemeral=True)
-        if t["status"] != "open":
-            conn.close()
-            return await interaction.response.send_message("该比赛已关闭或已分队。", ephemeral=True)
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            await interaction.response.defer()
+            cur.execute("SELECT * FROM tournaments WHERE id=?", (match_id,))
+            t = cur.fetchone()
+            if not t:
+                return await interaction.response.send_message("比赛不存在。", ephemeral=True)
+            if t["status"] != "open":
+                return await interaction.response.send_message("该比赛已关闭或已分队。", ephemeral=True)
 
-        cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=?", (match_id,))
-        player_rows = cur.fetchall()
-        conn.close()
+            cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=?", (match_id,))
+            player_rows = cur.fetchall()
 
         if not player_rows:
             return await interaction.response.send_message("暂无玩家报名。", ephemeral=True)
@@ -1414,19 +1415,20 @@ class CustomTeamView(discord.ui.View):
             return await interaction.followup.send("请至少分配2名玩家到队伍中。", ephemeral=True)
 
         # Write teams to database
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (self.match_id, "A队 Team A"))
-        aid = cur.lastrowid
-        for uid in self.team_a:
-            cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?",
-                        (aid, self.match_id, uid))
-        cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (self.match_id, "B队 Team B"))
-        bid = cur.lastrowid
-        for uid in self.team_b:
-            cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?",
-                        (bid, self.match_id, uid))
-        cur.execute("UPDATE tournaments SET status='closed' WHERE id=?", (self.match_id,))
-        conn.commit(); conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (self.match_id, "A队 Team A"))
+            aid = cur.lastrowid
+            for uid in self.team_a:
+                cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?",
+                            (aid, self.match_id, uid))
+            cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (self.match_id, "B队 Team B"))
+            bid = cur.lastrowid
+            for uid in self.team_b:
+                cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?",
+                            (bid, self.match_id, uid))
+            cur.execute("UPDATE tournaments SET status='closed' WHERE id=?", (self.match_id,))
+            conn.commit()
 
         # Build result message
         a_names = []
@@ -1543,15 +1545,15 @@ async def _refresh_player_list_from_cmd(match_id: int, channel, guild):
         except (discord.NotFound, discord.Forbidden):
             pass
 
-    conn = get_db(); cur = conn.cursor()
-    cur.execute(
-        "SELECT discord_id FROM registrations WHERE tournament_id=? ORDER BY id ASC",
-        (match_id,),
-    )
-    rows = cur.fetchall()
-    cur.execute("SELECT max_teams, team_size FROM tournaments WHERE id=?", (match_id,))
-    t = cur.fetchone()
-    conn.close()
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT discord_id FROM registrations WHERE tournament_id=? ORDER BY id ASC",
+            (match_id,),
+        )
+        rows = cur.fetchall()
+        cur.execute("SELECT max_teams, team_size FROM tournaments WHERE id=?", (match_id,))
+        t = cur.fetchone()
     max_p = (t["max_teams"] * t["team_size"]) if t else 0
 
     names = []

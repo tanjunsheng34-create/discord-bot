@@ -67,6 +67,22 @@ def db_context():
         cur.close()
         conn.close()
 
+@contextmanager
+def get_db_ctx():
+    """上下文管理器：自动 close，适合不需要事务包裹的简单读/写模式。
+
+    用法：
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(...)
+            conn.commit()  # 可选
+    """
+    conn = get_db()
+    try:
+        yield conn
+    finally:
+        conn.close()
+
 
 def _create_core_tables(cursor):
     """Create core user & tournament tables."""

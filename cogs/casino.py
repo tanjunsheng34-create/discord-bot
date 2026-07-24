@@ -5,7 +5,7 @@ import random
 import discord
 from discord import app_commands
 from discord.ext import commands
-from database import get_db
+from database import get_db, get_db_ctx
 from datetime import datetime
 import logging
 from utils.logger import log_error
@@ -14,52 +14,53 @@ logger = logging.getLogger(__name__)
 
 # ── Economy helpers ──
 def _get_balance(uid: str) -> int:
-    conn = get_db(); cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO users (discord_id, username) VALUES (?, 'unknown') ON CONFLICT(discord_id) DO NOTHING",
-        (uid,),
-    )
-    cur.execute("SELECT score FROM users WHERE discord_id=?", (uid,))
-    row = cur.fetchone()
-    conn.close()
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO users (discord_id, username) VALUES (?, 'unknown') ON CONFLICT(discord_id) DO NOTHING",
+            (uid,),
+        )
+        cur.execute("SELECT score FROM users WHERE discord_id=?", (uid,))
+        row = cur.fetchone()
     return row["score"] if row and row["score"] is not None else 0
 
 
 def _add_coins(uid: str, amount: int, reason: str):
-    conn = get_db(); cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO users (discord_id, username) VALUES (?, 'unknown') ON CONFLICT(discord_id) DO NOTHING",
-        (uid,),
-    )
-    cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (amount, uid))
-    cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)", (uid, amount, reason))
-    conn.commit(); conn.close()
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO users (discord_id, username) VALUES (?, 'unknown') ON CONFLICT(discord_id) DO NOTHING",
+            (uid,),
+        )
+        cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (amount, uid))
+        cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)", (uid, amount, reason))
+        conn.commit()
 
 
 # ── Daily limit helper (Coinflip only) ──
 def _check_daily_limit(uid: int, game_type: str) -> tuple[bool, int, int]:
     """Returns (blocked, used, remaining)."""
     today = datetime.now().strftime('%Y-%m-%d')
-    conn = get_db(); cur = conn.cursor()
-    cur.execute(
-        "INSERT OR IGNORE INTO game_limits (user_id, date, game_type, play_count) VALUES (?,?,?,0)",
-        (uid, today, game_type),
-    )
-    cur.execute(
-        "SELECT play_count FROM game_limits WHERE user_id=? AND date=? AND game_type=?",
-        (uid, today, game_type),
-    )
-    row = cur.fetchone()
-    used = row["play_count"] if row else 0
-    remaining = 3 - used
-    blocked = used >= 3
-    if not blocked:
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
         cur.execute(
-            "UPDATE game_limits SET play_count = play_count + 1 WHERE user_id=? AND date=? AND game_type=?",
+            "INSERT OR IGNORE INTO game_limits (user_id, date, game_type, play_count) VALUES (?,?,?,0)",
             (uid, today, game_type),
         )
-        conn.commit()
-    conn.close()
+        cur.execute(
+            "SELECT play_count FROM game_limits WHERE user_id=? AND date=? AND game_type=?",
+            (uid, today, game_type),
+        )
+        row = cur.fetchone()
+        used = row["play_count"] if row else 0
+        remaining = 3 - used
+        blocked = used >= 3
+        if not blocked:
+            cur.execute(
+                "UPDATE game_limits SET play_count = play_count + 1 WHERE user_id=? AND date=? AND game_type=?",
+                (uid, today, game_type),
+            )
+            conn.commit()
     return blocked, used + (0 if blocked else 1), remaining - (0 if blocked else 1)
 
 

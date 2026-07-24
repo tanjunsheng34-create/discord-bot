@@ -7,7 +7,7 @@ from datetime import datetime, timezone, timedelta
 import discord
 from discord import app_commands
 from discord.ext import commands
-from database import get_db
+from database import get_db, get_db_ctx
 from utils.cog_base import CogBase
 from cogs.shared_views import ConfirmView
 
@@ -45,44 +45,44 @@ class VoiceTracker(CogBase):
             now = datetime.now()
             self._join_times[uid] = now
 
-            conn = get_db(); cur = conn.cursor()
-            # Ensure user row exists
-            cur.execute(
-                "INSERT INTO voice_tracker (user_id, total_seconds, login_days, total_joins, last_join_date, last_join_time) "
-                "VALUES (?, 0, 0, 0, NULL, NULL) "
-                "ON CONFLICT(user_id) DO NOTHING",
-                (uid,),
-            )
-
-            # Increment total_joins
-            cur.execute("UPDATE voice_tracker SET total_joins = total_joins + 1 WHERE user_id=?", (uid,))
-
-            # Check login_days: UTC+8 date, first join per day increments
-            today_str = now.astimezone(UTC8).strftime("%Y-%m-%d")
-            cur.execute("SELECT last_join_date FROM voice_tracker WHERE user_id=?", (uid,))
-            row = cur.fetchone()
-            last_date = row["last_join_date"] if row else None
-
-            if last_date != today_str:
+            with get_db_ctx() as conn:
+                cur = conn.cursor()
+                # Ensure user row exists
                 cur.execute(
-                    "UPDATE voice_tracker SET login_days = login_days + 1, last_join_date = ? WHERE user_id=?",
-                    (today_str, uid),
-                )
-            else:
-                # Still update last_join_date even if same day (keep it fresh)
-                cur.execute(
-                    "UPDATE voice_tracker SET last_join_date = ? WHERE user_id=?",
-                    (today_str, uid),
+                    "INSERT INTO voice_tracker (user_id, total_seconds, login_days, total_joins, last_join_date, last_join_time) "
+                    "VALUES (?, 0, 0, 0, NULL, NULL) "
+                    "ON CONFLICT(user_id) DO NOTHING",
+                    (uid,),
                 )
 
-            # Update last_join_time
-            cur.execute(
-                "UPDATE voice_tracker SET last_join_time = ? WHERE user_id=?",
-                (now.isoformat(), uid),
-            )
+                # Increment total_joins
+                cur.execute("UPDATE voice_tracker SET total_joins = total_joins + 1 WHERE user_id=?", (uid,))
 
-            conn.commit()
-            conn.close()
+                # Check login_days: UTC+8 date, first join per day increments
+                today_str = now.astimezone(UTC8).strftime("%Y-%m-%d")
+                cur.execute("SELECT last_join_date FROM voice_tracker WHERE user_id=?", (uid,))
+                row = cur.fetchone()
+                last_date = row["last_join_date"] if row else None
+
+                if last_date != today_str:
+                    cur.execute(
+                        "UPDATE voice_tracker SET login_days = login_days + 1, last_join_date = ? WHERE user_id=?",
+                        (today_str, uid),
+                    )
+                else:
+                    # Still update last_join_date even if same day (keep it fresh)
+                    cur.execute(
+                        "UPDATE voice_tracker SET last_join_date = ? WHERE user_id=?",
+                        (today_str, uid),
+                    )
+
+                # Update last_join_time
+                cur.execute(
+                    "UPDATE voice_tracker SET last_join_time = ? WHERE user_id=?",
+                    (now.isoformat(), uid),
+                )
+
+                conn.commit()
 
         # User left a voice channel
         elif before.channel is not None and after.channel is None:
@@ -94,38 +94,38 @@ class VoiceTracker(CogBase):
             if elapsed <= 0:
                 return
 
-            conn = get_db(); cur = conn.cursor()
-            # Ensure row exists
-            cur.execute(
-                "INSERT INTO voice_tracker (user_id, total_seconds, login_days, total_joins, last_join_date, last_join_time) "
-                "VALUES (?, ?, 0, 0, NULL, NULL) "
-                "ON CONFLICT(user_id) DO NOTHING",
-                (uid, elapsed),
-            )
-            # Add elapsed seconds
-            cur.execute(
-                "UPDATE voice_tracker SET total_seconds = total_seconds + ? WHERE user_id=?",
-                (elapsed, uid),
-            )
-            # ── XP gain: +5 per minute ──
-            xp_gain = max(1, elapsed // 60) * 5
-            cur.execute(
-                "UPDATE users SET xp = xp + ? WHERE discord_id=?",
-                (xp_gain, uid),
-            )
-            # Check level-up
-            cur.execute("SELECT xp, level FROM users WHERE discord_id=?", (uid,))
-            xp_row = cur.fetchone()
-            if xp_row:
-                current_xp = xp_row["xp"]
-                current_level = xp_row["level"] or 1
-                while current_xp >= int(current_level ** 1.5 * 100):
-                    current_xp -= int(current_level ** 1.5 * 100)
-                    current_level += 1
-                if current_level != xp_row["level"]:
-                    cur.execute("UPDATE users SET level = ?, xp = ? WHERE discord_id=?", (current_level, current_xp, uid))
-            conn.commit()
-            conn.close()
+            with get_db_ctx() as conn:
+                cur = conn.cursor()
+                # Ensure row exists
+                cur.execute(
+                    "INSERT INTO voice_tracker (user_id, total_seconds, login_days, total_joins, last_join_date, last_join_time) "
+                    "VALUES (?, ?, 0, 0, NULL, NULL) "
+                    "ON CONFLICT(user_id) DO NOTHING",
+                    (uid, elapsed),
+                )
+                # Add elapsed seconds
+                cur.execute(
+                    "UPDATE voice_tracker SET total_seconds = total_seconds + ? WHERE user_id=?",
+                    (elapsed, uid),
+                )
+                # ── XP gain: +5 per minute ──
+                xp_gain = max(1, elapsed // 60) * 5
+                cur.execute(
+                    "UPDATE users SET xp = xp + ? WHERE discord_id=?",
+                    (xp_gain, uid),
+                )
+                # Check level-up
+                cur.execute("SELECT xp, level FROM users WHERE discord_id=?", (uid,))
+                xp_row = cur.fetchone()
+                if xp_row:
+                    current_xp = xp_row["xp"]
+                    current_level = xp_row["level"] or 1
+                    while current_xp >= int(current_level ** 1.5 * 100):
+                        current_xp -= int(current_level ** 1.5 * 100)
+                        current_level += 1
+                    if current_level != xp_row["level"]:
+                        cur.execute("UPDATE users SET level = ?, xp = ? WHERE discord_id=?", (current_level, current_xp, uid))
+                conn.commit()
 
     def _build_self_embed(self, target, row):
         """Build embed for a single user's voice stats (cumulative)."""
@@ -213,10 +213,10 @@ class VoiceTracker(CogBase):
                     "Admin only / Admin only.", ephemeral=True
                 )
             uid = str(user.id)
-            conn = get_db(); cur = conn.cursor()
-            cur.execute("SELECT * FROM voice_tracker WHERE user_id=?", (uid,))
-            row = cur.fetchone()
-            conn.close()
+            with get_db_ctx() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM voice_tracker WHERE user_id=?", (uid,))
+                row = cur.fetchone()
 
             if not row:
                 return await interaction.response.send_message(
@@ -277,10 +277,10 @@ class VoiceTimeView(discord.ui.View):
     async def view_self_btn(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         uid = str(self.user.id)
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("SELECT * FROM voice_tracker WHERE user_id=?", (uid,))
-        row = cur.fetchone()
-        conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM voice_tracker WHERE user_id=?", (uid,))
+            row = cur.fetchone()
 
         if not row:
             return await interaction.followup.send(
@@ -328,10 +328,10 @@ class VoiceTimeView(discord.ui.View):
             if not member:
                 return await sel_int.response.send_message("User not found.", ephemeral=True)
 
-            conn = get_db(); cur = conn.cursor()
-            cur.execute("SELECT * FROM voice_tracker WHERE user_id=?", (uid,))
-            row = cur.fetchone()
-            conn.close()
+            with get_db_ctx() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM voice_tracker WHERE user_id=?", (uid,))
+                row = cur.fetchone()
 
             if not row:
                 return await sel_int.response.send_message(
@@ -370,12 +370,11 @@ class VoiceTimeView(discord.ui.View):
                 content="Cancelled.", embed=None, view=None
             )
 
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute("UPDATE voice_tracker SET total_seconds=0, login_days=0, total_joins=0")
-        affected = cur.rowcount
-        conn.commit()
-        conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("UPDATE voice_tracker SET total_seconds=0, login_days=0, total_joins=0")
+            affected = cur.rowcount
+            conn.commit()
 
         await interaction.edit_original_response(
             content=f"Reset {affected} voice tracking record(s). / 已重置 {affected} 条语音追踪记录。",
@@ -411,13 +410,13 @@ class VoiceLeaderboardView(discord.ui.View):
 
     @staticmethod
     def _fetch_leaderboard_data():
-        conn = get_db(); cur = conn.cursor()
-        cur.execute(
-            "SELECT user_id, total_seconds, login_days, total_joins "
-            "FROM voice_tracker ORDER BY total_seconds DESC"
-        )
-        data = cur.fetchall()
-        conn.close()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT user_id, total_seconds, login_days, total_joins "
+                "FROM voice_tracker ORDER BY total_seconds DESC"
+            )
+            data = cur.fetchall()
         return data
 
     @classmethod
