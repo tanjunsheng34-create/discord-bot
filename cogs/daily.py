@@ -13,7 +13,7 @@ from database import get_db, get_db_ctx
 
 import logging
 import sqlite3
-import time as time_mod
+import asyncio
 import random
 from utils.logger import log_error
 from utils.cog_base import CogBase
@@ -161,7 +161,7 @@ class Daily(CogBase):
                 except sqlite3.OperationalError as e:
                     last_error = e
                     if "locked" in str(e).lower() and attempt < 2:
-                        time_mod.sleep(0.2 * (attempt + 1))
+                        await asyncio.sleep(0.2 * (attempt + 1))
                         continue
                     raise
                 finally:
