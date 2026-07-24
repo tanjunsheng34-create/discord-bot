@@ -20,7 +20,7 @@ from utils.cog_base import CogBase
 
 logger = logging.getLogger(__name__)
 
-from config import TZ_UTC8
+from config import TZ_UTC8, DAILY_REMINDER_CHANNEL_ID
 
 # ── Default config ──
 DEFAULT_MINUTES = 30
@@ -62,7 +62,7 @@ class Daily(CogBase):
                 return
 
             self.last_reminder_date = today
-            channel = self.bot.get_channel(1528241061007327354)
+            channel = self.bot.get_channel(DAILY_REMINDER_CHANNEL_ID)
             if channel:
                 embed = discord.Embed(
                     title="🎁 每日签到提醒 | Daily Check-in",

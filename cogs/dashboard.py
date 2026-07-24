@@ -10,7 +10,8 @@ from cogs.match_autocomplete import match_id_autocomplete
 from utils.helpers import resolve_name
 from config import (POST_MATCH_VC_TEAM_A, POST_MATCH_VC_TEAM_B,
                         RESULT_CHANNEL_ID, LOL_VOTE_CHANNEL_ID,
-                        MEMBER_LEAVE_LOG_CHANNEL_ID)
+                        MEMBER_LEAVE_LOG_CHANNEL_ID, TEAM_B_VC_ID,
+                        LIVE_ROOM_ID, WELCOME_CHANNEL_ID)
 
 # Try to import shared utilities from tournament cog
 from cogs.tournament import (
@@ -1273,7 +1274,7 @@ class ReShuffleView(discord.ui.View):
         if not interaction.user.guild_permissions.administrator and uid not in team_a_ids and uid not in team_b_ids:
             return await interaction.response.send_message("仅参赛者或管理员可操作", ephemeral=True)
         await interaction.response.defer(ephemeral=True)
-        lines = await self._do_pull(interaction, team_b_ids, 1437626921394372658, "B")
+        lines = await self._do_pull(interaction, team_b_ids, TEAM_B_VC_ID, "B")
         notify_channel = self.guild.get_channel(POST_MATCH_VC_TEAM_A)
         if notify_channel and lines:
             try:
@@ -1387,11 +1388,6 @@ class RematchView(discord.ui.View):
 class VoicePullView(discord.ui.View):
     """赛前/赛后语音频道管理。按 Discord ID 把队员拉入 A/B 队 VC 或大厅。"""
 
-    TEAM_A_VC_ID = 1438050912814895186
-    TEAM_B_VC_ID = 1437626921394372658
-    LIVE_ROOM_ID = 1442412877301416006
-    NOTIFY_CHANNEL_ID = 1453208983358935121
-
     def __init__(self, team_a_ids: list, team_b_ids: list, guild: discord.Guild, timeout: float = 300):
         super().__init__(timeout=timeout)
         self.team_a_ids = list(team_a_ids)
@@ -1469,7 +1465,7 @@ class VoicePullView(discord.ui.View):
         """发送通知到 NOTIFY_CHANNEL_ID。"""
         if not lines:
             return
-        notify_channel = self.guild.get_channel(self.NOTIFY_CHANNEL_ID)
+        notify_channel = self.guild.get_channel(POST_MATCH_VC_TEAM_A)
         if notify_channel:
             try:
                 await notify_channel.send("\n".join(lines))
@@ -1484,7 +1480,7 @@ class VoicePullView(discord.ui.View):
         if not interaction.user.guild_permissions.administrator and uid not in self.team_a_ids and uid not in self.team_b_ids:
             return await interaction.response.send_message("仅参赛者或管理员可操作", ephemeral=True)
         await interaction.response.defer(ephemeral=True)
-        lines = await self._do_pull(interaction, self.team_a_ids, self.TEAM_A_VC_ID, "A")
+        lines = await self._do_pull(interaction, self.team_a_ids, POST_MATCH_VC_TEAM_B, "A")
         await self._notify(lines)
         button.disabled = True
         self._used_a = True
@@ -1499,7 +1495,7 @@ class VoicePullView(discord.ui.View):
         if not interaction.user.guild_permissions.administrator and uid not in self.team_a_ids and uid not in self.team_b_ids:
             return await interaction.response.send_message("仅参赛者或管理员可操作", ephemeral=True)
         await interaction.response.defer(ephemeral=True)
-        lines = await self._do_pull(interaction, self.team_b_ids, self.TEAM_B_VC_ID, "B")
+        lines = await self._do_pull(interaction, self.team_b_ids, TEAM_B_VC_ID, "B")
         await self._notify(lines)
         button.disabled = True
         self._used_b = True
@@ -1516,7 +1512,7 @@ class VoicePullView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
 
         all_ids = self.team_a_ids + self.team_b_ids
-        lines = await self._do_pull(interaction, all_ids, self.LIVE_ROOM_ID, "A+B")
+        lines = await self._do_pull(interaction, all_ids, LIVE_ROOM_ID, "A+B")
         await self._notify(lines)
 
         button.disabled = True
@@ -1605,8 +1601,8 @@ class PostMatchPullView(discord.ui.View):
     """赛后统一拉入按钮 — 将 A/B 两队语音频道中所有人拉入赛后集合频道。"""
 
     VA_CHANNEL_ID = POST_MATCH_VC_TEAM_B
-    VB_CHANNEL_ID = 1437626921394372658
-    POST_MATCH_VC_ID = 1442412877301416006
+    VB_CHANNEL_ID = TEAM_B_VC_ID
+    POST_MATCH_VC_ID = LIVE_ROOM_ID
     NOTIFY_CHANNEL_ID = POST_MATCH_VC_TEAM_A
 
     def __init__(self, guild: discord.Guild, timeout: float = 600):
@@ -1626,7 +1622,7 @@ class PostMatchPullView(discord.ui.View):
         if not target_vc:
             return await interaction.followup.send("⚠️ 赛后集合频道未找到 / Post-match VC not found", ephemeral=True)
 
-        notify_channel = self.guild.get_channel(self.NOTIFY_CHANNEL_ID)
+        notify_channel = self.guild.get_channel(POST_MATCH_VC_TEAM_A)
         results = []
 
         for vc_id, label in [(self.VA_CHANNEL_ID, "A"), (self.VB_CHANNEL_ID, "B")]:
@@ -3020,7 +3016,7 @@ class MatchViewWithID(discord.ui.View):
 
         # 发送通知到通知频道
         try:
-            notify_ch = guild.get_channel(1453208983358935121)
+            notify_ch = guild.get_channel(POST_MATCH_VC_TEAM_A)
             if notify_ch:
                 await notify_ch.send(
                     f"@here 🚨 比赛即将开始！| Match starting soon!\n"
@@ -7436,9 +7432,9 @@ class Dashboard(CogBase):
     )
     @app_commands.default_permissions(administrator=True)
     async def gmpt_test_welcome(self, interaction: discord.Interaction):
-        welcome_channel = interaction.guild.get_channel(1398991787523313675)
+        welcome_channel = interaction.guild.get_channel(WELCOME_CHANNEL_ID)
         if not welcome_channel:
-            await interaction.response.send_message("未找到频道 1398991787523313675", ephemeral=True)
+            await interaction.response.send_message(f"未找到频道 {WELCOME_CHANNEL_ID}", ephemeral=True)
             return
 
         embed = discord.Embed(
