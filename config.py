@@ -65,8 +65,11 @@ SHOP_LOG_CHANNEL_ID: int = 1528241284177854624
 ACHIEVEMENTS_CHANNEL_ID: int = 1528241092640768101
 ITEM_REQUESTS_CHANNEL_ID: int = 1528249993914220625
 
-# Whisper (匿名树洞) channel
-WHISPER_CHANNEL_ID: Optional[int] = None
+# Whisper (匿名树洞) channel — also used as game center
+WHISPER_CHANNEL_ID: Optional[int] = 1394296801246445708
+
+# Game center channel (shared with whisper / 游戏中心 | Games)
+GAMES_CHANNEL_ID: int = 1394296801246445708
 
 
 # Ensure database directory exists
