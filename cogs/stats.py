@@ -13,7 +13,7 @@ class Stats(CogBase):
     """服务器统计看板 / Server Stats Dashboard."""
 
     def __init__(self, bot: commands.Bot):
-        super().__init__(bot)
+        super().__init__()
         self.message_count: dict[int, int] = {}  # guild_id -> today's message count
         self.join_count: dict[int, int] = {}  # guild_id -> today's join count
         self.last_seen_from: dict[int, dict[str, int]] = {}  # guild_id -> message date tracking
