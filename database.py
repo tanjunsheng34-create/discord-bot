@@ -122,7 +122,8 @@ def _create_economy_tables(cursor):
         CREATE TABLE IF NOT EXISTS daily_checkin (
             discord_id  TEXT PRIMARY KEY,
             last_date   TEXT NOT NULL,
-            streak      INTEGER DEFAULT 0
+            streak      INTEGER DEFAULT 0,
+            total_days  INTEGER DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS transactions (
@@ -687,6 +688,12 @@ def _run_migrations(cursor):
             claimed INTEGER DEFAULT 0
         )
     """)
+
+    # daily_checkin.total_days migration
+    try:
+        cursor.execute("ALTER TABLE daily_checkin ADD COLUMN total_days INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
 
 
 def _seed_default_vc(cursor):

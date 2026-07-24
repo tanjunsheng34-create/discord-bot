@@ -46,7 +46,7 @@ class Daily(CogBase):
 
     def __init__(self, bot):
         self.bot = bot
-        self._join_times: dict[str, datetime] = {}  # discord_id -> join_time (UTC+8)
+        self._daily_join_times: dict[str, datetime] = {}  # daily tracking, distinct from voice_tracker
         self.last_reminder_date = None  # 防重复：记录上次发送提醒的日期
 
     # ── 每日签到提醒 ──
@@ -111,11 +111,14 @@ class Daily(CogBase):
 
         # Joined a voice channel
         if before.channel is None and after.channel is not None:
-            self._join_times[uid] = now
+            self._daily_join_times[uid] = now
 
         # Left a voice channel
         elif before.channel is not None and after.channel is None:
-            await self._commit_minutes(uid, today_str)
+            try:
+                await self._commit_minutes(uid, today_str)
+            except Exception:
+                logger.exception("Failed to commit minutes on leave for %s", uid)
 
         # Switched voice channels
         elif (
@@ -123,14 +126,21 @@ class Daily(CogBase):
             and after.channel is not None
             and before.channel.id != after.channel.id
         ):
-            await self._commit_minutes(uid, today_str)
-            self._join_times[uid] = now
+            try:
+                await self._commit_minutes(uid, today_str)
+            except Exception:
+                logger.exception("Failed to commit minutes on switch for %s", uid)
+            self._daily_join_times[uid] = now
 
-    async def _commit_minutes(self, uid: str, today_str: str):
-        """Flush in-memory join time to daily_rewards table, with retry on DB lock."""
-        join_time = self._join_times.pop(uid, None)
+    async def _commit_minutes(self, uid: str, today_str: str) -> bool:
+        """Flush in-memory join time to daily_rewards table, with retry on DB lock.
+
+        Returns True if minutes were committed, False if no tracked join_time.
+        Join_time is popped only on success so a failed flush can be retried.
+        """
+        join_time = self._daily_join_times.get(uid, None)
         if not join_time:
-            return
+            return False
 
         elapsed = max(1, int((datetime.now(UTC8) - join_time).total_seconds()))
         minutes = max(1, elapsed // 60)
@@ -147,7 +157,8 @@ class Daily(CogBase):
                     (uid, today_str, minutes, minutes),
                 )
                 conn.commit()
-                return  # success
+                self._daily_join_times.pop(uid, None)
+                return True
             except sqlite3.OperationalError as e:
                 last_error = e
                 if "locked" in str(e).lower() and attempt < 2:
@@ -172,8 +183,11 @@ class Daily(CogBase):
         config = self._get_config()
 
         # Flush any in-progress session first
-        if uid in self._join_times:
+        if uid in self._daily_join_times:
             await self._commit_minutes(uid, today_str)
+            # If still in VC, restart the timer so later minutes are still tracked
+            if interaction.user.voice and interaction.user.voice.channel:
+                self._daily_join_times[uid] = datetime.now(UTC8)
 
         conn = get_db()
         cur = conn.cursor()
@@ -291,8 +305,11 @@ class Daily(CogBase):
         config = self._get_config()
 
         # Flush any in-progress session first
-        if uid in self._join_times:
+        if uid in self._daily_join_times:
             await self._commit_minutes(uid, today_str)
+            # If still in VC, restart the timer so later minutes are still tracked
+            if interaction.user.voice and interaction.user.voice.channel:
+                self._daily_join_times[uid] = datetime.now(UTC8)
 
         conn = get_db()
         cur = conn.cursor()
