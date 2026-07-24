@@ -81,6 +81,11 @@ class VoiceTracker(CogBase):
 
                 conn.commit()
 
+        # User switched voice channels — reset join time for new channel
+        elif before.channel is not None and after.channel is not None:
+            now = datetime.now()
+            self._join_times[uid] = now
+
         # User left a voice channel
         elif before.channel is not None and after.channel is None:
             join_time = self._join_times.pop(uid, None)
