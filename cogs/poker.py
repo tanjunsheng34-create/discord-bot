@@ -153,25 +153,44 @@ class PokerActionView(discord.ui.View):
     def __init__(self, game: PokerGame):
         super().__init__(timeout=120)
         self.game = game
-        self._update_buttons()
+        # Dynamically build buttons based on current game state.
+        self._build()
 
-    def _update_buttons(self):
+    def _build(self):
+        """Dynamically construct action buttons for the current player.
+
+        Fold / All-in are always available. Check is shown only when there is
+        nothing to call. Bet/Raise always opens a Modal so the player can freely
+        type any amount (跟注或加注均通过 Modal 自由输入金额，无上限限制)。
+        """
         g = self.game
         uid = g.current_player_id()
         if uid is None:
-            self.clear_items()
             return
         p = g.players[uid]
         call_amt = g.current_bet - p["bet"]
-        self.clear_items()
-        self.add_item(discord.ui.Button(label="Fold 弃牌", style=discord.ButtonStyle.danger, custom_id="fold"))
+
+        # Fold 弃牌
+        fold = discord.ui.Button(label="Fold 弃牌", style=discord.ButtonStyle.danger)
+        fold.callback = self._make_action_cb("fold")
+        self.add_item(fold)
+
+        # Check 过牌 —— 仅在无需跟注时显示
         if call_amt == 0:
-            self.add_item(discord.ui.Button(label="Check 过牌", style=discord.ButtonStyle.secondary, custom_id="check"))
-        else:
-            self.add_item(discord.ui.Button(label=f"Call 跟注 {call_amt}", style=discord.ButtonStyle.primary, custom_id="call"))
-        min_raise = g.current_bet + g.big_blind
-        self.add_item(discord.ui.Button(label=f"Raise {min_raise}", style=discord.ButtonStyle.success, custom_id=f"raise_{min_raise}"))
-        self.add_item(discord.ui.Button(label="All-in 全下", style=discord.ButtonStyle.danger, custom_id="allin"))
+            check = discord.ui.Button(label="Check 过牌", style=discord.ButtonStyle.secondary)
+            check.callback = self._make_action_cb("check")
+            self.add_item(check)
+
+        # Bet / Raise —— 始终弹出 Modal，让玩家自由输入金额
+        label = "Bet 下注" if call_amt == 0 else "Raise 加注"
+        bet = discord.ui.Button(label=label, style=discord.ButtonStyle.success)
+        bet.callback = self._make_modal_cb()
+        self.add_item(bet)
+
+        # All-in 全下
+        allin = discord.ui.Button(label="All-in 全下", style=discord.ButtonStyle.danger)
+        allin.callback = self._make_action_cb("allin")
+        self.add_item(allin)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         g = self.game
@@ -181,45 +200,30 @@ class PokerActionView(discord.ui.View):
             return False
         return True
 
-    @discord.ui.button(label="Fold 弃牌", style=discord.ButtonStyle.danger, custom_id="fold")
-    async def fold_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self._do_action(interaction, "fold")
+    def _make_action_cb(self, action: str):
+        """Factory for direct action button callbacks (fold/check/allin)."""
+        async def cb(interaction: discord.Interaction):
+            await self._do_action(interaction, action)
+        return cb
 
-    @discord.ui.button(label="Check 过牌", style=discord.ButtonStyle.secondary, custom_id="check")
-    async def check_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self._do_action(interaction, "check")
-
-    @discord.ui.button(label="Call 跟注", style=discord.ButtonStyle.primary, custom_id="call")
-    async def call_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self._do_action(interaction, "call")
-
-    @discord.ui.button(label="Raise", style=discord.ButtonStyle.success, custom_id="raise")
-    async def raise_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        g = self.game
-        min_raise = g.current_bet + g.big_blind
-        await interaction.response.send_modal(PokerRaiseModal(g, min_raise))
-
-    @discord.ui.button(label="All-in 全下", style=discord.ButtonStyle.danger, custom_id="allin")
-    async def allin_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self._do_action(interaction, "allin")
+    def _make_modal_cb(self):
+        """Factory for Bet/Raise button callback — opens the free-input Modal."""
+        async def cb(interaction: discord.Interaction):
+            await interaction.response.send_modal(PokerBetModal(self.game))
+        return cb
 
     async def _do_action(self, interaction: discord.Interaction, action: str):
+        """Handle non-modal actions. Call/Raise are handled by PokerBetModal,
+        so only fold / check / allin are processed here."""
         g = self.game
         uid = interaction.user.id
         p = g.players[uid]
-        call_amt = g.current_bet - p["bet"]
 
         if action == "fold":
             p["folded"] = True
             await interaction.response.send_message(f"{p['name']} folds 弃牌", ephemeral=False)
         elif action == "check":
             await interaction.response.send_message(f"{p['name']} checks 过牌", ephemeral=False)
-        elif action == "call":
-            actual = min(call_amt, p["chips"])
-            p["chips"] -= actual
-            p["bet"] += actual
-            g.pot += actual
-            await interaction.response.send_message(f"{p['name']} calls 跟注 {actual}", ephemeral=False)
         elif action == "allin":
             amt = p["chips"]
             p["chips"] = 0
@@ -233,15 +237,19 @@ class PokerActionView(discord.ui.View):
         await advance_game(g, interaction.channel)
 
 
-class PokerRaiseModal(discord.ui.Modal, title="Raise 加注"):
-    def __init__(self, game: PokerGame, min_raise: int):
+class PokerBetModal(discord.ui.Modal, title="Bet / Raise 下注"):
+    """Modal that lets the player freely type any bet/raise amount.
+
+    Only sanity limits apply (positive, not more than chips owned, at least the
+    call amount). There is no upper cap beyond the player's own stack.
+    """
+    def __init__(self, game: PokerGame):
         super().__init__()
         self.game = game
-        self.min_raise = min_raise
         self.amount = discord.ui.TextInput(
-            label=f"Amount (min {min_raise})",
-            placeholder=str(min_raise),
-            min_length=1, max_length=10
+            label="Amount 金额",
+            placeholder="Enter amount 输入下注金额",
+            min_length=1, max_length=10,
         )
         self.add_item(self.amount)
 
@@ -252,18 +260,37 @@ class PokerRaiseModal(discord.ui.Modal, title="Raise 加注"):
         try:
             amt = int(self.amount.value)
         except ValueError:
-            await interaction.response.send_message("Invalid amount.", ephemeral=True)
+            await interaction.response.send_message("请输入有效数字 / Enter a valid number.", ephemeral=True)
             return
-        max_raise = p["chips"] + p["bet"]
-        if amt < self.min_raise or amt > max_raise:
-            await interaction.response.send_message(f"Amount must be between {self.min_raise} and {max_raise}.", ephemeral=True)
-            return
+
         call_amt = g.current_bet - p["bet"]
-        p["chips"] -= (amt - call_amt)
+        # Max the player can put on the table = remaining chips + already-committed bet.
+        max_possible = p["chips"] + p["bet"]
+
+        if amt <= 0:
+            await interaction.response.send_message("金额必须大于0 / Amount must be positive.", ephemeral=True)
+            return
+        if amt > max_possible:
+            await interaction.response.send_message(f"筹码不足 / Not enough chips. You have {p['chips']} chips left.", ephemeral=True)
+            return
+        if amt < call_amt:
+            await interaction.response.send_message(f"至少需要跟注 {call_amt} / Minimum call is {call_amt}.", ephemeral=True)
+            return
+
+        # amt is the player's new total bet for this round.
+        additional = amt - p["bet"]
+        p["chips"] -= additional
         p["bet"] = amt
-        g.pot += (amt - call_amt)
-        g.current_bet = amt
-        await interaction.response.send_message(f"{p['name']} raises to {amt} 加注到 {amt}!", ephemeral=False)
+        g.pot += additional
+
+        if amt > g.current_bet:
+            # Raise —— 提升当前注额
+            g.current_bet = amt
+            await interaction.response.send_message(f"{p['name']} raises to {amt} 加注到 {amt}!", ephemeral=False)
+        else:
+            # Call —— 跟注（amt == current_bet）
+            await interaction.response.send_message(f"{p['name']} calls 跟注 {additional}", ephemeral=False)
+
         await advance_game(g, interaction.channel)
 
 
