@@ -16,18 +16,10 @@ from config import (POST_MATCH_VC_TEAM_A, POST_MATCH_VC_TEAM_B,
 from cogs.tournament import (
     get_tournament_or_none,
     fetch_player_tier,
-    TIER_SEED,
-    TIER_SCORE,
-    ConfirmView,
-    CreateTournamentView,
-    ReportView,
-    DraftSetupView,
-    DraftView,
-    CaptainCoinflipView,
-    CaptainModeView,
     swiss_pairing,
-    _display_name,
 )
+from config import TIER_SEED, TIER_SCORE
+from cogs.shared_views import ConfirmView, CreateTournamentView, ReportView, DraftSetupView, DraftView, CaptainCoinflipView, CaptainModeView, _display_name
 
 import logging
 from utils.logger import log_error

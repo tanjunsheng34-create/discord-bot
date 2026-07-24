@@ -8,6 +8,16 @@ load_dotenv()
 
 # UTC+8 timezone — single source of truth
 TZ_UTC8 = timezone(timedelta(hours=8))
+# Tier constants (was in tournament.py)
+TIER_SEED = {"CHALLENGER": 1, "GRANDMASTER": 2, "MASTER": 3,
+             "DIAMOND": 4, "EMERALD": 5, "PLATINUM": 6,
+             "GOLD": 7, "SILVER": 8, "BRONZE": 9, "IRON": 10}
+
+TIER_SCORE = {
+    "CHALLENGER": 5, "GRANDMASTER": 5, "MASTER": 5,
+    "DIAMOND": 4, "EMERALD": 3, "PLATINUM": 3,
+    "GOLD": 2, "SILVER": 1, "BRONZE": 1, "IRON": 1, "UNRANKED": 1,
+}
 
 TOKEN: Optional[str] = os.getenv("DISCORD_TOKEN")
 RIOT_API_KEY: str = os.getenv("RIOT_API_KEY", "")
