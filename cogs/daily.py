@@ -8,7 +8,7 @@ GMPT Bot — 每日语音签到奖励系统 (Daily Voice Reward)
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
-from datetime import datetime, date, timezone, timedelta
+from datetime import datetime, date
 from database import get_db, get_db_ctx
 
 import logging
@@ -20,8 +20,7 @@ from utils.cog_base import CogBase
 
 logger = logging.getLogger(__name__)
 
-UTC8 = timezone(timedelta(hours=8))
-MYT = timezone(timedelta(hours=8))
+from config import TZ_UTC8
 
 # ── Default config ──
 DEFAULT_MINUTES = 30
@@ -55,7 +54,7 @@ class Daily(CogBase):
 
     @tasks.loop(minutes=1)
     async def daily_reminder_loop(self):
-        now = datetime.now(MYT)
+        now = datetime.now(TZ_UTC8)
         today = now.date()
 
         if now.hour == 10 and now.minute == 0:
@@ -105,7 +104,7 @@ class Daily(CogBase):
             return
 
         uid = str(member.id)
-        now = datetime.now(UTC8)
+        now = datetime.now(TZ_UTC8)
         today_str = now.strftime("%Y-%m-%d")
 
         # Joined a voice channel
@@ -141,7 +140,7 @@ class Daily(CogBase):
         if not join_time:
             return False
 
-        elapsed = max(1, int((datetime.now(UTC8) - join_time).total_seconds()))
+        elapsed = max(1, int((datetime.now(TZ_UTC8) - join_time).total_seconds()))
         minutes = max(1, elapsed // 60)
 
         last_error = None
@@ -178,7 +177,7 @@ class Daily(CogBase):
     @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
     async def status_cmd(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
-        today_str = datetime.now(UTC8).strftime("%Y-%m-%d")
+        today_str = datetime.now(TZ_UTC8).strftime("%Y-%m-%d")
         config = self._get_config()
 
         # Flush any in-progress session first
@@ -186,7 +185,7 @@ class Daily(CogBase):
             await self._commit_minutes(uid, today_str)
             # If still in VC, restart the timer so later minutes are still tracked
             if interaction.user.voice and interaction.user.voice.channel:
-                self._daily_join_times[uid] = datetime.now(UTC8)
+                self._daily_join_times[uid] = datetime.now(TZ_UTC8)
 
         with get_db_ctx() as conn:
             cur = conn.cursor()
@@ -299,7 +298,7 @@ class Daily(CogBase):
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def claim_cmd(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
-        today_str = datetime.now(UTC8).strftime("%Y-%m-%d")
+        today_str = datetime.now(TZ_UTC8).strftime("%Y-%m-%d")
         config = self._get_config()
 
         # Flush any in-progress session first
@@ -307,7 +306,7 @@ class Daily(CogBase):
             await self._commit_minutes(uid, today_str)
             # If still in VC, restart the timer so later minutes are still tracked
             if interaction.user.voice and interaction.user.voice.channel:
-                self._daily_join_times[uid] = datetime.now(UTC8)
+                self._daily_join_times[uid] = datetime.now(TZ_UTC8)
 
         with get_db_ctx() as conn:
             cur = conn.cursor()
@@ -420,7 +419,7 @@ class Daily(CogBase):
                 cur.execute(
                     "UPDATE daily_rewards SET claimed=1, claimed_at=?, reward_amount=? "
                     "WHERE discord_id=? AND date=?",
-                    (datetime.now(UTC8).isoformat(), total_reward, uid, today_str),
+                    (datetime.now(TZ_UTC8).isoformat(), total_reward, uid, today_str),
                 )
                 # ── Update streak ──
                 cur.execute(

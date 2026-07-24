@@ -1,9 +1,13 @@
 import os
+from datetime import timezone, timedelta
 from typing import Optional
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# UTC+8 timezone — single source of truth
+TZ_UTC8 = timezone(timedelta(hours=8))
 
 TOKEN: Optional[str] = os.getenv("DISCORD_TOKEN")
 RIOT_API_KEY: str = os.getenv("RIOT_API_KEY", "")

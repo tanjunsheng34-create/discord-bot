@@ -3,17 +3,14 @@ GMPT Bot — 语音/在线时长追踪
 /gmpt-voicetime — 查看语音时长统计（按钮版）
 /gmpt-voice-leaderboard — 语音排行榜
 """
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 import discord
 from discord import app_commands
 from discord.ext import commands
 from database import get_db, get_db_ctx
 from utils.cog_base import CogBase
 from cogs.shared_views import ConfirmView
-
-
-# UTC+8 timezone
-UTC8 = timezone(timedelta(hours=8))
+from config import TZ_UTC8
 
 
 def format_duration(total_seconds):
@@ -59,7 +56,7 @@ class VoiceTracker(CogBase):
                 cur.execute("UPDATE voice_tracker SET total_joins = total_joins + 1 WHERE user_id=?", (uid,))
 
                 # Check login_days: UTC+8 date, first join per day increments
-                today_str = now.astimezone(UTC8).strftime("%Y-%m-%d")
+                today_str = now.astimezone(TZ_UTC8).strftime("%Y-%m-%d")
                 cur.execute("SELECT last_join_date FROM voice_tracker WHERE user_id=?", (uid,))
                 row = cur.fetchone()
                 last_date = row["last_join_date"] if row else None
