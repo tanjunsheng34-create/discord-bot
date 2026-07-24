@@ -56,6 +56,7 @@ COGS = [
     "cogs.predict",
     "cogs.meme",
     "cogs.stats",
+    "cogs.poker",
 ]
 
 
