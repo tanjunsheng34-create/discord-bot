@@ -2,6 +2,7 @@
 GMPT Bot — Dashboard / 统一控制面板
 """
 import asyncio
+import random
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -11,7 +12,7 @@ from utils.helpers import resolve_name
 from config import (POST_MATCH_VC_TEAM_A, POST_MATCH_VC_TEAM_B,
                         RESULT_CHANNEL_ID, LOL_VOTE_CHANNEL_ID,
                         MEMBER_LEAVE_LOG_CHANNEL_ID, TEAM_B_VC_ID,
-                        LIVE_ROOM_ID, WELCOME_CHANNEL_ID)
+                        LIVE_ROOM_ID, WELCOME_CHANNEL_ID, WHISPER_CHANNEL_ID)
 
 # Try to import shared utilities from tournament cog
 from cogs.tournament import (
@@ -4462,6 +4463,44 @@ class CoinflipPanelView(discord.ui.View):
         await self._handle_pick(interaction, "反面")
 
 
+class WhisperModal(discord.ui.Modal, title="🕊️ 树洞 / Whisper"):
+    """Modal for anonymous confession from dashboard button."""
+
+    message = discord.ui.TextInput(
+        label="你想说的话 / Your message",
+        style=discord.TextStyle.paragraph,
+        placeholder="匿名投递... / Anonymous confession...",
+        max_length=500,
+        required=True,
+    )
+
+    def __init__(self, bot):
+        super().__init__()
+        self.bot = bot
+
+    async def on_submit(self, interaction: discord.Interaction):
+        content = str(self.message)
+        if WHISPER_CHANNEL_ID is None:
+            return await interaction.response.send_message(
+                "树洞频道未配置 / Whisper channel not configured.", ephemeral=True
+            )
+        channel = self.bot.get_channel(int(WHISPER_CHANNEL_ID))
+        if not channel:
+            return await interaction.response.send_message(
+                "树洞频道未找到 / Whisper channel not found.", ephemeral=True
+            )
+        embed = discord.Embed(
+            title="🕊️ 树洞 / Confession",
+            description=content,
+            color=0x95A5A6,
+        )
+        embed.set_footer(text=f"匿名投递 / Anonymous Whisper")
+        await channel.send(embed=embed)
+        await interaction.response.send_message(
+            "你的树洞已投递！/ Your whisper has been posted!", ephemeral=True
+        )
+
+
 class DashboardView(discord.ui.View):
     """Unified control panel with 5 pages + navigation buttons."""
 
@@ -7049,107 +7088,65 @@ class DashboardView(discord.ui.View):
     # ═══════════════════ Page 8 — Games ═══════════════════
 
     async def _game_roll(self, interaction: discord.Interaction):
-        """🎲 掷骰子 / Roll Dice — 命令介绍"""
-        await interaction.response.defer(ephemeral=True)
+        """🎲 掷骰子 / Roll Dice — 直接掷骰"""
+        n, faces = 2, 6  # default 2d6
+        results = [random.randint(1, faces) for _ in range(n)]
+        total = sum(results)
         embed = discord.Embed(
-            title="🎲 掷骰子 / Roll Dice",
-            description=(
-                "使用 `/gmpt-roll` 命令掷骰子！\n"
-                "Use `/gmpt-roll` to roll the dice!\n\n"
-                "**用法 / Usage:**\n"
-                "`/gmpt-roll 2d6` — 掷 2 个 6 面骰\n"
-                "`/gmpt-roll 1d20` — 掷 1 个 20 面骰\n"
-                "`/gmpt-roll 5d10` — 掷 5 个 10 面骰\n\n"
-                "**限制 / Limits:** 最多 20 个骰子，最多 100 面\n"
-                "Max 20 dice, max 100 faces each."
-            ),
+            title="🎲 骰子结果 / Dice Roll",
             color=0x3498DB,
         )
-        embed.set_footer(text="GMPT Games — 骰子 / Dice")
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        embed.add_field(name="表达式 / Expression", value=f"`{n}d{faces}`", inline=True)
+        embed.add_field(name="单骰 / Dice", value=str(results), inline=True)
+        embed.add_field(name="总和 / Total", value=str(total), inline=True)
+        embed.set_footer(text=f"Rolled by {interaction.user.display_name}")
+        await interaction.response.send_message(embed=embed)
 
     async def _game_guess(self, interaction: discord.Interaction):
-        """🔢 猜数字 / Guess Number — 命令介绍"""
-        await interaction.response.defer(ephemeral=True)
-        embed = discord.Embed(
-            title="🔢 猜数字 / Guess Number",
-            description=(
-                "使用 `/gmpt-guess-number` 玩猜数字！\n"
-                "Use `/gmpt-guess-number` to play!\n\n"
-                "**用法 / Usage:**\n"
-                "`/gmpt-guess-number` — 默认 1-100 (default)\n"
-                "`/gmpt-guess-number 50` — 在 1-50 范围内猜\n"
-                "`/gmpt-guess-number 500` — 在 1-500 范围内猜\n\n"
-                "**规则 / Rules:**\n"
-                "最多 10 次机会，猜对获得金币奖励！\n"
-                "Max 10 attempts. Win coins for guessing correctly!"
-            ),
-            color=0x2ECC71,
+        """🔢 猜数字 / Guess Number — 需要在聊天框输入命令"""
+        await interaction.response.send_message(
+            "请在聊天框输入 `/gmpt-guess-number` 开始猜数字！\n"
+            "Use `/gmpt-guess-number` to start the guessing game!",
+            ephemeral=True,
         )
-        embed.set_footer(text="GMPT Games — 猜数字 / Guess Number")
-        await interaction.followup.send(embed=embed, ephemeral=True)
 
     async def _game_truth_dare(self, interaction: discord.Interaction):
-        """📝 真心话大冒险 / Truth or Dare — 命令介绍"""
-        await interaction.response.defer(ephemeral=True)
+        """📝 真心话大冒险 / Truth or Dare — 直接出题"""
+        truth_pool = [
+            {"zh": "你最近一次说谎是什么时候？说了什么？", "en": "When was the last time you lied? What did you lie about?"},
+            {"zh": "你在游戏里做过最坑队友的事是什么？", "en": "What's the worst thing you've done to a teammate?"},
+            {"zh": "你最尴尬的一次语音聊天经历是什么？", "en": "What's your most embarrassing voice chat experience?"},
+            {"zh": "你最想和频道里的谁 solo？", "en": "Who in this server would you most want to 1v1?"},
+            {"zh": "说出一件你从未告诉过任何人的事", "en": "Tell us something you've never told anyone."},
+        ]
+        dare_pool = [
+            {"zh": "用你最搞笑的声音模仿频道里的一个人", "en": "Imitate someone in this server with a funny voice!"},
+            {"zh": "在语音频道唱 30 秒的歌", "en": "Sing a song for 30 seconds in voice chat!"},
+            {"zh": "给你的好友发一条「我爱你」", "en": "Send 'I love you' to a friend on your list!"},
+            {"zh": "在公屏打出「我是最强的」", "en": "Type 'I am the strongest' in public chat!"},
+            {"zh": "把自己的 Discord 状态改成「在摸鱼」", "en": "Change your Discord status to 'Slacking off'!"},
+        ]
+        q = random.choice(random.choice([truth_pool, dare_pool]))
         embed = discord.Embed(
             title="📝 真心话大冒险 / Truth or Dare",
-            description=(
-                "使用 `/gmpt-truth-dare` 来玩真心话大冒险！\n"
-                "Use `/gmpt-truth-dare` to play!\n\n"
-                "**用法 / Usage:**\n"
-                "`/gmpt-truth-dare` — 随机出题 (random)\n"
-                "`/gmpt-truth-dare truth` — 只出真心话题\n"
-                "`/gmpt-truth-dare dare` — 只出大冒险题\n\n"
-                "**冷却 / Cooldown:** 每人 30 秒\n"
-                "30 seconds per person."
-            ),
+            description=f"**{q['zh']}**\n_{q['en']}_",
             color=0x9B59B6,
         )
-        embed.set_footer(text="GMPT Games — 真心话大冒险 / Truth or Dare")
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        embed.set_footer(text=f"Rolled by {interaction.user.display_name}")
+        await interaction.response.send_message(embed=embed)
 
     async def _game_whisper(self, interaction: discord.Interaction):
-        """🕊️ 树洞 / Whisper — 命令介绍"""
-        await interaction.response.defer(ephemeral=True)
-        embed = discord.Embed(
-            title="🕊️ 树洞 / Whisper",
-            description=(
-                "使用 `/gmpt-whisper` 匿名投递树洞！\n"
-                "Use `/gmpt-whisper` for anonymous confessions!\n\n"
-                "**用法 / Usage:**\n"
-                "`/gmpt-whisper 我今天...` — 发送匿名消息\n\n"
-                "**注意 / Notes:**\n"
-                "消息完全匿名，最多 500 字\n"
-                "Completely anonymous, max 500 characters\n"
-                "需要管理员配置树洞频道 / Admin must configure channel"
-            ),
-            color=0x95A5A6,
-        )
-        embed.set_footer(text="GMPT Games — 树洞 / Whisper")
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        """🕊️ 树洞 / Whisper — 弹出输入框"""
+        await interaction.response.send_modal(WhisperModal(self.bot))
 
     async def _game_roulette(self, interaction: discord.Interaction):
-        """🎡 轮盘赌 / Roulette — 命令介绍"""
-        await interaction.response.defer(ephemeral=True)
-        embed = discord.Embed(
-            title="🎡 轮盘赌 / Roulette",
-            description=(
-                "使用 `/gmpt-roulette` 玩轮盘赌！\n"
-                "Use `/gmpt-roulette` to play roulette!\n\n"
-                "**用法 / Usage:**\n"
-                "`/gmpt-roulette 100` — 下注 100 金币\n"
-                "`/gmpt-roulette 500` — 下注 500 金币\n\n"
-                "**赔率 / Odds:**\n"
-                "🔴 红 / Red — 1:1\n"
-                "⚫ 黑 / Black — 1:1\n"
-                "🟢 绿 / Green — 14:1\n\n"
-                "**最低下注 / Min Bet:** 10 金币"
-            ),
-            color=0xF1C40F,
+        """🎡 轮盘赌 / Roulette — 需要在聊天框输入命令"""
+        await interaction.response.send_message(
+            "请在聊天框输入 `/gmpt-roulette 100` 开始轮盘赌！\n"
+            "Use `/gmpt-roulette 100` to play roulette!\n"
+            "（100 为下注金币数，最低 10）/ (100 = bet amount, min 10)",
+            ephemeral=True,
         )
-        embed.set_footer(text="GMPT Games — 轮盘 / Roulette")
-        await interaction.followup.send(embed=embed, ephemeral=True)
 
     async def _game_back(self, interaction: discord.Interaction):
         """◀️ 返回主菜单 — back to page 1"""
@@ -7159,85 +7156,38 @@ class DashboardView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=self)
 
     async def _game_blackjack(self, interaction: discord.Interaction):
-        """🃏 21点 / Blackjack — 命令介绍"""
-        await interaction.response.defer(ephemeral=True)
-        embed = discord.Embed(
-            title="🃏 21点 / Blackjack",
-            description=(
-                "使用 `/gmpt-blackjack` 与庄家对决！\n"
-                "Use `/gmpt-blackjack` to play against the dealer!\n\n"
-                "**用法 / Usage:**\n"
-                "`/gmpt-blackjack 100` — 下注 100 金币\n\n"
-                "**规则 / Rules:**\n"
-                "Hit🃏要牌 / Stand✋停牌 / Double⬇️双倍\n"
-                "庄家≥17停牌 / Dealer stands on ≥17\n"
-                "Ace自动计最优 / Ace auto-optimized\n"
-                "Blackjack赔率 3:2 / Blackjack pays 3:2"
-            ),
-            color=0x1ABC9C,
+        """🃏 21点 / Blackjack — 需要在聊天框输入命令"""
+        await interaction.response.send_message(
+            "请在聊天框输入 `/gmpt-blackjack 100` 开始 21 点！\n"
+            "Use `/gmpt-blackjack 100` to play Blackjack!\n"
+            "（100 为下注金币数）/ (100 = bet amount)",
+            ephemeral=True,
         )
-        embed.set_footer(text="GMPT Games — 21点 / Blackjack")
-        await interaction.followup.send(embed=embed, ephemeral=True)
 
     async def _game_tictactoe(self, interaction: discord.Interaction):
-        """❌⭕ 井字棋 / Tic Tac Toe — 命令介绍"""
-        await interaction.response.defer(ephemeral=True)
-        embed = discord.Embed(
-            title="❌⭕ 井字棋 / Tic Tac Toe",
-            description=(
-                "使用 `/gmpt-tictactoe @对手` 来对战！\n"
-                "Use `/gmpt-tictactoe @opponent` to play!\n\n"
-                "**用法 / Usage:**\n"
-                "`/gmpt-tictactoe @player` — 挑战对手\n\n"
-                "**规则 / Rules:**\n"
-                "3×3棋盘 / 3×3 board\n"
-                "每人15秒落子，超时判负 / 15s timer\n"
-                "赢家奖励 50 金币 / Winner gets 50 coins"
-            ),
-            color=0x9B59B6,
+        """❌⭕ 井字棋 / Tic Tac Toe — 需要在聊天框输入命令"""
+        await interaction.response.send_message(
+            "请在聊天框输入 `/gmpt-tictactoe @对手` 开始井字棋！\n"
+            "Use `/gmpt-tictactoe @opponent` to play Tic Tac Toe!",
+            ephemeral=True,
         )
-        embed.set_footer(text="GMPT Games — 井字棋 / Tic Tac Toe")
-        await interaction.followup.send(embed=embed, ephemeral=True)
 
     async def _game_horserace(self, interaction: discord.Interaction):
-        """🏇 赛马 / Horse Race — 命令介绍"""
-        await interaction.response.defer(ephemeral=True)
-        embed = discord.Embed(
-            title="🏇 赛马 / Horse Race",
-            description=(
-                "使用 `/gmpt-horserace` 下注赛马！\n"
-                "Use `/gmpt-horserace` to bet on horses!\n\n"
-                "**用法 / Usage:**\n"
-                "`/gmpt-horserace 100` — 下注 100 金币\n\n"
-                "**规则 / Rules:**\n"
-                "6匹马竞赛 / 6 horses racing\n"
-                "冷门高赔 5:1 / 热门低赔 1.5:1\n"
-                "选择你的马，看它冲到终点！"
-            ),
-            color=0xE67E22,
+        """🏇 赛马 / Horse Race — 需要在聊天框输入命令"""
+        await interaction.response.send_message(
+            "请在聊天框输入 `/gmpt-horserace 100` 开始赛马下注！\n"
+            "Use `/gmpt-horserace 100` to bet on horse races!\n"
+            "（100 为下注金币数）/ (100 = bet amount)",
+            ephemeral=True,
         )
-        embed.set_footer(text="GMPT Games — 赛马 / Horse Race")
-        await interaction.followup.send(embed=embed, ephemeral=True)
 
     async def _game_banpick(self, interaction: discord.Interaction):
-        """⚔️ Ban/Pick — 命令介绍"""
-        await interaction.response.defer(ephemeral=True)
-        embed = discord.Embed(
-            title="⚔️ Ban/Pick 模拟 / Ban/Pick Simulation",
-            description=(
-                "使用 `/gmpt-banpick @对手` 进行BP对战！\n"
-                "Use `/gmpt-banpick @opponent` to simulate BP!\n\n"
-                "**用法 / Usage:**\n"
-                "`/gmpt-banpick @player` — 和对手进行BP\n\n"
-                "**规则 / Rules:**\n"
-                "Ban(3轮) → Pick(5轮) → 确认\n"
-                "40个英雄池 / 40 hero pool\n"
-                "每轮30秒，超时自动随机 / 30s timeout"
-            ),
-            color=0x3498DB,
+        """⚔️ Ban/Pick — 需要在聊天框输入命令"""
+        await interaction.response.send_message(
+            "请在聊天框输入 `/gmpt-banpick @对手` 开始 BP 对战！\n"
+            "Use `/gmpt-banpick @opponent` to start Ban/Pick!",
+            ephemeral=True,
         )
-        embed.set_footer(text="GMPT Games — Ban/Pick")
-        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 
