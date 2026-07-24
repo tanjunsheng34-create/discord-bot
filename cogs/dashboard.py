@@ -4526,10 +4526,11 @@ class DashboardView(discord.ui.View):
         8: "🎮 游戏中心 Games",
     }
 
-    def __init__(self, guild=None, session=None, *args, **kwargs):
+    def __init__(self, guild=None, session=None, bot=None, *args, **kwargs):
         super().__init__(timeout=None, *args, **kwargs)
         self.guild = guild
         self.session = session
+        self.bot = bot
         self.page = 1
         # Only build page buttons on initial creation (not during persistent view reconstruction)
         if not args and not kwargs:
@@ -4644,6 +4645,7 @@ class DashboardView(discord.ui.View):
                 ("🃏 21点\nBlackjack", "game_blackjack"),
                 ("❌⭕ 井字棋\nTic Tac Toe", "game_tictactoe"),
                 ("🏇 赛马\nHorse Race", "game_horserace"),
+                ("♠️ 德州扑克\nPoker", "game_poker"),
                 ("⚔️ Ban/Pick", "game_banpick"),
                 ("◀️ 返回主菜单\nBack to Main", "game_back"),
             ]
@@ -7189,6 +7191,14 @@ class DashboardView(discord.ui.View):
             ephemeral=True,
         )
 
+    async def _game_poker(self, interaction: discord.Interaction):
+        """♠️ 德州扑克 / Poker — 需要在聊天框输入命令"""
+        await interaction.response.send_message(
+            "请在聊天框输入 `/poker start` 开始德州扑克！\n"
+            "Use `/poker start` to start a Texas Hold'em game!\n"
+            "（默认买入 500，可指定 `/poker start 1000`）/ (Default buy-in: 500)",
+            ephemeral=True,
+        )
 
 
 class Dashboard(CogBase):
@@ -8089,6 +8099,6 @@ class Dashboard(CogBase):
 async def setup(bot):
     await bot.add_cog(Dashboard(bot))
     # 注册持久化 View，使 Bot 重启后按钮仍可响应
-    bot.add_view(DashboardView(guild=None, session=None))
+    bot.add_view(DashboardView(guild=None, session=None, bot=bot))
     bot.add_view(MatchView())
     bot.add_view(LolVoteView())

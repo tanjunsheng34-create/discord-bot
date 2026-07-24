@@ -351,7 +351,9 @@ class GuessNumberView(discord.ui.View):
             self.add_item(btn)
             row += 1
 
-        # Reset button
+        # Reset button — cap row at 4 (Discord max row index is 4)
+        if row > 4:
+            row = 4
         reset_btn = discord.ui.Button(
             label="🔄 新游戏 / New Game",
             style=discord.ButtonStyle.danger,
