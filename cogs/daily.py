@@ -8,7 +8,7 @@ GMPT Bot — 每日语音签到奖励系统 (Daily Voice Reward)
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
-from datetime import datetime, date
+from datetime import datetime, date, time as datetime_time
 from database import get_db, get_db_ctx
 
 import logging
@@ -52,24 +52,24 @@ class Daily(CogBase):
     def cog_unload(self):
         self.daily_reminder_loop.cancel()
 
-    @tasks.loop(minutes=1)
+    @tasks.loop(time=datetime_time(hour=10, minute=0, tzinfo=TZ_UTC8))
     async def daily_reminder_loop(self):
         now = datetime.now(TZ_UTC8)
         today = now.date()
 
-        if now.hour == 10 and now.minute == 0:
-            if self.last_reminder_date == today:
-                return
+        # Guard against double-firing (e.g. on reconnect)
+        if self.last_reminder_date == today:
+            return
 
-            self.last_reminder_date = today
-            channel = self.bot.get_channel(DAILY_REMINDER_CHANNEL_ID)
-            if channel:
-                embed = discord.Embed(
-                    title="🎁 每日签到提醒 | Daily Check-in",
-                    description="输入 `/gmpt-daily claim` 领取今日奖励！\nClaim your daily reward now!",
-                    color=0xFFA500,
-                )
-                await channel.send(embed=embed)
+        self.last_reminder_date = today
+        channel = self.bot.get_channel(DAILY_REMINDER_CHANNEL_ID)
+        if channel:
+            embed = discord.Embed(
+                title="🎁 每日签到提醒 | Daily Check-in",
+                description="输入 `/gmpt-daily claim` 领取今日奖励！\nClaim your daily reward now!",
+                color=0xFFA500,
+            )
+            await channel.send(embed=embed)
 
     @daily_reminder_loop.before_loop
     async def before_daily_reminder(self):
