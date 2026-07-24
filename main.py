@@ -55,6 +55,7 @@ COGS = [
     "cogs.guess_champion",
     "cogs.predict",
     "cogs.meme",
+    "cogs.stats",
 ]
 
 

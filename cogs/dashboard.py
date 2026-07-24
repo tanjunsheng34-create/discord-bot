@@ -4602,9 +4602,13 @@ class DashboardView(discord.ui.View):
                 ("📝 真心话大冒险\nTruth or Dare", "game_truth_dare"),
                 ("🕊️ 树洞\nWhisper", "game_whisper"),
                 ("🎡 轮盘赌\nRoulette", "game_roulette"),
+                ("🃏 21点\nBlackjack", "game_blackjack"),
+                ("❌⭕ 井字棋\nTic Tac Toe", "game_tictactoe"),
+                ("🏇 赛马\nHorse Race", "game_horserace"),
+                ("⚔️ Ban/Pick", "game_banpick"),
                 ("◀️ 返回主菜单\nBack to Main", "game_back"),
             ]
-            while len(btns) < 8:
+            while len(btns) < 12:
                 btns.append(None)
 
         # Layout: rows of 4
@@ -4813,6 +4817,10 @@ class DashboardView(discord.ui.View):
                     "📝 **真心话大冒险** Truth or Dare — `/gmpt-truth-dare`\n"
                     "🕊️ **树洞** Whisper — `/gmpt-whisper`\n"
                     "🎡 **轮盘赌** Roulette — `/gmpt-roulette`\n"
+                    "🃏 **21点** Blackjack — `/gmpt-blackjack`\n"
+                    "❌⭕ **井字棋** Tic Tac Toe — `/gmpt-tictactoe`\n"
+                    "🏇 **赛马** Horse Race — `/gmpt-horserace`\n"
+                    "⚔️ **Ban/Pick** — `/gmpt-banpick`\n"
                     "◀️ **返回主菜单** Back to Main — 回到第一页"
                 ),
             ),
@@ -4821,7 +4829,7 @@ class DashboardView(discord.ui.View):
         key = self.page if self.page in page_field_map else 1
         field_name, field_value = page_field_map[key]
         embed.add_field(name=field_name, value=field_value, inline=False)
-        embed.set_footer(text=f"GMPT Dashboard v3.4 | Page {self.page}/8")
+        embed.set_footer(text=f"GMPT Dashboard v3.5 | Page {self.page}/8")
         return embed
 
     # ═══════════════════ Page 1 — Match ═══════════════════
@@ -7149,6 +7157,87 @@ class DashboardView(discord.ui.View):
         self.build_page_buttons()
         embed = self._build_page_embed()
         await interaction.response.edit_message(embed=embed, view=self)
+
+    async def _game_blackjack(self, interaction: discord.Interaction):
+        """🃏 21点 / Blackjack — 命令介绍"""
+        await interaction.response.defer(ephemeral=True)
+        embed = discord.Embed(
+            title="🃏 21点 / Blackjack",
+            description=(
+                "使用 `/gmpt-blackjack` 与庄家对决！\n"
+                "Use `/gmpt-blackjack` to play against the dealer!\n\n"
+                "**用法 / Usage:**\n"
+                "`/gmpt-blackjack 100` — 下注 100 金币\n\n"
+                "**规则 / Rules:**\n"
+                "Hit🃏要牌 / Stand✋停牌 / Double⬇️双倍\n"
+                "庄家≥17停牌 / Dealer stands on ≥17\n"
+                "Ace自动计最优 / Ace auto-optimized\n"
+                "Blackjack赔率 3:2 / Blackjack pays 3:2"
+            ),
+            color=0x1ABC9C,
+        )
+        embed.set_footer(text="GMPT Games — 21点 / Blackjack")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    async def _game_tictactoe(self, interaction: discord.Interaction):
+        """❌⭕ 井字棋 / Tic Tac Toe — 命令介绍"""
+        await interaction.response.defer(ephemeral=True)
+        embed = discord.Embed(
+            title="❌⭕ 井字棋 / Tic Tac Toe",
+            description=(
+                "使用 `/gmpt-tictactoe @对手` 来对战！\n"
+                "Use `/gmpt-tictactoe @opponent` to play!\n\n"
+                "**用法 / Usage:**\n"
+                "`/gmpt-tictactoe @player` — 挑战对手\n\n"
+                "**规则 / Rules:**\n"
+                "3×3棋盘 / 3×3 board\n"
+                "每人15秒落子，超时判负 / 15s timer\n"
+                "赢家奖励 50 金币 / Winner gets 50 coins"
+            ),
+            color=0x9B59B6,
+        )
+        embed.set_footer(text="GMPT Games — 井字棋 / Tic Tac Toe")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    async def _game_horserace(self, interaction: discord.Interaction):
+        """🏇 赛马 / Horse Race — 命令介绍"""
+        await interaction.response.defer(ephemeral=True)
+        embed = discord.Embed(
+            title="🏇 赛马 / Horse Race",
+            description=(
+                "使用 `/gmpt-horserace` 下注赛马！\n"
+                "Use `/gmpt-horserace` to bet on horses!\n\n"
+                "**用法 / Usage:**\n"
+                "`/gmpt-horserace 100` — 下注 100 金币\n\n"
+                "**规则 / Rules:**\n"
+                "6匹马竞赛 / 6 horses racing\n"
+                "冷门高赔 5:1 / 热门低赔 1.5:1\n"
+                "选择你的马，看它冲到终点！"
+            ),
+            color=0xE67E22,
+        )
+        embed.set_footer(text="GMPT Games — 赛马 / Horse Race")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    async def _game_banpick(self, interaction: discord.Interaction):
+        """⚔️ Ban/Pick — 命令介绍"""
+        await interaction.response.defer(ephemeral=True)
+        embed = discord.Embed(
+            title="⚔️ Ban/Pick 模拟 / Ban/Pick Simulation",
+            description=(
+                "使用 `/gmpt-banpick @对手` 进行BP对战！\n"
+                "Use `/gmpt-banpick @opponent` to simulate BP!\n\n"
+                "**用法 / Usage:**\n"
+                "`/gmpt-banpick @player` — 和对手进行BP\n\n"
+                "**规则 / Rules:**\n"
+                "Ban(3轮) → Pick(5轮) → 确认\n"
+                "40个英雄池 / 40 hero pool\n"
+                "每轮30秒，超时自动随机 / 30s timeout"
+            ),
+            color=0x3498DB,
+        )
+        embed.set_footer(text="GMPT Games — Ban/Pick")
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 
