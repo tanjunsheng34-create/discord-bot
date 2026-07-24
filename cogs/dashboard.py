@@ -7716,7 +7716,7 @@ class Dashboard(CogBase):
             except Exception as e:
                 log_error("dashboard", "dashboard_cmd", e)
 
-            view = DashboardView(guild=interaction.guild, session=self.session)
+            view = DashboardView(guild=interaction.guild, session=self.session, bot=self.bot)
             embed = view._build_page_embed()
 
             if target != interaction.channel:
@@ -8127,7 +8127,11 @@ class Dashboard(CogBase):
 
 async def setup(bot):
     await bot.add_cog(Dashboard(bot))
-    # 注册持久化 View，使 Bot 重启后按钮仍可响应
-    bot.add_view(DashboardView(guild=None, session=None, bot=bot))
+    # Register persistent views for all dashboard pages so custom_ids persist across bot restarts
+    for page in range(1, 9):
+        v = DashboardView(guild=None, session=None, bot=bot)
+        v.page = page
+        v.build_page_buttons()
+        bot.add_view(v)
     bot.add_view(MatchView())
     bot.add_view(LolVoteView())

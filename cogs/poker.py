@@ -438,10 +438,18 @@ async def prompt_player(game: PokerGame, channel: discord.TextChannel):
         return
     p = g.players[uid]
     view = PokerActionView(g)
+    # Public message: no hole cards
     await channel.send(
-        f"<@{uid}> 你的回合 Your turn | 手牌: `{cards_str(p['hand'])}` | 筹码 Chips: {p['chips']} | Pot: {g.pot} | 当前注 Current bet: {g.current_bet}",
+        f"<@{uid}> 你的回合 Your turn | 筹码 Chips: {p['chips']} | Pot: {g.pot} | 当前注 Current bet: {g.current_bet}",
         view=view
     )
+    # DM hole cards privately
+    user = channel.guild.get_member(uid) if channel.guild else None
+    if user:
+        try:
+            await user.send(f"🃏 Hand #{g.hand_count} | Your cards 你的手牌: `{cards_str(p['hand'])}`")
+        except discord.Forbidden:
+            pass
 
 
 async def show_table(game: PokerGame, channel: discord.TextChannel):
