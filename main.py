@@ -437,11 +437,16 @@ async def on_ready():
     # Restore data from Discord backup channel (if configured)
     await auto_restore()
     logger.info(f"Bot online: {bot.user}")
-    try:
-        synced = await bot.tree.sync()
-        logger.info(f"Synced {len(synced)} commands")
-    except Exception as e:
-        logger.error(f"Sync error: {e}")
+    # Per-guild sync to bypass Discord 100 global command limit
+    total = 0
+    for guild in bot.guilds:
+        try:
+            synced = await bot.tree.sync(guild=guild)
+            logger.info(f"Synced {len(synced)} commands for guild {guild.name} ({guild.id})")
+            total += len(synced)
+        except Exception as e:
+            logger.error(f"Guild sync error for {guild.name}: {e}")
+    logger.info(f"Total synced: {total} commands across {len(bot.guilds)} guilds")
 
     # 启动自检：向欢迎频道发一条上线消息，验证频道存在 + 发消息权限
     try:
