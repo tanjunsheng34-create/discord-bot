@@ -100,11 +100,26 @@ DARE_QUESTIONS = [
 
 
 class Games(CogBase):
-    """社交娱乐小游戏 / Social Mini Games"""
+    """社交娱乐小游戏 / Social Mini Games
+
+    注意：如果以下命令在 Discord 中不显示（尤其是 blackjack / tictactoe / horserace），
+    请重启 Bot 服务器 —— app_commands.Command 注册发生在 add_cog 时，
+    任何 cog 重载 / 热修复都不会自动同步命令树到 Discord。
+    
+    Note: If the commands below don't appear in Discord (especially
+    blackjack / tictactoe / horserace), restart the bot server.
+    app_commands.Command registration happens during add_cog;
+    hot-reloading a cog does NOT auto-sync the command tree to Discord.
+    """
 
     def __init__(self, bot):
         self.bot = bot
         self._whispers: dict[str, float] = {}  # cooldown: user_id -> timestamp
+
+    async def cog_load(self):
+        """在 Cog 加载时打印已注册命令名称用于调试."""
+        cmds = [cmd.qualified_name for cmd in self.get_app_commands()]
+        logger.info(f"[Games] cog_load — 已注册 {len(cmds)} 个命令: {', '.join(cmds)}")
 
     # ══════════════════════════════════════════════════════════
     # /gmpt-roll
@@ -215,6 +230,42 @@ class Games(CogBase):
         embed.set_footer(text=f"Requested by {interaction.user.display_name} | Mode: {mode}")
 
         await interaction.response.send_message(embed=embed)
+
+    # ══════════════════════════════════════════════════════════
+    # /gmpt-tod — Truth or Dare 自定义题库
+    # ══════════════════════════════════════════════════════════
+    tod_group = app_commands.Group(
+        name="gmpt-tod",
+        description="📝 真心话大冒险题库管理 / Truth or Dare custom questions"
+    )
+
+    @tod_group.command(name="add", description="添加自定义题目 / Add a custom question")
+    @app_commands.describe(
+        question_type="题目类型: truth / dare / Question type",
+        content="题目内容 / Question content",
+    )
+    async def tod_add(self, interaction: discord.Interaction, question_type: str, content: str):
+        question_type = question_type.strip().lower()
+        if question_type not in ("truth", "dare"):
+            return await interaction.response.send_message(
+                "类型必须是 truth 或 dare / Type must be truth or dare.", ephemeral=True)
+        if len(content) > 500:
+            return await interaction.response.send_message(
+                "题目不能超过 500 字 / Max 500 characters.", ephemeral=True)
+
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO tod_custom_questions (question_type, content, author_id) VALUES (?, ?, ?)",
+                (question_type, content, str(interaction.user.id)),
+            )
+            conn.commit()
+
+        type_label = "真心话 / Truth" if question_type == "truth" else "大冒险 / Dare"
+        await interaction.response.send_message(
+            f"✅ 已添加 {type_label} 题目: {content}\nAdded custom {question_type} question!",
+            ephemeral=True,
+        )
 
     # ══════════════════════════════════════════════════════════
     # /gmpt-whisper

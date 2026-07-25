@@ -13,6 +13,7 @@ import sqlite3
 import discord
 from discord.ext import commands
 from database import get_db, get_db_ctx, init_db
+from init_new_cogs import init_all_new_tables
 from utils.logger import log_error
 from config import TOKEN, BACKUP_CHANNEL_ID, BACKUP_INTERVAL, BACKUP_TABLES
 
@@ -57,6 +58,12 @@ COGS = [
     "cogs.meme",
     "cogs.stats",
     "cogs.poker",
+    "cogs.economy_jobs",
+    "cogs.gambling",
+    "cogs.marketplace",
+    "cogs.pets",
+    "cogs.clans",
+    "cogs.social",
 ]
 
 
@@ -416,6 +423,7 @@ async def on_ready():
     bot.IMAGE_MODE = IMAGE_MODE
 
     init_db()
+    init_all_new_tables()
     # Periodic database maintenance
     try:
         with get_db_ctx() as conn:
