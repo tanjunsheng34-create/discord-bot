@@ -727,6 +727,8 @@ class HorseRaceBetModal(discord.ui.Modal, title="🏇 赛马下注 / Horse Race 
                 ephemeral=True,
             )
 
+        add_coins(uid, -bet, "赛马下注(大厅) / Horse Race bet (lobby)")
+
         view = HorseRaceView(bet, uid, self.player_name)
         embed = discord.Embed(
             title="🏇 赛马 / Horse Race",
@@ -910,6 +912,8 @@ class CasinoGames(CogBase):
                     f"金币不足！你只有 {bal:,} 金币 / Not enough coins! You have {bal:,}.",
                     ephemeral=True,
                 )
+
+            add_coins(uid, -bet, "赛马下注 / Horse Race bet")
 
             view = HorseRaceView(bet, uid, uname)
             embed = discord.Embed(

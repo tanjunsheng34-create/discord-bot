@@ -77,6 +77,7 @@ class Social(CogBase):
 
     @marry_group.command(name="propose", description="向某人求婚 / Propose to someone (cost: 2000 coins)")
     @app_commands.describe(target="求婚对象 / Target")
+    @app_commands.checks.cooldown(1, 60, key=lambda i: (i.guild_id, i.user.id))
     async def marry_propose(self, interaction: discord.Interaction, target: discord.Member):
         uid = str(interaction.user.id)
         tid = str(target.id)
@@ -93,6 +94,7 @@ class Social(CogBase):
 
         # Check existing marriage
         with get_db_ctx() as conn:
+            conn.execute("BEGIN")
             cur = conn.cursor()
             cur.execute(
                 "SELECT * FROM marriages WHERE "
@@ -100,6 +102,7 @@ class Social(CogBase):
                 (uid, uid),
             )
             if cur.fetchone():
+                conn.rollback()
                 return await interaction.response.send_message("你已经结婚了！/ You're already married!", ephemeral=True)
 
             cur.execute(
@@ -108,6 +111,7 @@ class Social(CogBase):
                 (tid, tid),
             )
             if cur.fetchone():
+                conn.rollback()
                 return await interaction.response.send_message(
                     f"{target.display_name} 已经结婚了！/ Already married!", ephemeral=True)
 
@@ -118,12 +122,11 @@ class Social(CogBase):
                 (uid, tid),
             )
             if cur.fetchone():
+                conn.rollback()
                 return await interaction.response.send_message("你已经向此人求过婚了！/ Already proposed!", ephemeral=True)
 
-        add_coins(uid, -PROPOSE_COST, f"求婚: {target.display_name} / Proposed to {target.display_name}")
+            add_coins(uid, -PROPOSE_COST, f"求婚: {target.display_name} / Proposed to {target.display_name}")
 
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
             cur.execute(
                 "INSERT INTO marriages (proposer_id, target_id) VALUES (?, ?)",
                 (uid, tid),
@@ -142,6 +145,7 @@ class Social(CogBase):
         await interaction.response.send_message(embed=embed)
 
     @marry_group.command(name="accept", description="接受求婚 / Accept a marriage proposal")
+    @app_commands.checks.cooldown(1, 30, key=lambda i: (i.guild_id, i.user.id))
     async def marry_accept(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
 
@@ -175,6 +179,7 @@ class Social(CogBase):
         await interaction.response.send_message(embed=embed)
 
     @marry_group.command(name="decline", description="拒绝求婚 / Decline a marriage proposal")
+    @app_commands.checks.cooldown(1, 30, key=lambda i: (i.guild_id, i.user.id))
     async def marry_decline(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
 
@@ -201,6 +206,7 @@ class Social(CogBase):
         )
 
     @marry_group.command(name="divorce", description="离婚 / Divorce (cost: 5000 coins)")
+    @app_commands.checks.cooldown(1, 60, key=lambda i: (i.guild_id, i.user.id))
     async def marry_divorce(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
 
@@ -235,6 +241,7 @@ class Social(CogBase):
         )
 
     @marry_group.command(name="status", description="查看婚姻状态 / View marriage status")
+    @app_commands.checks.cooldown(1, 5, key=lambda i: (i.guild_id, i.user.id))
     async def marry_status(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
 

@@ -71,6 +71,7 @@ class Pets(CogBase):
 
     @pet_group.command(name="adopt", description="领养宠物 / Adopt a pet")
     @app_commands.describe(pet_type="宠物类型: 狗/猫/龙/独角兽 / Pet type: dog/cat/dragon/unicorn")
+    @app_commands.checks.cooldown(1, 30, key=lambda i: (i.guild_id, i.user.id))
     async def pet_adopt(self, interaction: discord.Interaction, pet_type: str):
         uid = str(interaction.user.id)
         pet_type_lower = pet_type.lower()
@@ -120,6 +121,7 @@ class Pets(CogBase):
         await interaction.response.send_message(embed=embed)
 
     @pet_group.command(name="status", description="查看宠物状态 / View pet status")
+    @app_commands.checks.cooldown(1, 5, key=lambda i: (i.guild_id, i.user.id))
     async def pet_status(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
 
