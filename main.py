@@ -42,6 +42,7 @@ COGS = [
     "cogs.announce",
     "cogs.economy",
     "cogs.games",
+    "cogs.casino_games",
     "cogs.tournament",
     "cogs.lol",
     "cogs.dashboard",

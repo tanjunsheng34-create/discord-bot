@@ -4882,6 +4882,7 @@ class DashboardView(discord.ui.View):
                 "🎮 游戏中心 | Games",
                 (
                     "━━━━━━━━━━━━━━━━━━━━\n"
+                    "🎮 **游戏大厅** Game Lobby — `/gmpt-gamelobby`\n"
                     "🎲 **掷骰子** Roll Dice — `/gmpt-roll 2d6`\n"
                     "🔢 **猜数字** Guess Number — `/gmpt-guess-number`\n"
                     "📝 **真心话大冒险** Truth or Dare — `/gmpt-truth-dare`\n"
