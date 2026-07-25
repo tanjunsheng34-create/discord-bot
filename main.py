@@ -50,7 +50,6 @@ COGS = [
     "cogs.admin_backup",
     "cogs.daily",
     "cogs.help",
-    "cogs.peiwans",
     "cogs.casino",
     "cogs.trivia",
     "cogs.guess_champion",
@@ -441,6 +440,7 @@ async def on_ready():
     total = 0
     for guild in bot.guilds:
         try:
+            bot.tree.copy_global_to(guild=guild)
             synced = await bot.tree.sync(guild=guild)
             logger.info(f"Synced {len(synced)} commands for guild {guild.name} ({guild.id})")
             total += len(synced)

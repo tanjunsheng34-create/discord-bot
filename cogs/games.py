@@ -1335,109 +1335,130 @@ class BanPickView(discord.ui.View):
     @app_commands.checks.cooldown(1, 3, key=lambda i: (i.guild_id, i.user.id))
     async def blackjack_cmd(self, interaction: discord.Interaction, bet: int):
         """🃏 21点 / Blackjack"""
-        uid = str(interaction.user.id)
-        uname = interaction.user.display_name
+        try:
+            uid = str(interaction.user.id)
+            uname = interaction.user.display_name
 
-        if bet < 10:
-            return await interaction.response.send_message("最低下注 10 金币 / Min bet 10 coins.", ephemeral=True)
+            if bet < 10:
+                return await interaction.response.send_message("最低下注 10 金币 / Min bet 10 coins.", ephemeral=True)
 
-        bal = get_balance(uid)
-        if bal < bet:
-            return await interaction.response.send_message(
-                f"金币不足！你只有 {bal:,} 金币 / Not enough coins! You have {bal:,}.",
-                ephemeral=True,
-            )
+            bal = get_balance(uid)
+            if bal < bet:
+                return await interaction.response.send_message(
+                    f"金币不足！你只有 {bal:,} 金币 / Not enough coins! You have {bal:,}.",
+                    ephemeral=True,
+                )
 
-        add_coins(uid, -bet, "21点下注 / Blackjack bet")
+            add_coins(uid, -bet, "21点下注 / Blackjack bet")
 
-        suits = ['♠', '♥', '♦', '♣']
-        ranks = ['A','2','3','4','5','6','7','8','9','10','J','Q','K']
-        deck = [(r, s) for s in suits for r in ranks]
-        random.shuffle(deck)
+            suits = ['♠', '♥', '♦', '♣']
+            ranks = ['A','2','3','4','5','6','7','8','9','10','J','Q','K']
+            deck = [(r, s) for s in suits for r in ranks]
+            random.shuffle(deck)
 
-        view = BlackjackView(uid, uname, bet, deck)
+            view = BlackjackView(uid, uname, bet, deck)
 
-        if view.player_blackjack and not view.dealer_blackjack:
-            view.finished = True
-            profit = int(bet * 1.5)
-            add_coins(uid, profit, "21点Blackjack获胜 / Blackjack win")
-            bal2 = get_balance(uid)
-            embed = await view._build_embed(show_dealer=True)
-            embed.color = 0x2ECC71
-            embed.add_field(name="结果 / Result", value=f"🎉 Blackjack! 🪙 +{profit:,}", inline=False)
-            embed.add_field(name="余额 / Balance", value=f"🪙 {bal2:,}", inline=True)
-            for child in view.children:
-                child.disabled = True
-            await interaction.response.send_message(embed=embed, view=view)
-        elif view.player_blackjack and view.dealer_blackjack:
-            view.finished = True
-            add_coins(uid, bet, "21点平局 / Blackjack push")
-            bal2 = get_balance(uid)
-            embed = await view._build_embed(show_dealer=True)
-            embed.color = 0xF1C40F
-            embed.add_field(name="结果 / Result", value=f"🤝 双方Blackjack平局 / Both Blackjack — Push!", inline=False)
-            embed.add_field(name="余额 / Balance", value=f"🪙 {bal2:,}", inline=True)
-            for child in view.children:
-                child.disabled = True
-            await interaction.response.send_message(embed=embed, view=view)
-        else:
-            embed = await view._build_embed()
-            await interaction.response.send_message(embed=embed, view=view)
-            view.message = await interaction.original_response()
+            if view.player_blackjack and not view.dealer_blackjack:
+                view.finished = True
+                profit = int(bet * 1.5)
+                add_coins(uid, profit, "21点Blackjack获胜 / Blackjack win")
+                bal2 = get_balance(uid)
+                embed = await view._build_embed(show_dealer=True)
+                embed.color = 0x2ECC71
+                embed.add_field(name="结果 / Result", value=f"🎉 Blackjack! 🪙 +{profit:,}", inline=False)
+                embed.add_field(name="余额 / Balance", value=f"🪙 {bal2:,}", inline=True)
+                for child in view.children:
+                    child.disabled = True
+                await interaction.response.send_message(embed=embed, view=view)
+            elif view.player_blackjack and view.dealer_blackjack:
+                view.finished = True
+                add_coins(uid, bet, "21点平局 / Blackjack push")
+                bal2 = get_balance(uid)
+                embed = await view._build_embed(show_dealer=True)
+                embed.color = 0xF1C40F
+                embed.add_field(name="结果 / Result", value=f"🤝 双方Blackjack平局 / Both Blackjack — Push!", inline=False)
+                embed.add_field(name="余额 / Balance", value=f"🪙 {bal2:,}", inline=True)
+                for child in view.children:
+                    child.disabled = True
+                await interaction.response.send_message(embed=embed, view=view)
+            else:
+                embed = await view._build_embed()
+                await interaction.response.send_message(embed=embed, view=view)
+                view.message = await interaction.original_response()
+        except Exception as e:
+            logger.error(f"[blackjack_cmd] error: {e}", exc_info=True)
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ 21点游戏出错，请重试 / Blackjack error, please retry.", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ 21点游戏出错，请重试 / Blackjack error, please retry.", ephemeral=True)
 
     @app_commands.command(name="gmpt-tictactoe", description="❌⭕ 井字棋 / Tic Tac Toe — 两人对战")
     @app_commands.describe(opponent="对手 / Opponent")
     @app_commands.checks.cooldown(1, 5, key=lambda i: (i.guild_id, i.user.id))
     async def tictactoe_cmd(self, interaction: discord.Interaction, opponent: discord.Member):
         """❌⭕ 井字棋 / Tic Tac Toe"""
-        if opponent.id == interaction.user.id:
-            return await interaction.response.send_message("不能和自己下棋 / Cannot play against yourself!", ephemeral=True)
-        if opponent.bot:
-            return await interaction.response.send_message("不能和机器人下棋 / Cannot play against bots!", ephemeral=True)
+        try:
+            if opponent.id == interaction.user.id:
+                return await interaction.response.send_message("不能和自己下棋 / Cannot play against yourself!", ephemeral=True)
+            if opponent.bot:
+                return await interaction.response.send_message("不能和机器人下棋 / Cannot play against bots!", ephemeral=True)
 
-        view = TicTacToeView(
-            str(interaction.user.id), interaction.user.display_name,
-            str(opponent.id), opponent.display_name,
-        )
-        embed = view._build_embed()
-        await interaction.response.send_message(
-            f"{opponent.mention} 你被挑战了 / You've been challenged!",
-            embed=embed,
-            view=view,
-        )
-        view.message = await interaction.original_response()
-        view.move_task = asyncio.create_task(view._move_timeout(interaction))
+            view = TicTacToeView(
+                str(interaction.user.id), interaction.user.display_name,
+                str(opponent.id), opponent.display_name,
+            )
+            embed = view._build_embed()
+            await interaction.response.send_message(
+                f"{opponent.mention} 你被挑战了 / You've been challenged!",
+                embed=embed,
+                view=view,
+            )
+            view.message = await interaction.original_response()
+            view.move_task = asyncio.create_task(view._move_timeout(interaction))
+        except Exception as e:
+            logger.error(f"[tictactoe_cmd] error: {e}", exc_info=True)
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ 井字棋出错，请重试 / Tic Tac Toe error, please retry.", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ 井字棋出错，请重试 / Tic Tac Toe error, please retry.", ephemeral=True)
 
     @app_commands.command(name="gmpt-horserace", description="🏇 赛马 / Horse Race — 下注赛马")
     @app_commands.describe(bet="下注金额 / Bet amount")
     @app_commands.checks.cooldown(1, 3, key=lambda i: (i.guild_id, i.user.id))
     async def horserace_cmd(self, interaction: discord.Interaction, bet: int):
         """🏇 赛马 / Horse Race"""
-        uid = str(interaction.user.id)
-        uname = interaction.user.display_name
+        try:
+            uid = str(interaction.user.id)
+            uname = interaction.user.display_name
 
-        if bet < 10:
-            return await interaction.response.send_message("最低下注 10 金币 / Min bet 10 coins.", ephemeral=True)
+            if bet < 10:
+                return await interaction.response.send_message("最低下注 10 金币 / Min bet 10 coins.", ephemeral=True)
 
-        bal = get_balance(uid)
-        if bal < bet:
-            return await interaction.response.send_message(
-                f"金币不足！你只有 {bal:,} 金币 / Not enough coins! You have {bal:,}.",
-                ephemeral=True,
+            bal = get_balance(uid)
+            if bal < bet:
+                return await interaction.response.send_message(
+                    f"金币不足！你只有 {bal:,} 金币 / Not enough coins! You have {bal:,}.",
+                    ephemeral=True,
+                )
+
+            view = HorseRaceView(bet, uid, uname)
+            embed = discord.Embed(
+                title="🏇 赛马 / Horse Race",
+                description="选择一匹马来下注 / Choose a horse to bet on!\n\n" + '\n'.join(
+                    f"{HORSE_EMOJIS[i]} **马{i+1}** — 赔率/Odds: **{HORSE_ODDS[i]}:1**"
+                    for i in range(6)
+                ),
+                color=0xE67E22,
             )
-
-        view = HorseRaceView(bet, uid, uname)
-        embed = discord.Embed(
-            title="🏇 赛马 / Horse Race",
-            description="选择一匹马来下注 / Choose a horse to bet on!\n\n" + '\n'.join(
-                f"{HORSE_EMOJIS[i]} **马{i+1}** — 赔率/Odds: **{HORSE_ODDS[i]}:1**"
-                for i in range(6)
-            ),
-            color=0xE67E22,
-        )
-        embed.set_footer(text="30秒内选择 / 30s to choose")
-        await interaction.response.send_message(embed=embed, view=view)
-        view.message = await interaction.original_response()
+            embed.set_footer(text="30秒内选择 / 30s to choose")
+            await interaction.response.send_message(embed=embed, view=view)
+            view.message = await interaction.original_response()
+        except Exception as e:
+            logger.error(f"[horserace_cmd] error: {e}", exc_info=True)
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ 赛马出错，请重试 / Horse Race error, please retry.", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ 赛马出错，请重试 / Horse Race error, please retry.", ephemeral=True)
 
     @app_commands.command(name="gmpt-banpick", description="⚔️ Ban/Pick 模拟 / Ban/Pick Simulation — 两人对战BP")
     @app_commands.describe(opponent="对手 / Opponent")
