@@ -437,6 +437,12 @@ async def on_ready():
     # Restore data from Discord backup channel (if configured)
     await auto_restore()
     logger.info(f"Bot online: {bot.user}")
+    # Global sync first to clear Discord-side stale command cache
+    try:
+        global_synced = await bot.tree.sync()
+        logger.info(f"Global sync: {len(global_synced)} commands")
+    except Exception as e:
+        logger.error(f"Global sync error: {e}")
     # Per-guild sync to bypass Discord 100 global command limit
     total = 0
     for guild in bot.guilds:

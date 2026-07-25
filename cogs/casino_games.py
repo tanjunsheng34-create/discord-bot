@@ -182,10 +182,10 @@ class BlackjackView(discord.ui.View):
 
         if dv > 21 or pv > dv:
             if is_blackjack:
-                profit = int(self.bet * 1.5)
+                profit = int(self.bet * 2.5)
                 reason = "21点Blackjack获胜 / Blackjack win"
             else:
-                profit = self.bet
+                profit = self.bet * 2
                 reason = "21点获胜 / Blackjack win"
             add_coins(uid, profit, reason)
             embed.color = 0x2ECC71
@@ -214,7 +214,7 @@ class BlackjackView(discord.ui.View):
             pv = self._hand_value(self.player_hand)
             dv = self._hand_value(self.dealer_hand)
             if dv > 21 or pv > dv:
-                profit = self.bet
+                profit = self.bet * 2
                 add_coins(uid, profit, "21点超时获胜 / Blackjack timeout win")
             elif pv == dv:
                 add_coins(uid, self.bet, "21点超时平局 / Blackjack timeout push")
@@ -832,7 +832,7 @@ class CasinoGames(CogBase):
 
             if view.player_blackjack and not view.dealer_blackjack:
                 view.finished = True
-                profit = int(bet * 1.5)
+                profit = int(bet * 2.5)
                 add_coins(uid, profit, "21点Blackjack获胜 / Blackjack win")
                 bal2 = get_balance(uid)
                 embed = await view._build_embed(show_dealer=True)

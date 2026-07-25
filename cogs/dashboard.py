@@ -34,6 +34,7 @@ try:
 except ImportError:
     HAS_CRONITER = False
 from cogs.economy import get_balance, add_coins, MainMenuView
+from cogs.casino_games import BlackjackView as CasinoBlackjackView, HorseRaceView as CasinoHorseRaceView
 import random
 import sqlite3
 import time as time_mod
@@ -4484,6 +4485,249 @@ class CoinflipPanelView(discord.ui.View):
         await self._handle_pick(interaction, "反面")
 
 
+# ═══════════════════ Dashboard Game Launcher Modals ═══════════════════
+
+class BlackjackDashboardModal(discord.ui.Modal, title="🃏 21点下注 / Blackjack Bet"):
+    bet = discord.ui.TextInput(
+        label="下注金额 | Bet amount",
+        placeholder="1 - 50000",
+        required=True, min_length=1, max_length=6,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        try:
+            amount = int(self.bet.value)
+        except ValueError:
+            return await interaction.response.send_message("请输入有效数字 / Enter a valid number.", ephemeral=True)
+        if amount <= 0 or amount > 50000:
+            return await interaction.response.send_message("下注金额需在 1-50000 之间 / Bet must be 1-50000.", ephemeral=True)
+        balance = _get_balance(uid)
+        if balance < amount:
+            return await interaction.response.send_message(f"金币不足 / Insufficient coins. 余额: 🪙 {balance}", ephemeral=True)
+        _add_coins(uid, -amount, "Blackjack bet / 21点下注")
+        view = CasinoBlackjackView(uid, amount, interaction.user.display_name)
+        await interaction.response.send_message(
+            embed=discord.Embed(title="🃏 21点 / Blackjack", description="发牌中... / Dealing...", color=0xE74C3C),
+            view=view)
+
+
+class HorseRaceDashboardModal(discord.ui.Modal, title="🏇 赛马下注 / Horse Race Bet"):
+    bet = discord.ui.TextInput(
+        label="下注金额 | Bet amount",
+        placeholder="1 - 50000",
+        required=True, min_length=1, max_length=6,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        try:
+            amount = int(self.bet.value)
+        except ValueError:
+            return await interaction.response.send_message("请输入有效数字 / Enter a valid number.", ephemeral=True)
+        if amount <= 0 or amount > 50000:
+            return await interaction.response.send_message("下注金额需在 1-50000 之间 / Bet must be 1-50000.", ephemeral=True)
+        balance = _get_balance(uid)
+        if balance < amount:
+            return await interaction.response.send_message(f"金币不足 / Insufficient coins. 余额: 🪙 {balance}", ephemeral=True)
+        _add_coins(uid, -amount, "Horse race bet / 赛马下注")
+        view = CasinoHorseRaceView(uid, amount, interaction.user.display_name)
+        await interaction.response.send_message(
+            embed=discord.Embed(title="🏇 赛马 / Horse Race", description="准备开跑！/ Ready to race!", color=0xE67E22),
+            view=view)
+
+
+class CrashDashboardModal(discord.ui.Modal, title="📈 Crash下注 / Crash Bet"):
+    bet = discord.ui.TextInput(
+        label="下注金额 | Bet amount",
+        placeholder="1 - 100000",
+        required=True, min_length=1, max_length=6,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        try:
+            amount = int(self.bet.value)
+        except ValueError:
+            return await interaction.response.send_message("请输入有效数字 / Enter a valid number.", ephemeral=True)
+        if amount <= 0 or amount > 100000:
+            return await interaction.response.send_message("下注金额需在 1-100000 之间 / Bet must be 1-100000.", ephemeral=True)
+        balance = _get_balance(uid)
+        if balance < amount:
+            return await interaction.response.send_message(f"金币不足 / Insufficient coins. 余额: 🪙 {balance}", ephemeral=True)
+        _add_coins(uid, -amount, "Crash bet / Crash下注")
+        multiplier = 1.0
+        crash_point = round(1.0 + random.random() * random.expovariate(0.15), 2)
+        if crash_point > 100:
+            crash_point = round(random.uniform(1.0, 3.0), 2)
+
+        class CrashPanel(discord.ui.View):
+            def __init__(self):
+                super().__init__(timeout=300)
+                self.cashed_out = False
+                self.current_mult = 1.0
+                self.crash_point = crash_point
+                self.bet = amount
+                self.uid = uid
+
+            @discord.ui.button(label="💰 提现 Cash Out", style=discord.ButtonStyle.success)
+            async def cashout(self, btn_interaction: discord.Interaction, button: discord.ui.Button):
+                if self.cashed_out:
+                    return await btn_interaction.response.send_message("已提现 / Already cashed out.", ephemeral=True)
+                self.cashed_out = True
+                win = int(self.bet * self.current_mult)
+                _add_coins(self.uid, win, f"Crash cashout x{self.current_mult}")
+                new_bal = _get_balance(self.uid)
+                embed = discord.Embed(title="📈 Crash", description=f"在 **x{self.current_mult}** 提现成功！/ Cashed out!", color=0x2ECC71)
+                embed.add_field(name="提现金额 / Cashout", value=f"🪙 {win}", inline=True)
+                embed.add_field(name="新余额 / New Balance", value=f"🪙 {new_bal}", inline=True)
+                embed.add_field(name="崩盘点 / Crash Point", value=f"x{self.crash_point}", inline=False)
+                await btn_interaction.response.edit_message(embed=embed, view=None)
+
+            async def on_timeout(self):
+                if not self.cashed_out:
+                    self.cashed_out = True
+                    loss = self.bet
+                    new_bal = _get_balance(self.uid)
+                    embed = discord.Embed(title="📈 Crash — 超时!", description=f"未及时提现，崩盘了！/ Crashed!", color=0xE74C3C)
+                    embed.add_field(name="崩盘点 / Crash Point", value=f"x{self.crash_point}", inline=True)
+                    embed.add_field(name="亏损 / Loss", value=f"🪙 {loss}", inline=True)
+                    embed.add_field(name="新余额 / New Balance", value=f"🪙 {new_bal}", inline=False)
+                    # Try to edit original message
+                    try:
+                        if hasattr(self, '_message'):
+                            await self._message.edit(embed=embed, view=None)
+                    except Exception:
+                        pass
+
+        panel = CrashPanel()
+        embed = discord.Embed(title="📈 Crash", description=f"下注 🪙 {amount} | 快速点击提现！/ Cash out quickly!", color=0xF39C12)
+        embed.add_field(name="当前倍率 / Current Multiplier", value="x1.00", inline=True)
+        embed.add_field(name="崩盘点 / Crash Point", value=f"???", inline=True)
+        msg = await interaction.response.send_message(embed=embed, view=panel)
+        # Simulate rising multiplier
+        panel._message = msg
+        import asyncio
+        for _ in range(20):
+            await asyncio.sleep(0.6)
+            if panel.cashed_out:
+                break
+            panel.current_mult = round(panel.current_mult + random.uniform(0.05, 0.25), 2)
+            if panel.current_mult >= panel.crash_point:
+                break
+        if not panel.cashed_out:
+            panel.dispatch_timeout()
+
+
+class ScratchDashboardModal(discord.ui.Modal, title="🎰 刮刮乐 / Scratch Card"):
+    bet = discord.ui.TextInput(
+        label="下注金额 | Bet amount",
+        placeholder="50 - 10000",
+        required=True, min_length=1, max_length=6,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        try:
+            amount = int(self.bet.value)
+        except ValueError:
+            return await interaction.response.send_message("请输入有效数字 / Enter a valid number.", ephemeral=True)
+        if amount < 50 or amount > 10000:
+            return await interaction.response.send_message("下注金额需在 50-10000 之间 / Bet must be 50-10000.", ephemeral=True)
+        balance = _get_balance(uid)
+        if balance < amount:
+            return await interaction.response.send_message(f"金币不足 / Insufficient coins. 余额: 🪙 {balance}", ephemeral=True)
+        _add_coins(uid, -amount, "Scratch card / 刮刮乐下注")
+
+        # Simulate scratch result
+        symbols = ["🍒", "🍋", "🍊", "💎", "7️⃣", "⭐", "🔔", "🍇"]
+        result = [random.choice(symbols) for _ in range(3)]
+
+        if result[0] == result[1] == result[2]:
+            if result[0] == "💎":
+                multiplier = 100
+            elif result[0] == "7️⃣":
+                multiplier = 50
+            else:
+                multiplier = 10
+        elif result[0] == result[1] or result[1] == result[2] or result[0] == result[2]:
+            multiplier = 3
+        else:
+            multiplier = 0
+
+        win = int(amount * multiplier)
+        if win > 0:
+            _add_coins(uid, win, f"Scratch win x{multiplier}")
+        new_bal = _get_balance(uid)
+
+        embed = discord.Embed(title="🎰 刮刮乐 | Scratch Card", color=discord.Color.gold())
+        embed.add_field(name="结果 / Result", value=f"**{' '.join(result)}**", inline=False)
+        embed.add_field(name="下注 / Bet", value=f"🪙 {amount}", inline=True)
+        if multiplier > 0:
+            embed.add_field(name="中奖 / Win", value=f"🪙 +{win} (x{multiplier})", inline=True)
+        else:
+            embed.add_field(name="结果", value="❌ 未中奖 / No win", inline=True)
+        embed.add_field(name="新余额 / New Balance", value=f"🪙 {new_bal}", inline=False)
+        await interaction.response.send_message(embed=embed)
+
+
+class DiceDuelDashboardModal(discord.ui.Modal, title="🎲 骰子对决 / Dice Duel"):
+    opponent = discord.ui.TextInput(
+        label="对手 @用户 | Opponent @user",
+        placeholder="@username",
+        required=True, max_length=40,
+    )
+    bet = discord.ui.TextInput(
+        label="下注金额 | Bet amount",
+        placeholder="1 - 50000",
+        required=True, min_length=1, max_length=6,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        raw = self.opponent.value.strip().lstrip('@')
+        resolved = resolve_name(raw)
+        if not resolved:
+            return await interaction.response.send_message("找不到该用户 / User not found.", ephemeral=True)
+        opponent_id = str(resolved.id)
+        if opponent_id == uid:
+            return await interaction.response.send_message("不能和自己对决 / Cannot duel yourself.", ephemeral=True)
+        try:
+            amount = int(self.bet.value)
+        except ValueError:
+            return await interaction.response.send_message("请输入有效数字 / Enter a valid number.", ephemeral=True)
+        if amount <= 0 or amount > 50000:
+            return await interaction.response.send_message("下注金额需在 1-50000 之间 / Bet must be 1-50000.", ephemeral=True)
+        balance = _get_balance(uid)
+        opp_balance = _get_balance(opponent_id)
+        if balance < amount:
+            return await interaction.response.send_message(f"你的金币不足 / Insufficient coins. 余额: 🪙 {balance}", ephemeral=True)
+        if opp_balance < amount:
+            return await interaction.response.send_message(f"对方金币不足 / Opponent has insufficient coins. 余额: 🪙 {opp_balance}", ephemeral=True)
+
+        _add_coins(uid, -amount, "Dice duel bet")
+        _add_coins(opponent_id, -amount, "Dice duel bet (opponent)")
+
+        p1_roll = random.randint(1, 6)
+        p2_roll = random.randint(1, 6)
+        if p1_roll > p2_roll:
+            _add_coins(uid, amount * 2, f"Dice duel win vs {resolved.display_name}")
+            result_text = f"{interaction.user.mention} 获胜！/ Wins!"
+        elif p2_roll > p1_roll:
+            _add_coins(opponent_id, amount * 2, f"Dice duel win vs {interaction.user.display_name}")
+            result_text = f"{resolved.mention} 获胜！/ Wins!"
+        else:
+            _add_coins(uid, amount, "Dice duel draw refund")
+            _add_coins(opponent_id, amount, "Dice duel draw refund")
+            result_text = "平局！双方退款 / Draw! Both refunded."
+
+        embed = discord.Embed(title="🎲 骰子对决 | Dice Duel", color=discord.Color.blue())
+        embed.add_field(name=f"{interaction.user.display_name}", value=f"🎲 {p1_roll}", inline=True)
+        embed.add_field(name=f"{resolved.display_name}", value=f"🎲 {p2_roll}", inline=True)
+        embed.add_field(name="结果 / Result", value=result_text, inline=False)
+        await interaction.response.send_message(embed=embed)
+
+
 class WhisperModal(discord.ui.Modal, title="🕊️ 树洞 / Whisper"):
     """Modal for anonymous confession from dashboard button."""
 
@@ -4668,12 +4912,14 @@ class DashboardView(discord.ui.View):
             btns = [
                 ("🎲 掷骰子\nRoll Dice", "game_roll"),
                 ("🔢 猜数字\nGuess Number", "game_guess"),
-                ("📝 真心话大冒险\nTruth or Dare", "game_truth_dare"),
                 ("🕊️ 树洞\nWhisper", "game_whisper"),
                 ("🎡 轮盘赌\nRoulette", "game_roulette"),
                 ("🃏 21点\nBlackjack", "game_blackjack"),
                 ("❌⭕ 井字棋\nTic Tac Toe", "game_tictactoe"),
                 ("🏇 赛马\nHorse Race", "game_horserace"),
+                ("📈 Crash", "game_crash"),
+                ("🎲 骰子对决\nDice Duel", "game_diceduel"),
+                ("🎰 刮刮乐\nScratch", "game_scratch"),
                 ("♠️ 德州扑克\nPoker", "game_poker"),
                 ("⚔️ Ban/Pick", "game_banpick"),
                 ("◀️ 返回主菜单\nBack to Main", "game_back"),
@@ -4891,6 +5137,9 @@ class DashboardView(discord.ui.View):
                     "🃏 **21点** Blackjack — `/gmpt-blackjack`\n"
                     "❌⭕ **井字棋** Tic Tac Toe — `/gmpt-tictactoe`\n"
                     "🏇 **赛马** Horse Race — `/gmpt-horserace`\n"
+                    "📈 **Crash** — `/gmpt-crash`\n"
+                    "🎲 **骰子对决** Dice Duel — `/gmpt-diceduel`\n"
+                    "🎰 **刮刮乐** Scratch — `/gmpt-scratch`\n"
                     "⚔️ **Ban/Pick** — `/gmpt-banpick`\n"
                     "◀️ **返回主菜单** Back to Main — 回到第一页"
                 ),
@@ -7356,13 +7605,30 @@ class DashboardView(discord.ui.View):
         await interaction.response.send_modal(WhisperModal(self.bot))
 
     async def _game_roulette(self, interaction: discord.Interaction):
-        """🎡 轮盘赌 / Roulette — 需要在聊天框输入命令"""
-        await interaction.response.send_message(
-            "请在聊天框输入 `/gmpt-roulette 100` 开始轮盘赌！\n"
-            "Use `/gmpt-roulette 100` to play roulette!\n"
-            "（100 为下注金币数，最低 10）/ (100 = bet amount, min 10)",
-            ephemeral=True,
-        )
+        """🎡 轮盘赌 / Roulette — 打开下注弹窗"""
+        class RouletteBetModal(discord.ui.Modal, title="🎡 轮盘赌下注 / Roulette Bet"):
+            bet = discord.ui.TextInput(
+                label="下注金额 | Bet amount",
+                placeholder="10 - 50000",
+                required=True, min_length=1, max_length=6,
+            )
+            async def on_submit(self, modal_interaction: discord.Interaction):
+                from cogs.games import RouletteColorView
+                muid = str(modal_interaction.user.id)
+                try:
+                    amt = int(self.bet.value)
+                except ValueError:
+                    return await modal_interaction.response.send_message("请输入有效数字 / Enter a valid number.", ephemeral=True)
+                if amt < 10 or amt > 50000:
+                    return await modal_interaction.response.send_message("下注金额需在 10-50000 之间 / Bet must be 10-50000.", ephemeral=True)
+                bal = _get_balance(muid)
+                if bal < amt:
+                    return await modal_interaction.response.send_message(f"金币不足 / Insufficient coins. 余额: 🪙 {bal}", ephemeral=True)
+                _add_coins(muid, -amt, "Roulette bet / 轮盘赌下注")
+                view = RouletteColorView(muid, amt, modal_interaction.user.display_name)
+                embed = discord.Embed(title="🎡 轮盘 / Roulette", description=f"下注 🪙 {amt}\n请选择颜色 / Pick a color!", color=0xE74C3C)
+                await modal_interaction.response.send_message(embed=embed, view=view)
+        await interaction.response.send_modal(RouletteBetModal())
 
     async def _game_back(self, interaction: discord.Interaction):
         """◀️ 返回主菜单 — back to page 1"""
@@ -7372,13 +7638,8 @@ class DashboardView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=self)
 
     async def _game_blackjack(self, interaction: discord.Interaction):
-        """🃏 21点 / Blackjack — 需要在聊天框输入命令"""
-        await interaction.response.send_message(
-            "请在聊天框输入 `/gmpt-blackjack 100` 开始 21 点！\n"
-            "Use `/gmpt-blackjack 100` to play Blackjack!\n"
-            "（100 为下注金币数）/ (100 = bet amount)",
-            ephemeral=True,
-        )
+        """🃏 21点 / Blackjack — 打开下注弹窗"""
+        await interaction.response.send_modal(BlackjackDashboardModal())
 
     async def _game_tictactoe(self, interaction: discord.Interaction):
         """❌⭕ 井字棋 / Tic Tac Toe — 需要在聊天框输入命令"""
@@ -7389,13 +7650,20 @@ class DashboardView(discord.ui.View):
         )
 
     async def _game_horserace(self, interaction: discord.Interaction):
-        """🏇 赛马 / Horse Race — 需要在聊天框输入命令"""
-        await interaction.response.send_message(
-            "请在聊天框输入 `/gmpt-horserace 100` 开始赛马下注！\n"
-            "Use `/gmpt-horserace 100` to bet on horse races!\n"
-            "（100 为下注金币数）/ (100 = bet amount)",
-            ephemeral=True,
-        )
+        """🏇 赛马 / Horse Race — 打开下注弹窗"""
+        await interaction.response.send_modal(HorseRaceDashboardModal())
+
+    async def _game_crash(self, interaction: discord.Interaction):
+        """📈 Crash — 打开下注弹窗"""
+        await interaction.response.send_modal(CrashDashboardModal())
+
+    async def _game_diceduel(self, interaction: discord.Interaction):
+        """🎲 骰子对决 / Dice Duel — 打开对决弹窗"""
+        await interaction.response.send_modal(DiceDuelDashboardModal())
+
+    async def _game_scratch(self, interaction: discord.Interaction):
+        """🎰 刮刮乐 / Scratch Card — 打开下注弹窗"""
+        await interaction.response.send_modal(ScratchDashboardModal())
 
     async def _game_banpick(self, interaction: discord.Interaction):
         """⚔️ Ban/Pick — 需要在聊天框输入命令"""
