@@ -60,7 +60,7 @@ COGS = [
     "cogs.poker",
     "cogs.economy_jobs",
     "cogs.gambling",
-    "cogs.marketplace",
+    "cogs.shop",
     "cogs.pets",
     "cogs.clans",
     "cogs.social",
@@ -135,6 +135,8 @@ def ensure_deps():
     pkgs = {
         "nacl": "PyNaCl",
         "croniter": "croniter",
+        "aiohttp": "aiohttp",
+        "PIL": "Pillow",
     }
     for import_name, pip_name in pkgs.items():
         try:

@@ -1,6 +1,6 @@
 """
-GMPT Bot — 玩家市场 / Player Marketplace
-/gmpt-market sell / list / buy / cancel
+GMPT Bot — 商店与玩家市场 / Shop & Player Marketplace
+/gmpt-shop sell / list / buy / cancel
 
 Bilingual (中文 / English)
 """
@@ -19,7 +19,7 @@ def _format_coins(amount: int) -> str:
     return f"🪙 {amount:,}"
 
 
-def _init_market_tables():
+def _init_shop_tables():
     with get_db_ctx() as conn:
         cur = conn.cursor()
         cur.execute("""
@@ -36,31 +36,34 @@ def _init_market_tables():
         conn.commit()
 
 
-_init_market_tables()
+_init_shop_tables()
 
 
-class Marketplace(CogBase):
-    """玩家市场 / Player Marketplace."""
+class Shop(CogBase):
+    """商店与玩家市场 / Shop & Marketplace."""
 
     def __init__(self, bot):
         self.bot = bot
 
     async def cog_load(self):
         cmds = [cmd.qualified_name for cmd in self.get_app_commands()]
-        logger.info(f"[Marketplace] cog_load — 已注册 {len(cmds)} 个命令: {', '.join(cmds)}")
+        logger.info(f"[Shop] cog_load — 已注册 {len(cmds)} 个命令: {', '.join(cmds)}")
 
-    market_group = app_commands.Group(
-        name="gmpt-market",
-        description="🏪 玩家市场 / Player Marketplace"
+    shop_group = app_commands.Group(
+        name="gmpt-shop",
+        description="🏪 商店与市场 / Shop & Marketplace"
     )
 
-    @market_group.command(name="sell", description="出售物品 / List an item for sale")
+    # ══════════════════════════════════════════════════════════
+    # /gmpt-shop sell — 出售物品
+    # ══════════════════════════════════════════════════════════
+    @shop_group.command(name="sell", description="出售物品 / List an item for sale")
     @app_commands.describe(
         item_name="物品名称 / Item name",
         price="单价 / Unit price",
         quantity="数量 / Quantity (default 1)",
     )
-    async def market_sell(self, interaction: discord.Interaction, item_name: str, price: int, quantity: int = 1):
+    async def shop_sell(self, interaction: discord.Interaction, item_name: str, price: int, quantity: int = 1):
         uid = str(interaction.user.id)
 
         if price < 1:
@@ -68,7 +71,6 @@ class Marketplace(CogBase):
         if quantity < 1 or quantity > 999:
             return await interaction.response.send_message("数量需在 1-999 之间 / Quantity must be 1-999.", ephemeral=True)
 
-        # Market listing fee: 5%
         fee = max(int(price * quantity * 0.05), 1)
         bal = get_balance(uid)
         if bal < fee:
@@ -98,13 +100,16 @@ class Marketplace(CogBase):
             color=0x2ECC71,
         )
         embed.add_field(name="📋 物品ID / Listing ID", value=f"#{listing_id}", inline=True)
-        embed.set_footer(text="使用 /gmpt-market list 查看市场")
+        embed.set_footer(text="使用 /gmpt-shop list 查看市场")
 
         await interaction.response.send_message(embed=embed)
 
-    @market_group.command(name="list", description="查看市场列表 / View marketplace listings")
+    # ══════════════════════════════════════════════════════════
+    # /gmpt-shop list — 查看市场列表
+    # ══════════════════════════════════════════════════════════
+    @shop_group.command(name="list", description="查看市场列表 / View marketplace listings")
     @app_commands.describe(page="页码 / Page number")
-    async def market_list(self, interaction: discord.Interaction, page: int = 1):
+    async def shop_list(self, interaction: discord.Interaction, page: int = 1):
         per_page = 10
         offset = (page - 1) * per_page
 
@@ -136,16 +141,19 @@ class Marketplace(CogBase):
                 inline=False,
             )
 
-        embed.set_footer(text="/gmpt-market buy <ID> 购买 | /gmpt-market cancel <ID> 取消")
+        embed.set_footer(text="/gmpt-shop buy <ID> 购买 | /gmpt-shop cancel <ID> 取消")
 
         await interaction.response.send_message(embed=embed)
 
-    @market_group.command(name="buy", description="购买物品 / Buy an item from marketplace")
+    # ══════════════════════════════════════════════════════════
+    # /gmpt-shop buy — 购买物品
+    # ══════════════════════════════════════════════════════════
+    @shop_group.command(name="buy", description="购买物品 / Buy an item from marketplace")
     @app_commands.describe(
         listing_id="物品ID / Listing ID",
         quantity="数量 / Quantity (default 1)",
     )
-    async def market_buy(self, interaction: discord.Interaction, listing_id: int, quantity: int = 1):
+    async def shop_buy(self, interaction: discord.Interaction, listing_id: int, quantity: int = 1):
         uid = str(interaction.user.id)
 
         if quantity < 1:
@@ -175,7 +183,6 @@ class Marketplace(CogBase):
                     ephemeral=True,
                 )
 
-            # Execute transaction
             add_coins(uid, -total_cost, f"市场购买 #{listing_id}: {row['item_name']}")
             add_coins(row["seller_id"], seller_receives, f"市场售出 #{listing_id}: {row['item_name']}")
 
@@ -197,9 +204,12 @@ class Marketplace(CogBase):
 
         await interaction.response.send_message(embed=embed)
 
-    @market_group.command(name="cancel", description="取消出售 / Cancel a listing")
+    # ══════════════════════════════════════════════════════════
+    # /gmpt-shop cancel — 取消出售
+    # ══════════════════════════════════════════════════════════
+    @shop_group.command(name="cancel", description="取消出售 / Cancel a listing")
     @app_commands.describe(listing_id="物品ID / Listing ID")
-    async def market_cancel(self, interaction: discord.Interaction, listing_id: int):
+    async def shop_cancel(self, interaction: discord.Interaction, listing_id: int):
         uid = str(interaction.user.id)
 
         with get_db_ctx() as conn:
@@ -223,4 +233,4 @@ class Marketplace(CogBase):
 
 
 async def setup(bot):
-    await bot.add_cog(Marketplace(bot))
+    await bot.add_cog(Shop(bot))

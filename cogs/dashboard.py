@@ -4542,7 +4542,7 @@ class DashboardView(discord.ui.View):
         3: "💰 经济 Economy",
         4: "👤 玩家 Player",
         5: "🎮 小游戏 Mini Games",
-        6: "🎮 LoL League",
+        6: "👥 社交中心 Social Hub",
         7: "🔧 工具与设置 Tools",
         8: "🎮 游戏中心 Games",
     }
@@ -4600,7 +4600,7 @@ class DashboardView(discord.ui.View):
                 ("🎁 赠送金币\nGift", "gift"),
                 ("📊 交易记录\nTransactions", "transactions"),
                 ("🏅 成就列表\nAchievements", "achievements"),
-                ("🎟️ 抽奖\nGiveaway", "giveaway"),
+                ("💼 打工赚钱\nJobs", "economy_jobs"),
                 ("🗓️ 每日奖励\nDaily", "daily"),
             ]
             while len(btns) < 8:
@@ -4628,19 +4628,22 @@ class DashboardView(discord.ui.View):
                 ("🦸 猜英雄\nGuess Champ", "guess_champion"),
                 ("🏆 比赛预测\nPredict", "predict"),
                 ("🖼️ 表情包\nMeme", "meme"),
+                ("🎰 博彩中心\nGambling", "gambling"),
                 ("💕 虚拟动作\nActions", "actions"),
-                ("🎉 抽奖\nGiveaway", "giveaway"),
             ]
             while len(btns) < 8:
                 btns.append(None)
         elif page == 6:
-            # 常用工具 (Common Tools)
+            # 社交中心 (Social Hub)
             btns = [
-                ("🎤 语音排行\nVoice LB", "voice_lb"),
-                ("🔊 排队状态\nQueue Status", "queue_status"),
-                ("📊 全部玩家\nAll Players", "all_players"),
-                ("🏅 MMR排行\nMMR LB", "mmr_lb"),
-                ("🎬 比赛回放\nReplay", "replay"),
+                ("🐾 宠物系统\nPets", "pets"),
+                ("🏰 公会系统\nClans", "clans"),
+                ("💍 结婚系统\nMarry", "social_marry"),
+                ("⭐ 声望系统\nRep", "social_rep"),
+                ("🏪 市场出售\nMarket Sell", "marketplace_sell"),
+                ("🛒 市场购买\nMarket Buy", "marketplace_buy"),
+                ("📋 市场列表\nMarket List", "marketplace_list"),
+                ("❌ 取消出售\nCancel", "marketplace_cancel"),
             ]
             while len(btns) < 8:
                 btns.append(None)
@@ -4652,8 +4655,13 @@ class DashboardView(discord.ui.View):
                 ("📢 发送公告\nAnnounce", "announce"),
                 ("🔄 赛季重置\nSeason Reset", "season_reset"),
                 ("🎙️ 赛后拉入\nPost-Match VC", "post_match_pull"),
+                ("🎤 语音排行\nVoice LB", "voice_lb"),
+                ("🔊 排队状态\nQueue Status", "queue_status"),
+                ("📊 全部玩家\nAll Players", "all_players"),
+                ("🏅 MMR排行\nMMR LB", "mmr_lb"),
+                ("🎬 比赛回放\nReplay", "replay"),
             ]
-            while len(btns) < 8:
+            while len(btns) < 12:
                 btns.append(None)
         elif page == 8:
             # 游戏中心 (Games Center)
@@ -6389,7 +6397,191 @@ class DashboardView(discord.ui.View):
         embed.set_footer(text="每使用一次动作，目标获得 +5💰")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    # ═══════════════════ Page 6 — Tools ═══════════════════
+    async def _economy_jobs(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        embed = discord.Embed(
+            title="💼 打工赚钱 Economy Jobs",
+            description="多种方式赚取金币！Multiple ways to earn coins!",
+            color=0xF39C12,
+        )
+        embed.add_field(
+            name="可用命令 / Commands",
+            value=(
+                "`/gmpt-work` — 🏭 打工 Work (1h CD)\n"
+                "`/gmpt-rob` — 🥷 打劫 Rob (2h CD)\n"
+                "`/gmpt-beg` — 🥺 乞讨 Beg (5min CD)\n"
+                "`/gmpt-fish` — 🎣 钓鱼 Fish (3min CD)\n"
+                "`/gmpt-hunt` — 🏹 狩猎 Hunt (5min CD)"
+            ),
+            inline=False,
+        )
+        embed.set_footer(text="每种工作有独立的冷却时间 | Each job has its own cooldown")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # ═══════════════════ Page 5 — Gambling ═══════════════════
+    async def _gambling(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        embed = discord.Embed(
+            title="🎰 博彩中心 Gambling Center",
+            description="多种博彩玩法！Multiple gambling games!",
+            color=0xE74C3C,
+        )
+        embed.add_field(
+            name="可用命令 / Commands",
+            value=(
+                "`/gmpt-lottery buy` — 🎟️ 购买彩票 Buy Ticket\n"
+                "`/gmpt-lottery status` — 📊 彩票状态 Status\n"
+                "`/gmpt-lottery draw` — 🎯 开奖 Draw\n"
+                "`/gmpt-diceduel <amount>` — 🎲 骰子对决 Dice Duel\n"
+                "`/gmpt-crash <bet>` — 📈 Crash 游戏 Crash\n"
+                "`/gmpt-scratch <bet>` — 💳 刮刮乐 Scratch Card"
+            ),
+            inline=False,
+        )
+        embed.add_field(name="注意", value="博彩有风险，请理性游玩 / Gamble responsibly", inline=False)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # ═══════════════════ Page 6 — Social Hub ═══════════════════
+    async def _pets(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        embed = discord.Embed(
+            title="🐾 宠物系统 Pets",
+            description="领养并照顾你的虚拟宠物！Adopt and care for your virtual pet!",
+            color=0x8E44AD,
+        )
+        embed.add_field(
+            name="可用命令 / Commands",
+            value=(
+                "`/gmpt-pet adopt <name> <type>` — 🐣 领养宠物 Adopt\n"
+                "`/gmpt-pet status` — 📋 查看宠物 View Status\n"
+                "`/gmpt-pet feed` — 🍖 喂食 Feed\n"
+                "`/gmpt-pet play` — 🎾 玩耍 Play\n"
+                "`/gmpt-pet rename <name>` — ✏️ 改名 Rename"
+            ),
+            inline=False,
+        )
+        embed.set_footer(text="领养费用 1000💰 | 喂食/玩耍 + 幸福感")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    async def _clans(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        embed = discord.Embed(
+            title="🏰 公会系统 Clans",
+            description="创建或加入公会！Create or join a clan!",
+            color=0x2C3E50,
+        )
+        embed.add_field(
+            name="可用命令 / Commands",
+            value=(
+                "`/gmpt-clan create <name>` — 🏗️ 创建公会 (5000💰) Create\n"
+                "`/gmpt-clan join <name>` — 📥 加入公会 Join\n"
+                "`/gmpt-clan leave` — 📤 离开公会 Leave\n"
+                "`/gmpt-clan info` — ℹ️ 查看信息 Info\n"
+                "`/gmpt-clan donate <amount>` — 💎 捐赠 Donate"
+            ),
+            inline=False,
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    async def _social_marry(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        embed = discord.Embed(
+            title="💍 结婚系统 Marry",
+            description="和好友结婚！Marry your friend!",
+            color=0xE91E63,
+        )
+        embed.add_field(
+            name="可用命令 / Commands",
+            value=(
+                "`/gmpt-marry propose <user>` — 💌 求婚 (2000💰) Propose\n"
+                "`/gmpt-marry accept` — ✅ 接受求婚 Accept\n"
+                "`/gmpt-marry decline` — ❌ 拒绝求婚 Decline\n"
+                "`/gmpt-marry divorce` — 💔 离婚 (5000💰) Divorce\n"
+                "`/gmpt-marry status` — 📋 查看状态 Status"
+            ),
+            inline=False,
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    async def _social_rep(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        embed = discord.Embed(
+            title="⭐ 声望系统 Reputation",
+            description="给好友增加声望！Give reputation to friends!",
+            color=0xF1C40F,
+        )
+        embed.add_field(
+            name="可用命令 / Commands",
+            value=(
+                "`/gmpt-rep give <user>` — ⭐ 给予声望 Give Rep\n"
+                "`/gmpt-rep check` — 📋 查看声望 Check Rep"
+            ),
+            inline=False,
+        )
+        embed.add_field(name="限制", value="每天最多 3 次 / Max 3 per day", inline=False)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    async def _marketplace_sell(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        embed = discord.Embed(
+            title="🏪 市场出售 Market Sell",
+            description="将物品上架到玩家市场 / List items on the player marketplace",
+            color=0x2ECC71,
+        )
+        embed.add_field(
+            name="使用方式",
+            value="`/gmpt-shop sell <item_name> <price> [quantity]`",
+            inline=False,
+        )
+        embed.add_field(name="手续费", value="5% 上架费（最低 1💰）/ 5% listing fee (min 1💰)", inline=False)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    async def _marketplace_buy(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        embed = discord.Embed(
+            title="🛒 市场购买 Market Buy",
+            description="从玩家市场购买物品 / Buy items from the marketplace",
+            color=0x3498DB,
+        )
+        embed.add_field(
+            name="使用方式",
+            value="`/gmpt-shop buy <listing_id> [quantity]`",
+            inline=False,
+        )
+        embed.add_field(name="手续费", value="5% 交易费 / 5% transaction fee", inline=False)
+        embed.add_field(name="提示", value="先用 `/gmpt-shop list` 查看市场列表", inline=False)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    async def _marketplace_list(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        embed = discord.Embed(
+            title="📋 市场列表 Market List",
+            description="浏览所有活跃商品 / Browse all active listings",
+            color=0x9B59B6,
+        )
+        embed.add_field(
+            name="使用方式",
+            value="`/gmpt-shop list [page]`",
+            inline=False,
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    async def _marketplace_cancel(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        embed = discord.Embed(
+            title="❌ 取消出售 Cancel Listing",
+            description="取消你在市场上挂售的商品 / Cancel your active listing",
+            color=0xE74C3C,
+        )
+        embed.add_field(
+            name="使用方式",
+            value="`/gmpt-shop cancel <listing_id>`",
+            inline=False,
+        )
+        embed.add_field(name="注意", value="只能取消你自己的商品 / Only your own listings", inline=False)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # ═══════════════════ Page 7 — Tools ═══════════════════
 
     async def _voice_lb(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)

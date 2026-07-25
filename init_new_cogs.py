@@ -44,7 +44,7 @@ def init_all_new_tables():
             )
         """)
 
-        # ── marketplace.py ──
+        # ── shop.py: marketplace table ──
         cur.execute("""
             CREATE TABLE IF NOT EXISTS marketplace (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
