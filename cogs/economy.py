@@ -2098,206 +2098,6 @@ def settle_bets(match_id: int, winning_team_id: int) -> list:
         )
     return result_lines
 
-
-# =============================================================================
-# AdminCoinsView — 管理员金币管理面板 / Admin Coin Management Panel
-# =============================================================================
-class AdminCoinsView(discord.ui.View):
-    """Admin coin management panel — reset user, reset all, view all."""
-    def __init__(self, guild, timeout=None):
-        super().__init__(timeout=None)
-        self.guild = guild
-
-    @discord.ui.button(label="重置单人 Reset User", style=discord.ButtonStyle.primary, emoji="👤", row=0)
-    async def reset_user_btn(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
-        # Build user select dropdown from guild members
-        members = [m for m in self.guild.members if not m.bot][:25]
-        if not members:
-            return await interaction.followup.send("服务器没有可用成员 / No members found.", ephemeral=True)
-
-        options = []
-        for m in members:
-            options.append(discord.SelectOption(
-                label=m.display_name[:100],
-                value=str(m.id),
-                description=f"ID: {m.id}",
-            ))
-
-        select = discord.ui.Select(
-            placeholder="选择用户 / Select a user...",
-            options=options[:25],
-        )
-
-        async def user_callback(sel_int: discord.Interaction):
-            uid = sel_int.data["values"][0]
-            member = self.guild.get_member(int(uid))
-            name = member.display_name if member else f"<@{uid}>"
-
-            # Show amount modal
-            modal = ResetUserModal(guild=self.guild, user_id=uid, user_name=name)
-            await sel_int.response.send_modal(modal)
-
-        select.callback = user_callback
-        view = discord.ui.View(timeout=120)
-        view.add_item(select)
-        await interaction.followup.send(view=view, ephemeral=True)
-
-    @discord.ui.button(label="重置全部 Reset All", style=discord.ButtonStyle.danger, emoji="🔥", row=1)
-    async def reset_all_btn(self, interaction: discord.Interaction, button):
-        modal = ResetAllModal()
-        await interaction.response.send_modal(modal)
-
-    @discord.ui.button(label="查看全部 View All", style=discord.ButtonStyle.secondary, emoji="📋", row=1)
-    async def view_all_btn(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT discord_id, username, score FROM users ORDER BY score DESC")
-            all_users = cur.fetchall()
-
-        if not all_users:
-            return await interaction.followup.send("数据库中没有用户 / No users in database.", ephemeral=True)
-
-        view = CoinPaginationView(users_data=all_users, page=0, guild=self.guild)
-        embed = view.build_embed()
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-
-    async def on_timeout(self):
-        for child in self.children:
-            if hasattr(child, 'disabled'):
-                child.disabled = True
-        if hasattr(self, 'message') and self.message:
-            try:
-                await self.message.edit(view=self)
-            except Exception as e:
-                log_error("economy", "on_timeout", e)
-
-
-
-class ResetUserModal(discord.ui.Modal, title="重置单人金币 / Reset User Coins"):
-    amount = discord.ui.TextInput(
-        label="金币数量 / Coin Amount",
-        placeholder="500",
-        default="500",
-        max_length=10,
-        required=True,
-    )
-
-    def __init__(self, guild, user_id, user_name):
-        super().__init__()
-        self.guild = guild
-        self.user_id = user_id
-        self.user_name = user_name
-
-    async def on_submit(self, interaction: discord.Interaction):
-        try:
-            amt = int(self.amount.value)
-        except ValueError:
-            return await interaction.response.send_message("金币数量必须是数字 / Amount must be a number.", ephemeral=True)
-
-        if amt < 0:
-            return await interaction.response.send_message("金币数量不能为负 / Amount cannot be negative.", ephemeral=True)
-
-        member = self.guild.get_member(int(self.user_id))
-        mention = member.mention if member else f"<@{self.user_id}>"
-
-        embed = discord.Embed(
-            title="确认重置 / Confirm Reset",
-            description=(
-                f"目标 / Target: {mention}\n"
-                f"新金币 / New Coins: **{amt}**\n\n"
-                f"点击确认执行 / Click confirm to proceed"
-            ),
-            color=discord.Color.orange(),
-        )
-        confirm_view = ConfirmView(timeout=60)
-        await interaction.response.send_message(embed=embed, view=confirm_view, ephemeral=True)
-        await confirm_view.wait()
-
-        if confirm_view.value is None or not confirm_view.value:
-            return await interaction.edit_original_response(
-                content="已取消 / Cancelled.", embed=None, view=None
-            )
-
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
-            cur.execute(
-                "INSERT INTO users (discord_id, username, score) VALUES (?, ?, ?) "
-                "ON CONFLICT(discord_id) DO UPDATE SET score=?",
-                (self.user_id, self.user_name, amt, amt),
-            )
-            cur.execute(
-                "INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                (self.user_id, 0, f"Admin reset coins to {amt} by {interaction.user.display_name} / 管理员重置金币"),
-            )
-            conn.commit()
-
-        await interaction.edit_original_response(
-            content=f"✅ {mention} 的金币已重置为 **{amt}** / coins reset to **{amt}**.",
-            embed=None, view=None
-        )
-
-
-class ResetAllModal(discord.ui.Modal, title="重置全部金币 / Reset All Coins"):
-    amount = discord.ui.TextInput(
-        label="金币数量 / Coin Amount",
-        placeholder="500",
-        default="500",
-        max_length=10,
-        required=True,
-    )
-
-    async def on_submit(self, interaction: discord.Interaction):
-        try:
-            amt = int(self.amount.value)
-        except ValueError:
-            return await interaction.response.send_message("金币数量必须是数字 / Amount must be a number.", ephemeral=True)
-
-        if amt < 0:
-            return await interaction.response.send_message("金币数量不能为负 / Amount cannot be negative.", ephemeral=True)
-
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT discord_id, username FROM users")
-            all_users = cur.fetchall()
-
-            if not all_users:
-                return await interaction.response.send_message("数据库中没有用户 / No users in database.", ephemeral=True)
-
-            embed = discord.Embed(
-                title="⚠️ 确认批量重置 / Confirm Mass Reset",
-                description=(
-                    f"将重置 **{len(all_users)}** 名用户的金币为 **{amt}**\n"
-                    f"Will reset **{len(all_users)}** users' coins to **{amt}**\n\n"
-                    f"此操作不可撤销 / This action is irreversible\n"
-                    f"点击确认执行 / Click confirm to proceed"
-                ),
-                color=discord.Color.red(),
-            )
-            confirm_view = ConfirmView(timeout=60)
-            await interaction.response.send_message(embed=embed, view=confirm_view, ephemeral=True)
-            await confirm_view.wait()
-
-            if confirm_view.value is None or not confirm_view.value:
-                return await interaction.edit_original_response(
-                    content="已取消 / Cancelled.", embed=None, view=None
-                )
-
-            conn = get_db(); cur = conn.cursor()
-            for u in all_users:
-                cur.execute("UPDATE users SET score=? WHERE discord_id=?", (amt, u["discord_id"]))
-                cur.execute(
-                    "INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                    (u["discord_id"], 0, f"Admin mass reset coins to {amt} by {interaction.user.display_name} / 管理员批量重置金币"),
-                )
-            conn.commit()
-
-        await interaction.edit_original_response(
-            content=f"✅ 已重置 **{len(all_users)}** 名用户的金币为 **{amt}** / reset all **{len(all_users)}** users to **{amt}**.",
-            embed=None, view=None
-        )
-
     # ========== 比赛道具使用 ==========
     # 效果描述 + 持续秒数：None=全局不发结束 / 0=即时不发结束 / >0=定时发结束通知
     ITEM_EFFECTS = {
@@ -2725,6 +2525,206 @@ class ResetAllModal(discord.ui.Modal, title="重置全部金币 / Reset All Coin
         embed.set_footer(text=f"GMPT Finance | {target_name}")
 
         await interaction.followup.send(embed=embed)
+
+# =============================================================================
+# AdminCoinsView — 管理员金币管理面板 / Admin Coin Management Panel
+# =============================================================================
+class AdminCoinsView(discord.ui.View):
+    """Admin coin management panel — reset user, reset all, view all."""
+    def __init__(self, guild, timeout=None):
+        super().__init__(timeout=None)
+        self.guild = guild
+
+    @discord.ui.button(label="重置单人 Reset User", style=discord.ButtonStyle.primary, emoji="👤", row=0)
+    async def reset_user_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        # Build user select dropdown from guild members
+        members = [m for m in self.guild.members if not m.bot][:25]
+        if not members:
+            return await interaction.followup.send("服务器没有可用成员 / No members found.", ephemeral=True)
+
+        options = []
+        for m in members:
+            options.append(discord.SelectOption(
+                label=m.display_name[:100],
+                value=str(m.id),
+                description=f"ID: {m.id}",
+            ))
+
+        select = discord.ui.Select(
+            placeholder="选择用户 / Select a user...",
+            options=options[:25],
+        )
+
+        async def user_callback(sel_int: discord.Interaction):
+            uid = sel_int.data["values"][0]
+            member = self.guild.get_member(int(uid))
+            name = member.display_name if member else f"<@{uid}>"
+
+            # Show amount modal
+            modal = ResetUserModal(guild=self.guild, user_id=uid, user_name=name)
+            await sel_int.response.send_modal(modal)
+
+        select.callback = user_callback
+        view = discord.ui.View(timeout=120)
+        view.add_item(select)
+        await interaction.followup.send(view=view, ephemeral=True)
+
+    @discord.ui.button(label="重置全部 Reset All", style=discord.ButtonStyle.danger, emoji="🔥", row=1)
+    async def reset_all_btn(self, interaction: discord.Interaction, button):
+        modal = ResetAllModal()
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(label="查看全部 View All", style=discord.ButtonStyle.secondary, emoji="📋", row=1)
+    async def view_all_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer(ephemeral=True)
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT discord_id, username, score FROM users ORDER BY score DESC")
+            all_users = cur.fetchall()
+
+        if not all_users:
+            return await interaction.followup.send("数据库中没有用户 / No users in database.", ephemeral=True)
+
+        view = CoinPaginationView(users_data=all_users, page=0, guild=self.guild)
+        embed = view.build_embed()
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+    async def on_timeout(self):
+        for child in self.children:
+            if hasattr(child, 'disabled'):
+                child.disabled = True
+        if hasattr(self, 'message') and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception as e:
+                log_error("economy", "on_timeout", e)
+
+
+
+class ResetUserModal(discord.ui.Modal, title="重置单人金币 / Reset User Coins"):
+    amount = discord.ui.TextInput(
+        label="金币数量 / Coin Amount",
+        placeholder="500",
+        default="500",
+        max_length=10,
+        required=True,
+    )
+
+    def __init__(self, guild, user_id, user_name):
+        super().__init__()
+        self.guild = guild
+        self.user_id = user_id
+        self.user_name = user_name
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            amt = int(self.amount.value)
+        except ValueError:
+            return await interaction.response.send_message("金币数量必须是数字 / Amount must be a number.", ephemeral=True)
+
+        if amt < 0:
+            return await interaction.response.send_message("金币数量不能为负 / Amount cannot be negative.", ephemeral=True)
+
+        member = self.guild.get_member(int(self.user_id))
+        mention = member.mention if member else f"<@{self.user_id}>"
+
+        embed = discord.Embed(
+            title="确认重置 / Confirm Reset",
+            description=(
+                f"目标 / Target: {mention}\n"
+                f"新金币 / New Coins: **{amt}**\n\n"
+                f"点击确认执行 / Click confirm to proceed"
+            ),
+            color=discord.Color.orange(),
+        )
+        confirm_view = ConfirmView(timeout=60)
+        await interaction.response.send_message(embed=embed, view=confirm_view, ephemeral=True)
+        await confirm_view.wait()
+
+        if confirm_view.value is None or not confirm_view.value:
+            return await interaction.edit_original_response(
+                content="已取消 / Cancelled.", embed=None, view=None
+            )
+
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO users (discord_id, username, score) VALUES (?, ?, ?) "
+                "ON CONFLICT(discord_id) DO UPDATE SET score=?",
+                (self.user_id, self.user_name, amt, amt),
+            )
+            cur.execute(
+                "INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                (self.user_id, 0, f"Admin reset coins to {amt} by {interaction.user.display_name} / 管理员重置金币"),
+            )
+            conn.commit()
+
+        await interaction.edit_original_response(
+            content=f"✅ {mention} 的金币已重置为 **{amt}** / coins reset to **{amt}**.",
+            embed=None, view=None
+        )
+
+
+class ResetAllModal(discord.ui.Modal, title="重置全部金币 / Reset All Coins"):
+    amount = discord.ui.TextInput(
+        label="金币数量 / Coin Amount",
+        placeholder="500",
+        default="500",
+        max_length=10,
+        required=True,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            amt = int(self.amount.value)
+        except ValueError:
+            return await interaction.response.send_message("金币数量必须是数字 / Amount must be a number.", ephemeral=True)
+
+        if amt < 0:
+            return await interaction.response.send_message("金币数量不能为负 / Amount cannot be negative.", ephemeral=True)
+
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT discord_id, username FROM users")
+            all_users = cur.fetchall()
+
+            if not all_users:
+                return await interaction.response.send_message("数据库中没有用户 / No users in database.", ephemeral=True)
+
+            embed = discord.Embed(
+                title="⚠️ 确认批量重置 / Confirm Mass Reset",
+                description=(
+                    f"将重置 **{len(all_users)}** 名用户的金币为 **{amt}**\n"
+                    f"Will reset **{len(all_users)}** users' coins to **{amt}**\n\n"
+                    f"此操作不可撤销 / This action is irreversible\n"
+                    f"点击确认执行 / Click confirm to proceed"
+                ),
+                color=discord.Color.red(),
+            )
+            confirm_view = ConfirmView(timeout=60)
+            await interaction.response.send_message(embed=embed, view=confirm_view, ephemeral=True)
+            await confirm_view.wait()
+
+            if confirm_view.value is None or not confirm_view.value:
+                return await interaction.edit_original_response(
+                    content="已取消 / Cancelled.", embed=None, view=None
+                )
+
+            conn = get_db(); cur = conn.cursor()
+            for u in all_users:
+                cur.execute("UPDATE users SET score=? WHERE discord_id=?", (amt, u["discord_id"]))
+                cur.execute(
+                    "INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                    (u["discord_id"], 0, f"Admin mass reset coins to {amt} by {interaction.user.display_name} / 管理员批量重置金币"),
+                )
+            conn.commit()
+
+        await interaction.edit_original_response(
+            content=f"✅ 已重置 **{len(all_users)}** 名用户的金币为 **{amt}** / reset all **{len(all_users)}** users to **{amt}**.",
+            embed=None, view=None
+        )
+
 
 
 class CoinPaginationView(discord.ui.View):

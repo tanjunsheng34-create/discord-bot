@@ -364,6 +364,36 @@ class Games(CogBase):
 
         await interaction.response.send_message(embed=embed, view=view)
 
+    # ══════════════════════════════════════════════════════════════
+    # 新命令 — BanPick
+    # ══════════════════════════════════════════════════════════════
+
+    @gmpt_game_group.command(name="banpick", description="⚔️ Ban/Pick 模拟 / Ban/Pick Simulation — 两人对战BP")
+    @app_commands.describe(opponent="对手 / Opponent")
+    async def banpick_cmd(self, interaction: discord.Interaction, opponent: discord.Member):
+        """⚔️ Ban/Pick 模拟"""
+        if not BANPICK_HEROES:
+            return await interaction.response.send_message(
+                "英雄池为空，请检查猜英雄模块 / Hero pool empty, check champion module.",
+                ephemeral=True,
+            )
+        if opponent.id == interaction.user.id:
+            return await interaction.response.send_message("不能和自己BP / Cannot BP against yourself!", ephemeral=True)
+        if opponent.bot:
+            return await interaction.response.send_message("不能和机器人BP / Cannot BP against bots!", ephemeral=True)
+
+        view = BanPickView(
+            str(interaction.user.id), interaction.user.display_name,
+            str(opponent.id), opponent.display_name,
+        )
+        embed = view._build_embed()
+        await interaction.response.send_message(
+            f"{opponent.mention} Ban/Pick 开始 / Starting!",
+            embed=embed,
+            view=view,
+        )
+        view.message = await interaction.original_response()
+        view.timeout_task = asyncio.create_task(view._phase_timeout(interaction))
 
 # ══════════════════════════════════════════════════════════════
 # Guess Number View (buttons for guessing)
@@ -825,36 +855,6 @@ class BanPickView(discord.ui.View):
                 self.timeout_task = asyncio.create_task(self._phase_timeout(interaction))
 
 
-# ══════════════════════════════════════════════════════════════
-# 新命令 — BanPick
-# ══════════════════════════════════════════════════════════════
-
-    @gmpt_game_group.command(name="banpick", description="⚔️ Ban/Pick 模拟 / Ban/Pick Simulation — 两人对战BP")
-    @app_commands.describe(opponent="对手 / Opponent")
-    async def banpick_cmd(self, interaction: discord.Interaction, opponent: discord.Member):
-        """⚔️ Ban/Pick 模拟"""
-        if not BANPICK_HEROES:
-            return await interaction.response.send_message(
-                "英雄池为空，请检查猜英雄模块 / Hero pool empty, check champion module.",
-                ephemeral=True,
-            )
-        if opponent.id == interaction.user.id:
-            return await interaction.response.send_message("不能和自己BP / Cannot BP against yourself!", ephemeral=True)
-        if opponent.bot:
-            return await interaction.response.send_message("不能和机器人BP / Cannot BP against bots!", ephemeral=True)
-
-        view = BanPickView(
-            str(interaction.user.id), interaction.user.display_name,
-            str(opponent.id), opponent.display_name,
-        )
-        embed = view._build_embed()
-        await interaction.response.send_message(
-            f"{opponent.mention} Ban/Pick 开始 / Starting!",
-            embed=embed,
-            view=view,
-        )
-        view.message = await interaction.original_response()
-        view.timeout_task = asyncio.create_task(view._phase_timeout(interaction))
 
 
 # ══════════════════════════════════════════════════════════════
