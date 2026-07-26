@@ -69,6 +69,20 @@ class Pets(CogBase):
         description="🐾 宠物系统 / Pet System"
     )
 
+    @app_commands.command(name="gmpt-pets", description="🐾 宠物面板 / Pet button panel")
+    async def pet_panel_cmd(self, interaction: discord.Interaction):
+        embed = discord.Embed(
+            title="🐾 宠物系统 / Pet System",
+            description="点击下方按钮管理你的宠物！\nClick a button below!",
+            color=0xE67E22,
+        )
+        pet_info = "\n".join(f"{v['emoji']} {v.get('zh', k)} — 🪙 {v['price']:,}" for k, v in PET_TYPES.items())
+        embed.add_field(name="🐾 可领养宠物 / Available Pets", value=pet_info, inline=False)
+        embed.add_field(name="按钮功能", value="领养 | 查看 | 喂养 | 玩耍 | 改名", inline=False)
+        embed.set_footer(text="保留原 /gmpt-pet 子命令组")
+        view = PetPanelView()
+        await interaction.response.send_message(embed=embed, view=view)
+
     @pet_group.command(name="adopt", description="领养宠物 / Adopt a pet")
     @app_commands.describe(pet_type="宠物类型: 狗/猫/龙/独角兽 / Pet type: dog/cat/dragon/unicorn")
     @app_commands.checks.cooldown(1, 30, key=lambda i: (i.guild_id, i.user.id))
@@ -269,6 +283,246 @@ class Pets(CogBase):
             f"✅ 改名成功！**{old_name}** → **{new_name}** / Renamed!",
             ephemeral=True,
         )
+
+# ══════════════════════════════════════════════════════════════
+# PetPanelView — 宠物按钮面板 / Pet Button Panel
+# ══════════════════════════════════════════════════════════════
+
+class PetPanelView(discord.ui.View):
+    """宠物系统按钮面板 — 点击按钮操作宠物。"""
+
+    def __init__(self, guild=None, dashboard_view=None):
+        super().__init__(timeout=300)
+        self.guild = guild
+        self.dashboard_view = dashboard_view
+        self._build_buttons()
+
+    def _build_buttons(self):
+        self.clear_items()
+
+        btns = [
+            ("🐾 领养", "pet_adopt", discord.ButtonStyle.success),
+            ("📋 查看宠物", "pet_status", discord.ButtonStyle.primary),
+            ("🍖 喂养", "pet_feed", discord.ButtonStyle.primary),
+            ("🎾 玩耍", "pet_play", discord.ButtonStyle.primary),
+            ("✏️ 改名", "pet_rename", discord.ButtonStyle.secondary),
+        ]
+        for i, (label, cid, style) in enumerate(btns):
+            btn = discord.ui.Button(label=label, style=style, row=0, custom_id=f"petp_{cid}")
+            btn.callback = self._make_callback(cid)
+            self.add_item(btn)
+
+        back_btn = discord.ui.Button(
+            label="返回主菜单 | Back to Main",
+            style=discord.ButtonStyle.danger, row=1, custom_id="petp_back",
+        )
+        back_btn.callback = self._back_callback
+        self.add_item(back_btn)
+
+    async def _back_callback(self, interaction: discord.Interaction):
+        if self.dashboard_view:
+            self.dashboard_view.category = 0
+            self.dashboard_view.build_page_buttons()
+            embed = self.dashboard_view._build_page_embed()
+            await interaction.response.edit_message(embed=embed, view=self.dashboard_view)
+        else:
+            await interaction.response.edit_message(
+                content="使用 `/gmpt-dashboard` 返回主菜单 / Use `/gmpt-dashboard` to go back.",
+                embed=None, view=None,
+            )
+
+    def _make_callback(self, action: str):
+        async def cb(interaction: discord.Interaction):
+            uid = str(interaction.user.id)
+
+            if action == "pet_status":
+                with get_db_ctx() as conn:
+                    cur = conn.cursor()
+                    cur.execute("SELECT * FROM pets WHERE owner_id=?", (uid,))
+                    row = cur.fetchone()
+                if not row:
+                    return await interaction.response.send_message(
+                        "你还没有宠物！使用「领养」按钮领养一只 / No pet yet! Use the Adopt button.",
+                        ephemeral=True,
+                    )
+                info = PET_TYPES.get(row["pet_type"].lower(), {"emoji": "🐾"})
+                adopted_date = row["adopted_at"][:10] if row["adopted_at"] else "Unknown"
+                days_old = "N/A"
+                try:
+                    if row["adopted_at"]:
+                        dt = datetime.strptime(row["adopted_at"][:10], "%Y-%m-%d")
+                        days_old = str((datetime.now() - dt).days)
+                except Exception:
+                    pass
+                embed = discord.Embed(
+                    title=f"{info['emoji']} {row['pet_name']}",
+                    description=f"类型 / Type: **{row['pet_type']}**\n年龄 / Age: **{days_old} 天 / days**",
+                    color=0xE67E22,
+                )
+                embed.add_field(name="❤️ 心情 / Happiness", value=f"{row['happiness']}/100", inline=True)
+                embed.add_field(name="📅 领养日期 / Adopted", value=adopted_date, inline=True)
+                embed.set_footer(text="面板版宠物系统")
+                await interaction.response.send_message(embed=embed)
+                return
+
+            if action == "pet_feed":
+                with get_db_ctx() as conn:
+                    cur = conn.cursor()
+                    cur.execute("SELECT * FROM pets WHERE owner_id=?", (uid,))
+                    row = cur.fetchone()
+                if not row:
+                    return await interaction.response.send_message("你还没有宠物！/ No pet yet!", ephemeral=True)
+                today = datetime.now().strftime("%Y-%m-%d")
+                if row["last_fed"] and row["last_fed"][:10] == today:
+                    return await interaction.response.send_message(
+                        "今天已经喂过了！明天再来吧 / Already fed today!", ephemeral=True)
+                boost = random.randint(1, 5)
+                new_happiness = min(row["happiness"] + boost, 100)
+                with get_db_ctx() as conn:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "UPDATE pets SET happiness=?, last_fed=? WHERE id=?",
+                        (new_happiness, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), row["id"]),
+                    )
+                    conn.commit()
+                info = PET_TYPES.get(row["pet_type"].lower(), {"emoji": "🐾"})
+                embed = discord.Embed(
+                    title=f"{info['emoji']} 喂食 / Fed!",
+                    description=f"{row['pet_name']} 吃饱了！心情 +{boost}\n{row['pet_name']} is full! Happiness +{boost}",
+                    color=0x2ECC71,
+                )
+                embed.add_field(name="❤️ 心情 / Happiness", value=f"{new_happiness}/100", inline=True)
+                await interaction.response.send_message(embed=embed)
+                return
+
+            if action == "pet_play":
+                bal = get_balance(uid)
+                if bal < 50:
+                    return await interaction.response.send_message(
+                        f"金币不足！需要 🪙 50 / Need 🪙 50.", ephemeral=True)
+                with get_db_ctx() as conn:
+                    cur = conn.cursor()
+                    cur.execute("SELECT * FROM pets WHERE owner_id=?", (uid,))
+                    row = cur.fetchone()
+                if not row:
+                    return await interaction.response.send_message("你还没有宠物！/ No pet yet!", ephemeral=True)
+                today = datetime.now().strftime("%Y-%m-%d")
+                if row["last_played"] and row["last_played"][:10] == today:
+                    return await interaction.response.send_message(
+                        "今天已经玩过了！明天再来吧 / Already played today!", ephemeral=True)
+                add_coins(uid, -50, f"宠物玩耍 / Pet play: {row['pet_name']}")
+                boost = random.randint(1, 5)
+                new_happiness = min(row["happiness"] + boost, 100)
+                with get_db_ctx() as conn:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "UPDATE pets SET happiness=?, last_played=? WHERE id=?",
+                        (new_happiness, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), row["id"]),
+                    )
+                    conn.commit()
+                info = PET_TYPES.get(row["pet_type"].lower(), {"emoji": "🐾"})
+                embed = discord.Embed(
+                    title=f"{info['emoji']} 玩耍 / Play!",
+                    description=f"和 {row['pet_name']} 玩得很开心！心情 +{boost}\n"
+                                f"Played with {row['pet_name']}! Happiness +{boost}\n花费 / Cost: 🪙 50",
+                    color=0x3498DB,
+                )
+                embed.add_field(name="❤️ 心情 / Happiness", value=f"{new_happiness}/100", inline=True)
+                await interaction.response.send_message(embed=embed)
+                return
+
+            # Modal actions
+            if action == "pet_adopt":
+                modal = PetAdoptModal()
+            elif action == "pet_rename":
+                with get_db_ctx() as conn:
+                    cur = conn.cursor()
+                    cur.execute("SELECT * FROM pets WHERE owner_id=?", (uid,))
+                    if not cur.fetchone():
+                        return await interaction.response.send_message("你还没有宠物！/ No pet yet!", ephemeral=True)
+                modal = PetRenameModal()
+            else:
+                return
+            await interaction.response.send_modal(modal)
+
+        return cb
+
+
+class PetAdoptModal(discord.ui.Modal, title="🐾 领养宠物 / Adopt Pet"):
+    pet_type = discord.ui.TextInput(
+        label="宠物类型 / Pet Type",
+        placeholder="狗(dog) 🪙500 | 猫(cat) 🪙500 | 龙(dragon) 🪙2000 | 独角兽(unicorn) 🪙5000",
+        max_length=20, required=True,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        pet_type_lower = self.pet_type.value.strip().lower()
+
+        info = PET_TYPES.get(pet_type_lower) or PET_TYPES.get(pet_type_lower.capitalize())
+        if not info:
+            pet_list = " | ".join(f"{k}({v.get('zh',k)}) 🪙{v['price']:,}" for k, v in PET_TYPES.items())
+            return await interaction.response.send_message(
+                f"可选宠物: {pet_list}", ephemeral=True)
+
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT id FROM pets WHERE owner_id=?", (uid,))
+            if cur.fetchone():
+                return await interaction.response.send_message(
+                    "你已经有一只宠物了！/ You already have a pet!", ephemeral=True)
+
+        bal = get_balance(uid)
+        if bal < info["price"]:
+            return await interaction.response.send_message(
+                f"金币不足！需要 🪙 {info['price']:,}，你只有 🪙 {bal:,} / Not enough coins.", ephemeral=True)
+
+        add_coins(uid, -info["price"], f"领养宠物: {pet_type_lower} / Adopted pet")
+        display_name = info.get("zh", pet_type_lower)
+        display_type = info.get("zh", pet_type_lower)
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO pets (owner_id, pet_name, pet_type) VALUES (?, ?, ?)",
+                (uid, display_name, display_type),
+            )
+            conn.commit()
+
+        embed = discord.Embed(
+            title=f"{info['emoji']} 领养成功！/ Adopted!",
+            description=f"你领养了一只 **{display_name}**！\nYou adopted a **{info.get('en', display_name)}**!",
+            color=0x2ECC71,
+        )
+        embed.add_field(name="💰 花费 / Cost", value=_format_coins(info["price"]), inline=True)
+        embed.add_field(name="❤️ 心情 / Happiness", value="50/100", inline=True)
+        embed.set_footer(text="面板版宠物系统 | 使用按钮喂养/玩耍")
+        await interaction.response.send_message(embed=embed)
+
+
+class PetRenameModal(discord.ui.Modal, title="✏️ 宠物改名 / Rename Pet"):
+    new_name = discord.ui.TextInput(
+        label="新名字 / New Name",
+        placeholder="输入新名字（最多30字）/ Max 30 chars",
+        max_length=30, required=True,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        new_name = self.new_name.value.strip()
+
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM pets WHERE owner_id=?", (uid,))
+            row = cur.fetchone()
+            if not row:
+                return await interaction.response.send_message("你还没有宠物！/ No pet yet!", ephemeral=True)
+            old_name = row["pet_name"]
+            cur.execute("UPDATE pets SET pet_name=? WHERE id=?", (new_name, row["id"]))
+            conn.commit()
+
+        await interaction.response.send_message(
+            f"✅ 改名成功！**{old_name}** → **{new_name}** / Renamed!", ephemeral=True)
+
 
 
 async def setup(bot):

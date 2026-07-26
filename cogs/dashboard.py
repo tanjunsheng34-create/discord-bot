@@ -35,6 +35,9 @@ except ImportError:
     HAS_CRONITER = False
 from cogs.economy import get_balance, add_coins, MainMenuView
 from cogs.economy_jobs import EconomyJobsView
+from cogs.clans import ClanPanelView, CLAN_CREATE_COST
+from cogs.social import MarryPanelView, RepPanelView, PROPOSE_COST, DIVORCE_COST, MAX_DAILY_REP
+from cogs.pets import PetPanelView, PET_TYPES
 from cogs.casino_games import BlackjackView as CasinoBlackjackView, HorseRaceView as CasinoHorseRaceView
 import random
 import sqlite3
@@ -4416,7 +4419,7 @@ class CoinflipBetModal(discord.ui.Modal, title="🪙 猜硬币下注 | Coinflip 
         target_name = interaction.user.display_name
         raw = (self.target.value or "").strip()
         if raw:
-            resolved = resolve_name(raw)
+            resolved = resolve_name(interaction.guild, raw)
             if resolved:
                 target_id = str(resolved.id)
                 target_name = resolved.display_name
@@ -4507,7 +4510,11 @@ class BlackjackDashboardModal(discord.ui.Modal, title="🃏 21点下注 / Blackj
         if balance < amount:
             return await interaction.response.send_message(f"金币不足 / Insufficient coins. 余额: 🪙 {balance}", ephemeral=True)
         _add_coins(uid, -amount, "Blackjack bet / 21点下注")
-        view = CasinoBlackjackView(uid, amount, interaction.user.display_name)
+        suits = ['♠', '♥', '♦', '♣']
+        ranks = ['A','2','3','4','5','6','7','8','9','10','J','Q','K']
+        deck = [(r, s) for s in suits for r in ranks]
+        random.shuffle(deck)
+        view = CasinoBlackjackView(uid, interaction.user.display_name, amount, deck)
         await interaction.response.send_message(
             embed=discord.Embed(title="🃏 21点 / Blackjack", description="发牌中... / Dealing...", color=0xE74C3C),
             view=view)
@@ -4536,6 +4543,7 @@ class HorseRaceDashboardModal(discord.ui.Modal, title="🏇 赛马下注 / Horse
         await interaction.response.send_message(
             embed=discord.Embed(title="🏇 赛马 / Horse Race", description="准备开跑！/ Ready to race!", color=0xE67E22),
             view=view)
+        view.message = await interaction.original_response()
 
 
 class CrashDashboardModal(discord.ui.Modal, title="📈 Crash下注 / Crash Bet"):
@@ -4687,7 +4695,7 @@ class DiceDuelDashboardModal(discord.ui.Modal, title="🎲 骰子对决 / Dice D
     async def on_submit(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
         raw = self.opponent.value.strip().lstrip('@')
-        resolved = resolve_name(raw)
+        resolved = resolve_name(interaction.guild, raw)
         if not resolved:
             return await interaction.response.send_message("找不到该用户 / User not found.", ephemeral=True)
         opponent_id = str(resolved.id)
@@ -6548,82 +6556,62 @@ class DashboardView(discord.ui.View):
     # ═══════════════════ Page 6 — Social Hub ═══════════════════
     async def _pets(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
+        view = PetPanelView(guild=interaction.guild, dashboard_view=self)
         embed = discord.Embed(
-            title="🐾 宠物系统 Pets",
-            description="领养并照顾你的虚拟宠物！Adopt and care for your virtual pet!",
-            color=0x8E44AD,
+            title="🐾 宠物系统 | Pets",
+            description="点击下方按钮管理你的宠物！\nClick a button below to manage your pet!",
+            color=0xE67E22,
         )
-        embed.add_field(
-            name="可用命令 / Commands",
-            value=(
-                "`/gmpt-pet adopt <name> <type>` — 🐣 领养宠物 Adopt\n"
-                "`/gmpt-pet status` — 📋 查看宠物 View Status\n"
-                "`/gmpt-pet feed` — 🍖 喂食 Feed\n"
-                "`/gmpt-pet play` — 🎾 玩耍 Play\n"
-                "`/gmpt-pet rename <name>` — ✏️ 改名 Rename"
-            ),
-            inline=False,
+        pet_info = "\n".join(
+            f"{v['emoji']} {v.get('zh', k)} — 🪙 {v['price']:,}"
+            for k, v in PET_TYPES.items()
         )
-        embed.set_footer(text="领养费用 1000💰 | 喂食/玩耍 + 幸福感")
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        embed.add_field(name="🐾 可领养宠物 / Available Pets", value=pet_info, inline=False)
+        embed.add_field(name="按钮功能", value="领养 | 查看 | 喂养 | 玩耍 | 改名", inline=False)
+        embed.set_footer(text="面板版宠物系统 | Pet button panel")
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     async def _clans(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
+        view = ClanPanelView(guild=interaction.guild, dashboard_view=self)
         embed = discord.Embed(
-            title="🏰 公会系统 Clans",
-            description="创建或加入公会！Create or join a clan!",
-            color=0x2C3E50,
+            title="🏰 公会系统 | Clans",
+            description="点击下方按钮操作公会！\nClick a button below!",
+            color=0x9B59B6,
         )
-        embed.add_field(
-            name="可用命令 / Commands",
-            value=(
-                "`/gmpt-clan create <name>` — 🏗️ 创建公会 (5000💰) Create\n"
-                "`/gmpt-clan join <name>` — 📥 加入公会 Join\n"
-                "`/gmpt-clan leave` — 📤 离开公会 Leave\n"
-                "`/gmpt-clan info` — ℹ️ 查看信息 Info\n"
-                "`/gmpt-clan donate <amount>` — 💎 捐赠 Donate"
-            ),
-            inline=False,
-        )
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        embed.add_field(name="🏰 创建公会", value=f"花费 🪙 {CLAN_CREATE_COST:,}", inline=True)
+        embed.add_field(name="🚪 加入公会", value="输入公会名加入", inline=True)
+        embed.add_field(name="💰 捐赠", value="为公会贡献金币", inline=True)
+        embed.set_footer(text="面板版公会系统 | Clan button panel")
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     async def _social_marry(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
+        view = MarryPanelView(guild=interaction.guild, dashboard_view=self)
         embed = discord.Embed(
-            title="💍 结婚系统 Marry",
-            description="和好友结婚！Marry your friend!",
+            title="💍 结婚系统 | Marriage",
+            description="点击下方按钮操作婚姻！\nClick a button below!",
             color=0xE91E63,
         )
-        embed.add_field(
-            name="可用命令 / Commands",
-            value=(
-                "`/gmpt-marry propose <user>` — 💌 求婚 (2000💰) Propose\n"
-                "`/gmpt-marry accept` — ✅ 接受求婚 Accept\n"
-                "`/gmpt-marry decline` — ❌ 拒绝求婚 Decline\n"
-                "`/gmpt-marry divorce` — 💔 离婚 (5000💰) Divorce\n"
-                "`/gmpt-marry status` — 📋 查看状态 Status"
-            ),
-            inline=False,
-        )
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        embed.add_field(name="💍 求婚", value=f"向心仪的人求婚（花费 🪙 {PROPOSE_COST:,}）", inline=True)
+        embed.add_field(name="💔 离婚", value=f"结束婚姻（花费 🪙 {DIVORCE_COST:,}）", inline=True)
+        embed.add_field(name="📋 状态", value="查看当前婚姻状态", inline=True)
+        embed.set_footer(text="面板版结婚系统 | Marriage button panel")
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     async def _social_rep(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
+        view = RepPanelView(guild=interaction.guild, dashboard_view=self)
         embed = discord.Embed(
-            title="⭐ 声望系统 Reputation",
-            description="给好友增加声望！Give reputation to friends!",
+            title="⭐ 声望系统 | Reputation",
+            description="点击下方按钮操作声望！\nClick a button below!",
             color=0xF1C40F,
         )
-        embed.add_field(
-            name="可用命令 / Commands",
-            value=(
-                "`/gmpt-rep give <user>` — ⭐ 给予声望 Give Rep\n"
-                "`/gmpt-rep check` — 📋 查看声望 Check Rep"
-            ),
-            inline=False,
-        )
-        embed.add_field(name="限制", value="每天最多 3 次 / Max 3 per day", inline=False)
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        embed.add_field(name="⭐ 给予声望", value=f"每日上限 {MAX_DAILY_REP} 次", inline=True)
+        embed.add_field(name="📊 查看声望", value="查看自己或他人的声望", inline=True)
+        embed.add_field(name="🏆 排行榜", value="全服声望 TOP 20", inline=True)
+        embed.set_footer(text="面板版声望系统 | Reputation button panel")
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     async def _marketplace_sell(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
