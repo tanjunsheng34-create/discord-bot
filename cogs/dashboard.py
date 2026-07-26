@@ -34,6 +34,7 @@ try:
 except ImportError:
     HAS_CRONITER = False
 from cogs.economy import get_balance, add_coins, MainMenuView
+from cogs.economy_jobs import EconomyJobsView
 from cogs.casino_games import BlackjackView as CasinoBlackjackView, HorseRaceView as CasinoHorseRaceView
 import random
 import sqlite3
@@ -6501,24 +6502,25 @@ class DashboardView(discord.ui.View):
 
     async def _economy_jobs(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
+        view = EconomyJobsView(guild=interaction.guild, dashboard_view=self)
         embed = discord.Embed(
-            title="💼 打工赚钱 Economy Jobs",
-            description="多种方式赚取金币！Multiple ways to earn coins!",
+            title="💼 打工赚钱 | Economy Jobs",
+            description="点击下方按钮即可打工赚钱，无需打指令！\nClick a button below to earn coins — no commands needed!",
             color=0xF39C12,
         )
         embed.add_field(
-            name="可用命令 / Commands",
+            name="可用工作 / Available Jobs",
             value=(
-                "`/gmpt-work` — 🏭 打工 Work (1h CD)\n"
-                "`/gmpt-rob` — 🥷 打劫 Rob (2h CD)\n"
-                "`/gmpt-beg` — 🥺 乞讨 Beg (5min CD)\n"
-                "`/gmpt-fish` — 🎣 钓鱼 Fish (3min CD)\n"
-                "`/gmpt-hunt` — 🏹 狩猎 Hunt (5min CD)"
+                "🏭 **打工** — 1小时 CD / 1h cooldown\n"
+                "🥷 **打劫** — 2小时 CD / 2h cooldown\n"
+                "🥺 **乞讨** — 5分钟 CD / 5min cooldown\n"
+                "🎣 **钓鱼** — 3分钟 CD / 3min cooldown\n"
+                "🏹 **狩猎** — 5分钟 CD / 5min cooldown"
             ),
             inline=False,
         )
         embed.set_footer(text="每种工作有独立的冷却时间 | Each job has its own cooldown")
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     # ═══════════════════ Page 5 — Gambling ═══════════════════
     async def _gambling(self, interaction: discord.Interaction):

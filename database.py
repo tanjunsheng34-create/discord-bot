@@ -213,6 +213,22 @@ def _create_economy_tables(cursor):
             settled     INTEGER DEFAULT 0,
             won         INTEGER DEFAULT 0
         );
+
+        CREATE TABLE IF NOT EXISTS active_bets (
+            match_id    INTEGER NOT NULL,
+            discord_id  TEXT NOT NULL,
+            team_id     INTEGER NOT NULL,
+            amount      INTEGER NOT NULL,
+            placed_at   TEXT DEFAULT (datetime('now')),
+            UNIQUE(match_id, discord_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS job_cooldowns (
+            user_id     TEXT NOT NULL,
+            job_type    TEXT NOT NULL,
+            last_used   REAL NOT NULL,
+            PRIMARY KEY (user_id, job_type)
+        );
     """)
 
 
