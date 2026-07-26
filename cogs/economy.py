@@ -2790,6 +2790,33 @@ class CoinPaginationView(discord.ui.View):
             await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
 
+# ══════════ Economy Panel Commands ══════════
+
+    @app_commands.command(name="gmpt-giveaway-panel", description="抽奖按钮面板 / Giveaway button panel")
+    async def giveaway_panel(self, interaction: discord.Interaction):
+        embed = discord.Embed(title="🎉 抽奖系统 / Giveaway", description="选择一个操作 / Choose an action:", color=0x9B59B6)
+        view = GiveawayPanelView()
+        await interaction.response.send_message(embed=embed, view=view)
+
+    @app_commands.command(name="gmpt-lottery-panel", description="彩票按钮面板 / Lottery button panel")
+    async def lottery_panel(self, interaction: discord.Interaction):
+        embed = discord.Embed(title="🎰 彩票系统 / Lottery", description="选择一个操作 / Choose an action:", color=0xF39C12)
+        view = LotteryPanelView()
+        await interaction.response.send_message(embed=embed, view=view)
+
+    @app_commands.command(name="gmpt-season-panel", description="赛季按钮面板 / Season button panel")
+    async def season_panel(self, interaction: discord.Interaction):
+        embed = discord.Embed(title="📈 赛季系统 / Season", description="选择一个操作 / Choose an action:", color=0xE67E22)
+        view = SeasonPanelView()
+        await interaction.response.send_message(embed=embed, view=view)
+
+    @app_commands.command(name="gmpt-item-panel", description="道具背包按钮面板 / Item backpack button panel")
+    async def item_panel(self, interaction: discord.Interaction):
+        embed = discord.Embed(title="🎒 道具系统 / Items", description="选择一个操作 / Choose an action:", color=0xF1C40F)
+        view = ItemPanelView()
+        await interaction.response.send_message(embed=embed, view=view)
+
+
 # ══════════ BetView — 按钮下注 / Button Betting ══════════
 
 class BetModal(discord.ui.Modal, title="下注 / Place Bet"):
@@ -2914,6 +2941,304 @@ class BetView(discord.ui.View):
     async def bet_b_btn(self, interaction: discord.Interaction, button):
         _, team_b_label = await self._get_team_labels()
         await interaction.response.send_modal(BetModal(self.match_id, "B", team_b_label))
+
+
+# ══════════ Giveaway Panel View ══════════
+class GiveawayPanelView(discord.ui.View):
+    """抽奖按钮面板 / Giveaway button panel."""
+
+    def __init__(self):
+        super().__init__(timeout=180)
+
+    @discord.ui.button(label="🎉 创建抽奖(管理)", style=discord.ButtonStyle.primary, row=0)
+    async def create_btn(self, interaction: discord.Interaction, button):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("仅管理员可用 / Admin only.", ephemeral=True)
+        class GiveawayCreateModal(discord.ui.Modal, title="创建抽奖 / Create Giveaway"):
+            prize = discord.ui.TextInput(label="奖品名称 / Prize", placeholder="1000金币", max_length=100, required=True)
+            draw_at = discord.ui.TextInput(label="开奖时间 / Draw at (YYYY-MM-DD HH:MM)", placeholder="2026-08-01 20:00", max_length=20, required=True)
+            async def on_submit(self, sub_interaction: discord.Interaction):
+                with get_db_ctx() as conn:
+                    cur = conn.cursor()
+                    cur.execute("INSERT INTO giveaways (channel_id, prize, created_by, draw_at) VALUES (?,?,?,?)",
+                                (str(sub_interaction.channel_id), self.prize.value, str(sub_interaction.user.id), self.draw_at.value))
+                    gid = cur.lastrowid
+                    conn.commit()
+                await sub_interaction.response.send_message(
+                    f"🎉 **Giveaway #{gid} Created! / 抽奖已创建！**\n"
+                    f"Prize: **{self.prize.value}** | Draw: **{self.draw_at.value}**\n"
+                    f"Use `/gmpt-giveaway enter {gid}` to enter!"
+                )
+        await interaction.response.send_modal(GiveawayCreateModal())
+
+    @discord.ui.button(label="🎟️ 参与抽奖", style=discord.ButtonStyle.success, row=0)
+    async def enter_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.send_message("使用 `/gmpt-giveaway enter <ID>` 参与抽奖 / Use command to enter.", ephemeral=True)
+
+    @discord.ui.button(label="📊 查看奖券", style=discord.ButtonStyle.secondary, row=0)
+    async def tickets_btn(self, interaction: discord.Interaction, button):
+        uid = str(interaction.user.id)
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT tickets FROM giveaway_tickets WHERE discord_id=?", (uid,))
+            row = cur.fetchone()
+        tix = row["tickets"] if row else 0
+        await interaction.response.send_message(f"🎟️ 你有 **{tix}** 张抽奖券 / You have **{tix}** tickets.", ephemeral=True)
+
+    @discord.ui.button(label="📋 抽奖列表", style=discord.ButtonStyle.secondary, row=0)
+    async def list_btn(self, interaction: discord.Interaction, button):
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM giveaways WHERE drawn=0 ORDER BY id DESC LIMIT 10")
+            rows = cur.fetchall()
+        if not rows:
+            return await interaction.response.edit_message(content="暂无活跃抽奖 / No active giveaways.", embed=None, view=self)
+        embed = discord.Embed(title="🎉 当前抽奖 / Active Giveaways", color=0x9B59B6)
+        for r in rows:
+            embed.add_field(
+                name=f"#{r['id']} — {r['prize']}",
+                value=f"开奖 / Draw: {r['draw_at']}\n创建者 / Creator: <@{r['created_by']}>",
+                inline=False,
+            )
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="◀ 返回主菜单", style=discord.ButtonStyle.danger, row=1)
+    async def back_btn(self, interaction: discord.Interaction, button):
+        from cogs.dashboard import DashboardView
+        view = DashboardView(guild=interaction.guild, bot=None)
+        view.category = 0
+        view.build_page_buttons()
+        embed = view._build_page_embed()
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+# ══════════ Lottery Panel View ══════════
+class LotteryPanelView(discord.ui.View):
+    """彩票按钮面板 / Lottery button panel."""
+
+    def __init__(self):
+        super().__init__(timeout=180)
+
+    @discord.ui.button(label="🎫 买票 (50金币)", style=discord.ButtonStyle.success, row=0)
+    async def buy_btn(self, interaction: discord.Interaction, button):
+        uid = str(interaction.user.id)
+        bal = get_balance(uid)
+        if bal < 50:
+            return await interaction.response.send_message(f"金币不足！需要 🪙 50，你有 🪙 {bal:,}", ephemeral=True)
+        add_coins(uid, -50, "Lottery ticket")
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("INSERT INTO lottery_tickets (discord_id, numbers) VALUES (?,?)",
+                        (uid, ",".join(str(random.randint(1, 99)) for _ in range(6))))
+            tid = cur.lastrowid
+            conn.commit()
+            cur.execute("SELECT numbers FROM lottery_tickets WHERE id=?", (tid,))
+            nums = cur.fetchone()["numbers"]
+        await interaction.response.send_message(
+            f"🎫 彩票购买成功！/ Ticket purchased!\n编号 #{tid} | 号码: **{nums}**", ephemeral=True
+        )
+
+    @discord.ui.button(label="📊 查看状态", style=discord.ButtonStyle.secondary, row=0)
+    async def status_btn(self, interaction: discord.Interaction, button):
+        uid = str(interaction.user.id)
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT id, numbers, drawn FROM lottery_tickets WHERE discord_id=? ORDER BY id DESC LIMIT 5", (uid,))
+            rows = cur.fetchall()
+        if not rows:
+            return await interaction.response.send_message("暂无彩票 / No lottery tickets.", ephemeral=True)
+        lines = []
+        for r in rows:
+            status = "✅ 已开奖" if r["drawn"] else "⏳ 等待开奖"
+            lines.append(f"#{r['id']} — {r['numbers']} — {status}")
+        await interaction.response.send_message("🎫 你的彩票 / Your tickets:\n" + "\n".join(lines), ephemeral=True)
+
+    @discord.ui.button(label="🎰 开奖(管理员)", style=discord.ButtonStyle.primary, row=0)
+    async def draw_btn(self, interaction: discord.Interaction, button):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("仅管理员可用 / Admin only.", ephemeral=True)
+        winning = [random.randint(1, 99) for _ in range(6)]
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM lottery_tickets WHERE drawn=0")
+            rows = cur.fetchall()
+        winners = []
+        for r in rows:
+            ticket_nums = [int(n) for n in r["numbers"].split(",")]
+            matches = len(set(winning) & set(ticket_nums))
+            if matches >= 3:
+                prize = {3: 100, 4: 500, 5: 2000, 6: 10000}.get(matches, 0)
+                add_coins(r["discord_id"], prize, f"Lottery #{r['id']} won ({matches} matches)")
+                winners.append((r["discord_id"], r["id"], matches, prize))
+        # Mark all as drawn
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("UPDATE lottery_tickets SET drawn=1 WHERE drawn=0")
+            conn.commit()
+        win_text = "\n".join(f"🎉 <@{w[0]}> — Ticket #{w[1]}: {w[2]} matches → 🪙 {w[3]:,}" for w in winners) or "无人中奖 / No winners."
+        await interaction.response.send_message(
+            f"🎰 **彩票开奖！/ Lottery Draw!**\n中奖号码 / Winning numbers: **{', '.join(map(str, winning))}**\n\n{win_text}"
+        )
+
+    @discord.ui.button(label="◀ 返回主菜单", style=discord.ButtonStyle.danger, row=1)
+    async def back_btn(self, interaction: discord.Interaction, button):
+        from cogs.dashboard import DashboardView
+        view = DashboardView(guild=interaction.guild, bot=None)
+        view.category = 0
+        view.build_page_buttons()
+        embed = view._build_page_embed()
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+# ══════════ Season Panel View ══════════
+class SeasonPanelView(discord.ui.View):
+    """赛季按钮面板 / Season button panel."""
+
+    def __init__(self):
+        super().__init__(timeout=180)
+
+    @discord.ui.button(label="📈 赛季排行榜", style=discord.ButtonStyle.primary, row=0)
+    async def standings_btn(self, interaction: discord.Interaction, button):
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT id, name FROM seasons WHERE active=1")
+            season = cur.fetchone()
+            if not season:
+                return await interaction.response.edit_message(content="没有活跃赛季 / No active season.", embed=None, view=self)
+            cur.execute("""
+                SELECT discord_id, mmr, wins, losses
+                FROM season_standings WHERE season_id=?
+                ORDER BY mmr DESC LIMIT 15
+            """, (season["id"],))
+            rows = cur.fetchall()
+        embed = discord.Embed(title=f"📈 {season['name']} 排行榜 / Standings", color=0xE67E22)
+        if not rows:
+            embed.description = "暂无数据 / No data."
+        else:
+            lines = []
+            for i, r in enumerate(rows, 1):
+                medal = ["🥇", "🥈", "🥉"][i - 1] if i <= 3 else f"#{i}"
+                lines.append(f"{medal} <@{r['discord_id']}> — MMR {r['mmr']} | {r['wins']}W {r['losses']}L")
+            embed.description = "\n".join(lines)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="👤 我的排名", style=discord.ButtonStyle.success, row=0)
+    async def my_rank_btn(self, interaction: discord.Interaction, button):
+        uid = str(interaction.user.id)
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT id, name FROM seasons WHERE active=1")
+            season = cur.fetchone()
+            if not season:
+                return await interaction.response.send_message("没有活跃赛季 / No active season.", ephemeral=True)
+            cur.execute("SELECT mmr, wins, losses FROM season_standings WHERE season_id=? AND discord_id=?", (season["id"], uid))
+            row = cur.fetchone()
+        if not row:
+            return await interaction.response.send_message("你未参与当前赛季 / You haven't participated.", ephemeral=True)
+        embed = discord.Embed(title=f"🏅 {interaction.user.display_name} — {season['name']}", color=0xE67E22)
+        embed.add_field(name="MMR", value=str(row["mmr"]), inline=True)
+        embed.add_field(name="Wins", value=str(row["wins"]), inline=True)
+        embed.add_field(name="Losses", value=str(row["losses"]), inline=True)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @discord.ui.button(label="ℹ️ 赛季信息", style=discord.ButtonStyle.secondary, row=0)
+    async def info_btn(self, interaction: discord.Interaction, button):
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM seasons WHERE active=1")
+            season = cur.fetchone()
+            if not season:
+                return await interaction.response.edit_message(content="没有活跃赛季 / No active season.", embed=None, view=self)
+            cur.execute("SELECT COUNT(*) as cnt FROM season_standings WHERE season_id=?", (season["id"],))
+            cnt = cur.fetchone()["cnt"]
+        embed = discord.Embed(title=f"ℹ️ {season['name']}", color=0xE67E22)
+        embed.add_field(name="开始时间 / Start", value=str(season["start_date"]), inline=True)
+        embed.add_field(name="参与人数", value=str(cnt), inline=True)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="◀ 返回主菜单", style=discord.ButtonStyle.danger, row=1)
+    async def back_btn(self, interaction: discord.Interaction, button):
+        from cogs.dashboard import DashboardView
+        view = DashboardView(guild=interaction.guild, bot=None)
+        view.category = 0
+        view.build_page_buttons()
+        embed = view._build_page_embed()
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+# ══════════ Item Panel View ══════════
+class ItemPanelView(discord.ui.View):
+    """道具背包按钮面板 / Item backpack button panel."""
+
+    def __init__(self):
+        super().__init__(timeout=180)
+
+    @discord.ui.button(label="🎒 查看背包", style=discord.ButtonStyle.primary, row=0)
+    async def backpack_btn(self, interaction: discord.Interaction, button):
+        uid = str(interaction.user.id)
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT si.name, inv.quantity, si.item_type
+                FROM user_inventory inv
+                JOIN shop_items si ON si.id = inv.item_id
+                WHERE inv.user_id=?
+            """, (uid,))
+            rows = cur.fetchall()
+        if not rows:
+            return await interaction.response.edit_message(content="🎒 背包为空 / Backpack is empty.", embed=None, view=self)
+        embed = discord.Embed(title=f"🎒 {interaction.user.display_name} 的背包 / Backpack", color=0xF1C40F)
+        for r in rows:
+            embed.add_field(name=f"{r['name']} (x{r['quantity']})", value=f"类型: {r['item_type']}", inline=True)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="⚡ 使用道具", style=discord.ButtonStyle.success, row=0)
+    async def use_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.send_message("使用 `/gmpt-item use <道具类型> <目标>` 使用道具 / Use command to use items.", ephemeral=True)
+
+    @discord.ui.button(label="📚 道具图鉴", style=discord.ButtonStyle.secondary, row=0)
+    async def catalog_btn(self, interaction: discord.Interaction, button):
+        # Show ITEM_EFFECTS catalog from Economy cog
+        item_list = [
+            ("ban_flash", "禁用闪现 30s"),
+            ("freeze", "泉水冻结 30s"),
+            ("silence", "沉默 30s"),
+            ("blind", "致盲 30s"),
+            ("slow", "减速 30s"),
+            ("lock_pick", "锁定英雄 全局"),
+            ("no_summs", "禁用召唤师技能 全局"),
+            ("downgrade", "降级 全局"),
+            ("timeout", "暂停 15s"),
+            ("mute", "闭麦 30s"),
+            ("reveal", "透视 即时"),
+            ("no_recall", "禁止回城 30s"),
+            ("breakup", "打散 30s"),
+            ("steal_buff", "偷Buff 即时"),
+            ("sprint", "加速 15s"),
+            ("reverse", "反转 30s"),
+            ("kamikaze", "自爆 即时"),
+            ("surrender", "强制投降 即时"),
+            ("int_card", "送一血 即时"),
+            ("afk_card", "挂机 30s"),
+            ("no_items", "禁止装备 30s"),
+            ("feed_buff", "送Buff 即时"),
+        ]
+        embed = discord.Embed(title="📚 道具图鉴 / Item Catalog", color=0xF1C40F)
+        lines = []
+        for key, desc in item_list:
+            lines.append(f"**{key}** — {desc}")
+        embed.description = "\n".join(lines[:10])
+        embed.add_field(name="更多 / More (1-10)", value="\n".join(lines[10:]) or "...", inline=False)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="◀ 返回主菜单", style=discord.ButtonStyle.danger, row=1)
+    async def back_btn(self, interaction: discord.Interaction, button):
+        from cogs.dashboard import DashboardView
+        view = DashboardView(guild=interaction.guild, bot=None)
+        view.category = 0
+        view.build_page_buttons()
+        embed = view._build_page_embed()
+        await interaction.response.edit_message(embed=embed, view=view)
 
 
 async def setup(bot):

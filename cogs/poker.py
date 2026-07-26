@@ -751,6 +751,97 @@ class Poker(commands.Cog):
         _games.pop(cid, None)
 
 
+    @app_commands.command(name="gmpt-poker", description="德州扑克按钮面板 / Poker button panel")
+    async def poker_panel(self, interaction: discord.Interaction):
+        embed = discord.Embed(title="🃏 德州扑克 / Texas Hold'em", description="选择一个操作 / Choose an action:", color=discord.Color.dark_green())
+        view = PokerPanelView()
+        await interaction.response.send_message(embed=embed, view=view)
+
+
+# ══════════ Poker Panel View ══════════
+class PokerPanelView(discord.ui.View):
+    """德州扑克按钮面板 / Poker button panel."""
+
+    def __init__(self):
+        super().__init__(timeout=180)
+
+    @discord.ui.button(label="🃏 创建牌桌", style=discord.ButtonStyle.primary, row=0)
+    async def create_table(self, interaction: discord.Interaction, button):
+        from cogs.poker import _games
+        cid = interaction.channel_id
+        if cid in _games:
+            return await interaction.response.send_message("本频道已有牌局 / A game is already running in this channel.", ephemeral=True)
+        class PokerCreateModal(discord.ui.Modal, title="创建牌桌 / Create Table"):
+            buy_in = discord.ui.TextInput(label="买入金额 / Buy-in", placeholder="500", max_length=10, required=True)
+            async def on_submit(self, sub_interaction: discord.Interaction):
+                try:
+                    amount = int(self.buy_in.value)
+                except ValueError:
+                    return await sub_interaction.response.send_message("请输入有效数字 / Enter a valid number.", ephemeral=True)
+                if amount < 50 or amount > 100000:
+                    return await sub_interaction.response.send_message("买入金额 50-100000 / Buy-in 50-100k.", ephemeral=True)
+                uid = str(sub_interaction.user.id)
+                from database import get_db_ctx
+                with get_db_ctx() as conn:
+                    cur = conn.cursor()
+                    cur.execute("SELECT score FROM users WHERE discord_id=?", (uid,))
+                    row = cur.fetchone()
+                    bal = row["score"] if row else 0
+                if bal < amount:
+                    return await sub_interaction.response.send_message(f"余额不足！你有 🪙 {bal:,} / Insufficient balance.", ephemeral=True)
+                from cogs.economy import add_coins
+                add_coins(uid, -amount, "Poker buy-in")
+                game = PokerGame(cid, amount)
+                game.players[sub_interaction.user.id] = {
+                    "hand": [], "chips": amount, "bet": 0,
+                    "folded": False, "name": sub_interaction.user.display_name,
+                }
+                game.order.append(sub_interaction.user.id)
+                game.dealer_idx = 0
+                _games[cid] = game
+                await sub_interaction.response.send_message(
+                    f"✅ 牌桌创建成功！/ Table created!\nBuy-in: 🪙 {amount:,}\n"
+                    f"其他人使用 `/poker join` 加入 / Others use `/poker join` to join.\n"
+                    f"满2人后 dealer 可用 `/poker deal` 发牌。",
+                )
+        await interaction.response.send_modal(PokerCreateModal())
+
+    @discord.ui.button(label="👥 加入", style=discord.ButtonStyle.success, row=0)
+    async def join_table(self, interaction: discord.Interaction, button):
+        await interaction.response.send_message("使用 `/poker join` 加入当前牌局 / Use `/poker join` to join.", ephemeral=True)
+
+    @discord.ui.button(label="🎴 开始发牌", style=discord.ButtonStyle.primary, row=0)
+    async def deal_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.send_message("使用 `/poker deal` 发牌 / Use `/poker deal` to deal.", ephemeral=True)
+
+    @discord.ui.button(label="📊 牌局状态", style=discord.ButtonStyle.secondary, row=0)
+    async def status_btn(self, interaction: discord.Interaction, button):
+        cid = interaction.channel_id
+        if cid not in _games:
+            return await interaction.response.send_message("本频道没有活跃牌局 / No active game.", ephemeral=True)
+        g = _games[cid]
+        p_lines = []
+        for uid in g.order:
+            p = g.players[uid]
+            st = "(folded)" if p["folded"] else ("(all-in)" if p["chips"] == 0 else "")
+            p_lines.append(f"{p['name']}: {p['chips']} chips {st}")
+        embed = discord.Embed(title="🃏 牌局状态 / Poker Status", color=discord.Color.blue())
+        embed.add_field(name="Buy-in", value=str(g.buy_in), inline=True)
+        embed.add_field(name="Phase", value=g.phase.value, inline=True)
+        embed.add_field(name="Pot", value=str(g.pot), inline=True)
+        embed.add_field(name="Players", value="\n".join(p_lines) or "无 / None", inline=False)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="◀ 返回主菜单", style=discord.ButtonStyle.danger, row=1)
+    async def back_btn(self, interaction: discord.Interaction, button):
+        from cogs.dashboard import DashboardView
+        view = DashboardView(guild=interaction.guild, bot=None)
+        view.category = 0
+        view.build_page_buttons()
+        embed = view._build_page_embed()
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
 async def setup(bot: commands.Bot):
     await bot.add_cog(Poker(bot))
     logger.info("Poker cog loaded")

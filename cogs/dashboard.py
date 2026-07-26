@@ -33,12 +33,16 @@ try:
     HAS_CRONITER = True
 except ImportError:
     HAS_CRONITER = False
-from cogs.economy import get_balance, add_coins, MainMenuView
+from cogs.economy import get_balance, add_coins, MainMenuView, GiveawayPanelView, LotteryPanelView, SeasonPanelView, ItemPanelView
 from cogs.economy_jobs import EconomyJobsView
 from cogs.clans import ClanPanelView, CLAN_CREATE_COST
 from cogs.social import MarryPanelView, RepPanelView, PROPOSE_COST, DIVORCE_COST, MAX_DAILY_REP
 from cogs.pets import PetPanelView, PET_TYPES
-from cogs.casino_games import BlackjackView as CasinoBlackjackView, HorseRaceView as CasinoHorseRaceView
+from cogs.poker import PokerPanelView
+from cogs.leaderboard import LeaderboardView
+from cogs.auction import AuctionView
+from cogs.wheel import WheelView
+from cogs.casino_games import BlackjackView as CasinoBlackjackView, HorseRaceView as CasinoHorseRaceView, HORSE_EMOJIS, HORSE_ODDS
 import random
 import sqlite3
 import time as time_mod
@@ -4515,9 +4519,34 @@ class BlackjackDashboardModal(discord.ui.Modal, title="🃏 21点下注 / Blackj
         deck = [(r, s) for s in suits for r in ranks]
         random.shuffle(deck)
         view = CasinoBlackjackView(uid, interaction.user.display_name, amount, deck)
-        await interaction.response.send_message(
-            embed=discord.Embed(title="🃏 21点 / Blackjack", description="发牌中... / Dealing...", color=0xE74C3C),
-            view=view)
+
+        if view.player_blackjack and not view.dealer_blackjack:
+            view.finished = True
+            profit = int(amount * 1.5)
+            _add_coins(uid, profit, "Blackjack win / 21点Blackjack获胜")
+            bal2 = _get_balance(uid)
+            embed = await view._build_embed(show_dealer=True)
+            embed.color = 0x2ECC71
+            embed.add_field(name="结果 / Result", value=f"🎉 Blackjack! 🪙 +{profit:,}", inline=False)
+            embed.add_field(name="余额 / Balance", value=f"🪙 {bal2:,}", inline=True)
+            for child in view.children:
+                child.disabled = True
+            await interaction.response.send_message(embed=embed, view=view)
+        elif view.player_blackjack and view.dealer_blackjack:
+            view.finished = True
+            _add_coins(uid, amount, "Blackjack push / 21点平局")
+            bal2 = _get_balance(uid)
+            embed = await view._build_embed(show_dealer=True)
+            embed.color = 0xF1C40F
+            embed.add_field(name="结果 / Result", value="🤝 双方Blackjack平局 / Both Blackjack — Push!", inline=False)
+            embed.add_field(name="余额 / Balance", value=f"🪙 {bal2:,}", inline=True)
+            for child in view.children:
+                child.disabled = True
+            await interaction.response.send_message(embed=embed, view=view)
+        else:
+            embed = await view._build_embed()
+            await interaction.response.send_message(embed=embed, view=view)
+            view.message = await interaction.original_response()
 
 
 class HorseRaceDashboardModal(discord.ui.Modal, title="🏇 赛马下注 / Horse Race Bet"):
@@ -4539,10 +4568,17 @@ class HorseRaceDashboardModal(discord.ui.Modal, title="🏇 赛马下注 / Horse
         if balance < amount:
             return await interaction.response.send_message(f"金币不足 / Insufficient coins. 余额: 🪙 {balance}", ephemeral=True)
         _add_coins(uid, -amount, "Horse race bet / 赛马下注")
-        view = CasinoHorseRaceView(uid, amount, interaction.user.display_name)
-        await interaction.response.send_message(
-            embed=discord.Embed(title="🏇 赛马 / Horse Race", description="准备开跑！/ Ready to race!", color=0xE67E22),
-            view=view)
+        view = CasinoHorseRaceView(amount, uid, interaction.user.display_name)
+        embed = discord.Embed(
+            title="🏇 赛马 / Horse Race",
+            description="选择一匹马来下注 / Choose a horse to bet on!\n\n" + '\n'.join(
+                f"{HORSE_EMOJIS[i]} **马{i+1}** — 赔率/Odds: **{HORSE_ODDS[i]}:1**"
+                for i in range(6)
+            ),
+            color=0xE67E22,
+        )
+        embed.set_footer(text="30秒内选择 / 30s to choose")
+        await interaction.response.send_message(embed=embed, view=view)
         view.message = await interaction.original_response()
 
 
@@ -4859,12 +4895,17 @@ class DashboardView(discord.ui.View):
                 ("👤 个人资料", "profile"),
                 ("🛒 积分商店", "shop"),
                 ("🎒 我的背包", "inventory"),
+                ("🎒 道具面板", "item_panel"),
                 ("🎁 赠送金币", "gift"),
                 ("📊 交易记录", "transactions"),
                 ("🏅 成就列表", "achievements"),
                 ("💼 打工赚钱", "economy_jobs"),
                 ("🗓️ 每日奖励", "daily"),
                 ("📜 比赛历史", "history"),
+                ("🎉 抽奖系统", "giveaway"),
+                ("🎫 彩票系统", "lottery"),
+                ("🏪 拍卖行", "auction"),
+                ("🎡 幸运转盘", "wheel"),
             ]
             self._build_grid(btns, rows_of=5)
 
@@ -4886,6 +4927,7 @@ class DashboardView(discord.ui.View):
                 ("🎲 骰子对决", "game_diceduel"),
                 ("🎰 刮刮乐", "game_scratch"),
                 ("⚔️ Ban/Pick", "game_banpick"),
+                ("🃏 德州扑克", "poker"),
             ]
             self._build_grid(btns, rows_of=5)
 
@@ -4916,6 +4958,7 @@ class DashboardView(discord.ui.View):
                 ("🔊 排队状态", "queue_status"),
                 ("📊 全部玩家", "all_players"),
                 ("🏅 MMR排行", "mmr_lb"),
+                ("🏆 排行榜", "leaderboard"),
                 ("📊 数据总览", "stats"),
                 ("🎖️ 段位列表", "ranks"),
                 ("🔥 连胜王", "win_streak"),
@@ -4923,6 +4966,7 @@ class DashboardView(discord.ui.View):
                 ("🎙️ 赛后拉入", "post_match_pull"),
                 ("📅 每周挑战", "weekly"),
                 ("📅 排位赛季", "season"),
+                ("📅 赛季面板", "season_panel"),
             ]
             self._build_grid(btns, rows_of=5)
 
@@ -7516,13 +7560,49 @@ class DashboardView(discord.ui.View):
         )
 
     async def _game_poker(self, interaction: discord.Interaction):
-        """♠️ 德州扑克 / Poker — 需要在聊天框输入命令"""
-        await interaction.response.send_message(
-            "请在聊天框输入 `/poker start` 开始德州扑克！\n"
-            "Use `/poker start` to start a Texas Hold'em game!\n"
-            "（默认买入 500，可指定 `/poker start 1000`）/ (Default buy-in: 500)",
-            ephemeral=True,
-        )
+        """🃏 德州扑克 / Poker panel"""
+        embed = discord.Embed(title="🃏 德州扑克 / Texas Hold'em", description="选择一个操作 / Choose an action:", color=discord.Color.dark_green())
+        view = PokerPanelView()
+        await interaction.response.edit_message(embed=embed, view=view)
+
+    async def _poker(self, interaction: discord.Interaction):
+        """🃏 德州扑克 / Poker panel (alias)"""
+        await self._game_poker(interaction)
+
+    async def _giveaway(self, interaction: discord.Interaction):
+        embed = discord.Embed(title="🎉 抽奖系统 / Giveaway", description="选择一个操作 / Choose an action:", color=0x9B59B6)
+        view = GiveawayPanelView()
+        await interaction.response.edit_message(embed=embed, view=view)
+
+    async def _lottery(self, interaction: discord.Interaction):
+        embed = discord.Embed(title="🎰 彩票系统 / Lottery", description="选择一个操作 / Choose an action:", color=0xF39C12)
+        view = LotteryPanelView()
+        await interaction.response.edit_message(embed=embed, view=view)
+
+    async def _item_panel(self, interaction: discord.Interaction):
+        embed = discord.Embed(title="🎒 道具系统 / Items", description="选择一个操作 / Choose an action:", color=0xF1C40F)
+        view = ItemPanelView()
+        await interaction.response.edit_message(embed=embed, view=view)
+
+    async def _auction(self, interaction: discord.Interaction):
+        embed = discord.Embed(title="🏪 拍卖行 / Auction House", description="选择一个操作 / Choose an action:", color=0xE74C3C)
+        view = AuctionView()
+        await interaction.response.edit_message(embed=embed, view=view)
+
+    async def _wheel(self, interaction: discord.Interaction):
+        embed = discord.Embed(title="🎡 幸运转盘 / Lucky Wheel", description="选择一个操作 / Choose an action:", color=0x1ABC9C)
+        view = WheelView()
+        await interaction.response.edit_message(embed=embed, view=view)
+
+    async def _leaderboard(self, interaction: discord.Interaction):
+        embed = discord.Embed(title="🏆 排行榜 / Leaderboard", description="选择一个操作 / Choose an action:", color=0xF1C40F)
+        view = LeaderboardView()
+        await interaction.response.edit_message(embed=embed, view=view)
+
+    async def _season_panel(self, interaction: discord.Interaction):
+        embed = discord.Embed(title="📈 赛季系统 / Season", description="选择一个操作 / Choose an action:", color=0xE67E22)
+        view = SeasonPanelView()
+        await interaction.response.edit_message(embed=embed, view=view)
 
 
 class Dashboard(CogBase):

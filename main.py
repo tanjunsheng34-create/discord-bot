@@ -63,6 +63,9 @@ COGS = [
     "cogs.shop",
     "cogs.pets",
     "cogs.clans",
+    "cogs.leaderboard",
+    "cogs.auction",
+    "cogs.wheel",
 ]
 
 
