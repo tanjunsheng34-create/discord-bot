@@ -80,7 +80,17 @@ def _format_cd(seconds: int) -> str:
     else:
         h = seconds // 3600
         m = (seconds % 3600) // 60
-        return f"{h}h{m}m"
+        return f"{h}h{m}"
+
+
+async def _animate_job(interaction: discord.Interaction, frames: list[str], embed: discord.Embed):
+    """Show emoji job animation then edit to result embed."""
+    msg = await interaction.followup.send(frames[0])
+    for frame in frames[1:]:
+        await asyncio.sleep(0.6)
+        await msg.edit(content=frame)
+    await asyncio.sleep(0.4)
+    await msg.edit(content=None, embed=embed)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -185,6 +195,7 @@ class EconomyJobsView(discord.ui.View):
                 base += bonus
                 bonus_msg = f"\n🔥 **加班事件 / Overtime Bonus!** +{bonus:,}"
             add_coins(uid, base, "打工收入 / Work income")
+            _update_cd(uid, job)
             bal = get_balance(uid)
             embed = discord.Embed(
                 title="🏭 打工 / Work",
@@ -193,8 +204,11 @@ class EconomyJobsView(discord.ui.View):
             )
             embed.add_field(name="💰 余额 / Balance", value=_format_coins(bal), inline=False)
             embed.set_footer(text="每小时可打工一次 / Work once per hour")
-            _update_cd(uid, job)
-            await interaction.followup.send(embed=embed)
+            await _animate_job(interaction, [
+                f"💼 {uname} 正在打工...",
+                f"💪 {uname} 搬砖中...",
+                f"💰 {uname} 收到工资！",
+            ], embed)
 
         elif job == "beg":
             roll = random.random()
@@ -228,7 +242,11 @@ class EconomyJobsView(discord.ui.View):
                 embed.add_field(name="💰 余额 / Balance", value=_format_coins(bal), inline=False)
             embed.set_footer(text="乞讨冷却 5 分钟 / Beg cooldown: 5 min")
             _update_cd(uid, job)
-            await interaction.followup.send(embed=embed)
+            await _animate_job(interaction, [
+                f"🥺 {uname} 可怜巴巴地看着路人...",
+                f"🙏 {uname} 双手合十乞求...",
+                f"💰 {'有人施舍了！' if roll < 0.60 or roll >= 0.90 else '没人回应...'}",
+            ], embed)
 
         elif job == "fish":
             roll = random.random()
@@ -258,18 +276,81 @@ class EconomyJobsView(discord.ui.View):
                 earned = 0
                 color = 0x7F8C8D
 
+            # Rare event: catch a server member (25% independent)
+            caught_member = None
+            member_bonus = 0
+            if random.random() < 0.25 and self.guild:
+                members = [m for m in self.guild.members if not m.bot and str(m.id) != uid]
+                if members:
+                    caught_member = random.choice(members)
+                    # Fisher: 50% gets 100-500 coins, 50% gives 100-500 coins to caught member
+                    if random.random() < 0.50:
+                        member_bonus = random.randint(100, 500)
+                        earned += member_bonus
+                        fisher_dir = "got"
+                    else:
+                        member_bonus = random.randint(100, 500)
+                        fisher_dir = "gave"
+                    # Caught: 50% gets 50 compensation, 50% gives 50 coins to fisher
+                    if random.random() < 0.50:
+                        caught_comp = 50
+                        caught_dir = "got"
+                    else:
+                        caught_comp = -50
+                        caught_dir = "gave"
+                        earned += 50
+                    if caught_comp > 0:
+                        add_coins(str(caught_member.id), caught_comp, "被钓鱼补偿 / Caught by fishing compensation")
+                    else:
+                        add_coins(str(caught_member.id), caught_comp, "被钓鱼反给 / Caught, gave coins back")
+                    color = 0xE91E63
+
             if earned > 0:
                 add_coins(uid, earned, f"钓鱼: {fish_name} / Fishing: {fish_name}")
             bal = get_balance(uid)
-            if earned > 0:
+            if caught_member:
+                if fisher_dir == "got":
+                    coin_desc = f"顺便获得 🪙 **{member_bonus:,}** 金币！"
+                    coin_desc_en = f"Bonus 🪙 **{member_bonus:,}** coins!"
+                else:
+                    coin_desc = f"反倒给了 🪙 **{member_bonus:,}** 金币..."
+                    coin_desc_en = f"Gave 🪙 **{member_bonus:,}** coins instead..."
+                if caught_dir == "got":
+                    caught_msg = f"获得补偿 🪙 **50** 金币 / Compensation: 🪙 50 coins"
+                else:
+                    caught_msg = f"反给了 {uname} 🪙 **50** 金币 / Gave 🪙 50 coins to {uname}"
+                desc = (
+                    f"{uname} 🎣 用力一拉...\n"
+                    f"居然钓上来了 **{caught_member.display_name}**！！\n"
+                    f"{coin_desc} ({fish_emoji} {fish_name} +{earned - member_bonus:,})\n\n"
+                    f"OMG! {uname} fished up **{caught_member.display_name}**!!\n"
+                    f"{coin_desc_en} ({fish_emoji} {fish_name} +{earned - member_bonus:,})"
+                )
+                embed = discord.Embed(title=f"🎣 {uname} 钓鱼 / Fishing", description=desc, color=color)
+                if caught_member.avatar:
+                    embed.set_thumbnail(url=caught_member.avatar.url)
+                try:
+                    await caught_member.send(
+                        f"🐟 **{uname}** 钓鱼时把你钓上来了！\n"
+                        f"You were fished up by **{uname}**!\n"
+                        f"{caught_msg}"
+                    )
+                except Exception:
+                    pass
+            elif earned > 0:
                 desc = f"{uname} 钓到了 {fish_emoji} **{fish_name}**！卖得 🪙 **{earned:,}** 金币！\nCaught {fish_emoji} **{fish_name}**! Sold for 🪙 **{earned:,}** coins!"
             else:
                 desc = f"{uname} 钓到了 {fish_emoji} **垃圾**... 一文不值。\nCaught {fish_emoji} **trash**... Worthless."
-            embed = discord.Embed(title=f"🎣 {uname} 钓鱼 / Fishing", description=desc, color=color)
+            if not caught_member:
+                embed = discord.Embed(title=f"🎣 {uname} 钓鱼 / Fishing", description=desc, color=color)
             embed.add_field(name="💰 余额 / Balance", value=_format_coins(bal), inline=False)
             embed.set_footer(text="钓鱼冷却 3 分钟 / Fish cooldown: 3 min")
             _update_cd(uid, job)
-            await interaction.followup.send(embed=embed)
+            await _animate_job(interaction, [
+                f"🎣 {uname} 甩出了鱼竿...",
+                f"🐟 有东西上钩了！",
+                f"💰 {uname} 收竿！",
+            ], embed)
 
         elif job == "hunt":
             roll = random.random()
@@ -314,7 +395,11 @@ class EconomyJobsView(discord.ui.View):
             embed.add_field(name="💰 余额 / Balance", value=_format_coins(bal), inline=False)
             embed.set_footer(text="狩猎冷却 5 分钟 / Hunt cooldown: 5 min")
             _update_cd(uid, job)
-            await interaction.followup.send(embed=embed)
+            await _animate_job(interaction, [
+                f"🏹 {uname} 拉弓瞄准...",
+                f"🐗 发现猎物！",
+                f"💰 {uname} {'命中目标！' if earned > 0 else '没打中...'}",
+            ], embed)
 
     async def _handle_rob(self, interaction: discord.Interaction, uid: str):
         """Rob requires a target — show a select dropdown with eligible targets."""
@@ -350,17 +435,18 @@ class EconomyJobsView(discord.ui.View):
         )
 
         async def rob_select_callback(sel_int: discord.Interaction):
+            await sel_int.response.defer()
             tid = sel_int.data["values"][0]
             target = self.guild.get_member(int(tid))
             if not target:
-                return await sel_int.response.send_message("目标不在服务器 / Target not found.", ephemeral=True)
+                return await sel_int.followup.send("目标不在服务器 / Target not found.", ephemeral=True)
 
             tname = target.display_name
             uname = interaction.user.display_name
             target_bal = get_balance(tid)
 
             if target_bal < 100:
-                return await sel_int.response.send_message(
+                return await sel_int.followup.send(
                     f"{tname} 余额不足 100 金币，无法打劫 / Balance < 100.", ephemeral=True
                 )
 
@@ -396,7 +482,11 @@ class EconomyJobsView(discord.ui.View):
 
             embed.set_footer(text="打劫冷却 2 小时 / Rob cooldown: 2 hours")
             _update_cd(uid, "rob")
-            await sel_int.response.send_message(embed=embed)
+            await _animate_job(sel_int, [
+                f"😈 {uname} 盯上了 {tname}...",
+                f"🏃 {uname} 冲了过去！",
+                f"💰 {'得手了！' if success else '被抓了！'}",
+            ], embed)
 
         select.callback = rob_select_callback
         view = discord.ui.View(timeout=60)
@@ -646,21 +736,77 @@ class EconomyJobs(CogBase):
                 earned = 0
                 color = 0x7F8C8D
 
+            # Rare event: catch a server member (25% independent)
+            caught_member = None
+            member_bonus = 0
+            if random.random() < 0.25 and interaction.guild:
+                members = [m for m in interaction.guild.members if not m.bot and m.id != interaction.user.id]
+                if members:
+                    caught_member = random.choice(members)
+                    # Fisher: 50% gets 100-500 coins, 50% gives 100-500 coins to caught member
+                    if random.random() < 0.50:
+                        member_bonus = random.randint(100, 500)
+                        earned += member_bonus
+                        fisher_dir = "got"
+                    else:
+                        member_bonus = random.randint(100, 500)
+                        fisher_dir = "gave"
+                    # Caught: 50% gets 50 compensation, 50% gives 50 coins to fisher
+                    if random.random() < 0.50:
+                        caught_comp = 50
+                        caught_dir = "got"
+                    else:
+                        caught_comp = -50
+                        caught_dir = "gave"
+                        earned += 50
+                    if caught_comp > 0:
+                        add_coins(str(caught_member.id), caught_comp, "被钓鱼补偿 / Caught by fishing compensation")
+                    else:
+                        add_coins(str(caught_member.id), caught_comp, "被钓鱼反给 / Caught, gave coins back")
+                    color = 0xE91E63
+
             if earned > 0:
                 add_coins(uid, earned, f"钓鱼: {fish_name} / Fishing: {fish_name}")
 
             bal = get_balance(uid)
 
-            if earned > 0:
+            if caught_member:
+                if fisher_dir == "got":
+                    coin_desc = f"顺便获得 🪙 **{member_bonus:,}** 金币！"
+                    coin_desc_en = f"Bonus 🪙 **{member_bonus:,}** coins!"
+                else:
+                    coin_desc = f"反倒给了 🪙 **{member_bonus:,}** 金币..."
+                    coin_desc_en = f"Gave 🪙 **{member_bonus:,}** coins instead..."
+                if caught_dir == "got":
+                    caught_msg = f"获得补偿 🪙 **50** 金币 / Compensation: 🪙 50 coins"
+                else:
+                    caught_msg = f"反给了 {uname} 🪙 **50** 金币 / Gave 🪙 50 coins to {uname}"
+                desc = (
+                    f"{uname} 🎣 用力一拉...\n"
+                    f"居然钓上来了 **{caught_member.display_name}**！！\n"
+                    f"{coin_desc} ({fish_emoji} {fish_name} +{earned - member_bonus:,})\n\n"
+                    f"OMG! {uname} fished up **{caught_member.display_name}**!!\n"
+                    f"{coin_desc_en} ({fish_emoji} {fish_name} +{earned - member_bonus:,})"
+                )
+                embed = discord.Embed(title=f"🎣 {uname} 钓鱼 / Fishing", description=desc, color=color)
+                if caught_member.avatar:
+                    embed.set_thumbnail(url=caught_member.avatar.url)
+                try:
+                    await caught_member.send(
+                        f"🐟 **{uname}** 钓鱼时把你钓上来了！\n"
+                        f"You were fished up by **{uname}**!\n"
+                        f"{caught_msg}"
+                    )
+                except Exception:
+                    pass
+            elif earned > 0:
                 desc = f"{uname} 钓到了 {fish_emoji} **{fish_name}**！卖得 🪙 **{earned:,}** 金币！\nCaught {fish_emoji} **{fish_name}**! Sold for 🪙 **{earned:,}** coins!"
             else:
                 desc = f"{uname} 钓到了 {fish_emoji} **垃圾**... 一文不值。\nCaught {fish_emoji} **trash**... Worthless."
 
-            embed = discord.Embed(
-                title=f"🎣 {uname} 钓鱼 / Fishing",
-                description=desc,
-                color=color,
-            )
+            if not caught_member:
+                embed = discord.Embed(title=f"🎣 {uname} 钓鱼 / Fishing", description=desc, color=color)
+
             embed.add_field(name="💰 余额 / Balance", value=_format_coins(bal), inline=False)
             embed.set_footer(text="钓鱼冷却 3 分钟 / Fish cooldown: 3 min")
             _update_cd(uid, "fish")

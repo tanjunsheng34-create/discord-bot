@@ -4369,6 +4369,11 @@ class SlotsBetModal(discord.ui.Modal, title="🎰 老虎机下注 | Slots Bet"):
             return await interaction.response.send_message(f"金币不足 / Insufficient coins. 余额: 🪙 {balance}", ephemeral=True)
 
         _add_coins(uid, -amount, "Slots bet / 老虎机下注")
+
+        # Jackpot contribution (5%)
+        from utils.jackpot import contribute_to_jackpot, try_win_jackpot, get_jackpot
+        jackpot_contrib = contribute_to_jackpot(amount)
+
         reels, multiplier = _spin_slots()
         win_amount = amount * multiplier
         net = win_amount - amount
@@ -4376,6 +4381,16 @@ class SlotsBetModal(discord.ui.Modal, title="🎰 老虎机下注 | Slots Bet"):
         if win_amount > 0:
             _add_coins(uid, win_amount, f"Slots win / 老虎机获胜 x{multiplier}")
         new_balance = _get_balance(uid)
+
+        # Jackpot win check (0.5%)
+        jackpot_won = False
+        jackpot_amount = 0
+        if random.random() < 0.005:
+            won, jackpot_amount, _ = try_win_jackpot(uid, interaction.user.display_name)
+            if won and jackpot_amount > 0:
+                jackpot_won = True
+                _add_coins(uid, jackpot_amount, "🎉 Jackpot win / 老虎机大奖!")
+                new_balance = _get_balance(uid)
 
         embed = discord.Embed(
             title="🎰 老虎机 | Slots",
@@ -4390,7 +4405,37 @@ class SlotsBetModal(discord.ui.Modal, title="🎰 老虎机下注 | Slots Bet"):
             embed.add_field(name="结果 / Result", value="❌ 未中奖 / No win", inline=True)
             embed.add_field(name="亏损 / Loss", value=f"🪙 -{amount}", inline=True)
         embed.add_field(name="新余额 / New Balance", value=f"🪙 {new_balance}", inline=False)
+
+        # Jackpot info
+        current_jackpot = get_jackpot()
+        embed.add_field(name="🎉 Jackpot奖池 / Pool", value=f"🪙 {current_jackpot:,}", inline=True)
+        embed.add_field(name="本次贡献 / Contributed", value=f"🪙 {jackpot_contrib}", inline=True)
+
+        if jackpot_won:
+            embed.add_field(
+                name="🌟 JACKPOT! 🌟",
+                value=f"🎉🎉🎉 **{interaction.user.display_name} 中了 Jackpot!** 🎉🎉🎉\n获得 🪙 **{jackpot_amount:,}** 金币！\n\nHit the JACKPOT! Won 🪙 **{jackpot_amount:,}** coins!",
+                inline=False,
+            )
+            embed.color = 0xFFD700
+
         await interaction.response.send_message(embed=embed)
+
+        # Jackpot announcement
+        if jackpot_won and interaction.guild:
+            try:
+                announce_embed = discord.Embed(
+                    title="🌟 JACKPOT WINNER! 🌟",
+                    description=(
+                        f"🎉 **{interaction.user.display_name}** 中了 **Jackpot**！\n"
+                        f"获得了 🪙 **{jackpot_amount:,}** 金币！\n\n"
+                        f"Jackpot hit! {interaction.user.display_name} won 🪙 **{jackpot_amount:,}** coins!"
+                    ),
+                    color=0xFFD700,
+                )
+                await interaction.channel.send(content="@here", embed=announce_embed)
+            except Exception:
+                pass
 
 
 class CoinflipBetModal(discord.ui.Modal, title="🪙 猜硬币下注 | Coinflip Bet"):
@@ -4794,11 +4839,11 @@ class DashboardView(discord.ui.View):
         if cat == 0:
             # ===== MAIN MENU =====
             main_cats = [
-                ("⚔️ LOL & 比赛\nMatch", "cat_lol", 1),
-                ("💰 经济系统\nEconomy", "cat_economy", 2),
-                ("🎮 游戏中心\nGames", "cat_games", 3),
-                ("👥 社交中心\nSocial", "cat_social", 4),
-                ("🔧 管理工具\nAdmin", "cat_admin", 5),
+                ("⚔️ LOL & 比赛 / Match", "cat_lol", 1),
+                ("💰 经济系统 / Economy", "cat_economy", 2),
+                ("🎮 游戏中心 / Games", "cat_games", 3),
+                ("👥 社交中心 / Social", "cat_social", 4),
+                ("🔧 管理工具 / Admin", "cat_admin", 5),
             ]
             for i, (label, cb_id, _) in enumerate(main_cats):
                 btn = discord.ui.Button(
@@ -4871,6 +4916,10 @@ class DashboardView(discord.ui.View):
                 ("🎰 刮刮乐 / Scratch", "game_scratch"),
                 ("⚔️ Ban/Pick", "game_banpick"),
                 ("🃏 德州扑克 / Texas Holdem", "poker"),
+                ("🔢 猜数字 / Guess Nr", "mini_guess"),
+                ("💣 扫雷 / Minesweeper", "mini_mine"),
+                ("🈶 成语接龙 / Idiom", "mini_idiom"),
+                ("🎵 猜歌 / Music Quiz", "mini_music"),
             ]
             self._build_grid(btns, rows_of=5)
 
@@ -4887,6 +4936,7 @@ class DashboardView(discord.ui.View):
                 ("❌ 取消出售 / Cancel", "marketplace_cancel"),
                 ("🎰 博彩中心 / Gambling", "gambling"),
                 ("🕊️ 树洞 / Whisper", "game_whisper"),
+                ("🐉 Boss战 / Boss Battle", "boss"),
             ]
             self._build_grid(btns, rows_of=5)
 
@@ -4995,6 +5045,53 @@ class DashboardView(discord.ui.View):
                 "每个功能按钮点击即可查看使用说明或直接操作。"
             )
             embed.set_footer(text="GMPT Dashboard v4.0 | 分类导航")
+        elif cat == 1:
+            embed.description = (
+                "⚔️ **LOL & 比赛** — 使用 `/gmpt-lol` 管理比赛，`/gmpt-tournament` 创建赛事。\n"
+                "点击下方按钮执行创建比赛、报名、分队、结算等操作。\n"
+                "Use `/gmpt-lol` to manage matches, `/gmpt-tournament` for events.\n"
+                "Click buttons below to create matches, sign up, shuffle teams, settle, etc."
+            )
+            embed.set_footer(text=f"GMPT Dashboard v4.0 | {title}")
+        elif cat == 2:
+            embed.description = (
+                "💰 **经济系统** — 输入 `/gmpt-economy` 查看完整经济面板。\n"
+                "点击按钮查看余额、背包、商店、成就、打工赚钱、拍卖行等。\n"
+                "Use `/gmpt-economy` for the full economy panel.\n"
+                "Click buttons for balance, inventory, shop, achievements, jobs, auction, etc."
+            )
+            # Show current Jackpot pool
+            try:
+                from utils.jackpot import get_jackpot
+                jp = get_jackpot()
+                embed.add_field(name="🌟 Jackpot奖池 / Jackpot Pool", value=f"🪙 **{jp:,}**", inline=True)
+            except Exception:
+                pass
+            embed.set_footer(text=f"GMPT Dashboard v4.0 | {title}")
+        elif cat == 3:
+            embed.description = (
+                "🎮 **游戏中心** — 输入 `/gmpt-game` 进入游戏大厅。\n"
+                "点击按钮体验老虎机、21点、赛马、德州扑克等小游戏。\n"
+                "Use `/gmpt-game` to enter the game lobby.\n"
+                "Click buttons to play slots, blackjack, horse race, poker & more."
+            )
+            embed.set_footer(text=f"GMPT Dashboard v4.0 | {title}")
+        elif cat == 4:
+            embed.description = (
+                "👥 **社交中心** — 输入 `/gmpt-pets`、`/gmpt-clans`、`/gmpt-marry` 体验社交功能。\n"
+                "点击按钮访问宠物、公会、结婚、声望、市场交易、树洞等。\n"
+                "Use `/gmpt-pets`, `/gmpt-clans`, `/gmpt-marry` for social features.\n"
+                "Click buttons for pets, clans, marriage, reputation, marketplace & more."
+            )
+            embed.set_footer(text=f"GMPT Dashboard v4.0 | {title}")
+        elif cat == 5:
+            embed.description = (
+                "🔧 **管理工具** — 输入 `/gmpt-admin` 打开管理面板（仅管理员）。\n"
+                "点击按钮进行数据导出、发送公告、赛季管理、排行榜查看等。\n"
+                "Use `/gmpt-admin` for the admin panel (admins only).\n"
+                "Click buttons for data export, announcements, season management, leaderboards."
+            )
+            embed.set_footer(text=f"GMPT Dashboard v4.0 | {title}")
         else:
             embed.description = "点击按钮查看功能详情或执行操作。\nClick a button to view details or execute."
             embed.set_footer(text=f"GMPT Dashboard v4.0 | {title}")
@@ -7604,6 +7701,74 @@ class DashboardView(discord.ui.View):
     async def _poker(self, interaction: discord.Interaction):
         """🃏 德州扑克 / Poker panel (alias)"""
         await self._game_poker(interaction)
+
+    async def _mini_guess(self, interaction: discord.Interaction):
+        """🔢 猜数字 / Guess Number"""
+        await interaction.response.send_message(
+            "🔢 **猜数字 / Number Guessing**\n\n"
+            "在聊天框输入 `/gmpt-mini guess` 开始猜数字游戏！\n"
+            "Bot 随机生成 1-100 的数字，10 次机会猜中。\n"
+            "猜中获奖，猜不中扣金币。\n\n"
+            "Use `/gmpt-mini guess` to start the number guessing game!\n"
+            "Bot picks 1-100, you have 10 tries. Win coins or get penalized.",
+            ephemeral=True,
+        )
+
+    async def _mini_mine(self, interaction: discord.Interaction):
+        """💣 扫雷 / Minesweeper"""
+        await interaction.response.send_message(
+            "💣 **扫雷 / Minesweeper**\n\n"
+            "在聊天框输入 `/gmpt-mini minesweeper` 开始扫雷！\n"
+            "5×5 雷区，3 颗雷。点击按钮翻格子，翻完所有安全格获胜。\n"
+            "踩雷扣 100 金币，通关奖励 500 金币。\n\n"
+            "Use `/gmpt-mini minesweeper` to play!\n"
+            "5×5 grid with 3 mines. Clear all safe cells to win 500 coins!",
+            ephemeral=True,
+        )
+
+    async def _mini_idiom(self, interaction: discord.Interaction):
+        """🈶 成语接龙 / Idiom Chain"""
+        await interaction.response.send_message(
+            "🈶 **成语接龙 / Idiom Chain**\n\n"
+            "在聊天框输入 `/gmpt-mini idiom` 开始成语接龙！\n"
+            "Bot 出一个成语，下一个人必须接最后一个字开头的成语。\n"
+            "连击有 bonus，接不上可用 `/gmpt-mini idiom-pass` 跳过（扣金币）。\n"
+            "用 `/gmpt-mini idiom-stop` 查看结果并结束。\n\n"
+            "Use `/gmpt-mini idiom` to start!\n"
+            "Keep the chain going with four-character Chinese idioms. Streak bonus!",
+            ephemeral=True,
+        )
+
+    async def _mini_music(self, interaction: discord.Interaction):
+        """🎵 猜歌 / Music Quiz"""
+        await interaction.response.send_message(
+            "🎵 **音乐猜歌 / Music Quiz**\n\n"
+            "在聊天框输入 `/gmpt-mini musicquiz` 开始猜歌！\n"
+            "Bot 随机选一首歌，用打乱字母 + emoji + 歌词片段提示。\n"
+            "5 轮一组，抢答最快者得分，冠军额外奖励！\n\n"
+            "Use `/gmpt-mini musicquiz` to play!\n"
+            "5 rounds, scrambled title + emoji + lyric hints. Fastest answer wins!",
+            ephemeral=True,
+        )
+
+    async def _boss(self, interaction: discord.Interaction):
+        """🐉 Boss战 / Boss Battle"""
+        await interaction.response.send_message(
+            "🐉 **Boss战 / Boss Battle**\n\n"
+            "在聊天框使用以下命令：\n"
+            "• `/gmpt-boss create` — 创建 Boss 房间\n"
+            "• `/gmpt-boss join` — 加入 Boss 战\n"
+            "• `/gmpt-boss attack` — 攻击 Boss\n"
+            "• `/gmpt-boss status` — 查看战况\n\n"
+            "4 种 Boss：金龙🐉 / 暗影领主👹 / 冰霜巨人🧊 / 地狱犬🔥\n"
+            "3 种难度：简单/普通/困难。击败 Boss 按贡献分配奖励！\n\n"
+            "Commands:\n"
+            "• `/gmpt-boss create` — Create a boss room\n"
+            "• `/gmpt-boss join` — Join the battle\n"
+            "• `/gmpt-boss attack` — Attack the boss\n"
+            "• `/gmpt-boss status` — View battle status",
+            ephemeral=True,
+        )
 
     async def _lottery(self, interaction: discord.Interaction):
         embed = discord.Embed(title="🎰 彩票系统 / Lottery", description="选择一个操作 / Choose an action:", color=0xF39C12)

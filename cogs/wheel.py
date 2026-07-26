@@ -117,12 +117,20 @@ class WheelView(discord.ui.View):
     @discord.ui.button(label="🎡 转一次 / Spin x1 (50💰)", style=discord.ButtonStyle.success, row=0)
     async def spin_once(self, interaction: discord.Interaction, button):
         await interaction.response.defer()
-        await self._do_spin(interaction, 1)
+        try:
+            await self._do_spin(interaction, 1)
+        except Exception:
+            logger.exception("spin_once error")
+            await interaction.followup.send("❌ 抽奖出错，请重试 / Spin error, please retry.", ephemeral=True)
 
     @discord.ui.button(label="🎰 转十次 / Spin x10 (450💰)", style=discord.ButtonStyle.primary, row=0)
     async def spin_ten(self, interaction: discord.Interaction, button):
         await interaction.response.defer()
-        await self._do_spin(interaction, 10)
+        try:
+            await self._do_spin(interaction, 10)
+        except Exception:
+            logger.exception("spin_ten error")
+            await interaction.followup.send("❌ 抽奖出错，请重试 / Spin error, please retry.", ephemeral=True)
 
     @discord.ui.button(label="📋 奖品预览 / Prizes", style=discord.ButtonStyle.secondary, row=0)
     async def preview_btn(self, interaction: discord.Interaction, button):

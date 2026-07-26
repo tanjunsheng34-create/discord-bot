@@ -115,6 +115,11 @@ class Casino(commands.Cog):
             )
 
         _add_coins(uid, -bet, f"Slots bet / 老虎机下注")
+
+        # Jackpot contribution (5%)
+        from utils.jackpot import contribute_to_jackpot, try_win_jackpot, get_jackpot
+        jackpot_contrib = contribute_to_jackpot(bet)
+
         reels, multiplier = _spin_slots()
         win_amount = bet * multiplier
         net = win_amount - bet
@@ -123,6 +128,15 @@ class Casino(commands.Cog):
             _add_coins(uid, win_amount, f"Slots win / 老虎机获胜 x{multiplier}")
         else:
             _add_coins(uid, 0, "Slots loss / 老虎机未中奖")
+
+        # Jackpot win check (0.5%)
+        jackpot_won = False
+        jackpot_amount = 0
+        if random.random() < 0.005:
+            won, jackpot_amount, _ = try_win_jackpot(uid, interaction.user.display_name)
+            if won and jackpot_amount > 0:
+                jackpot_won = True
+                _add_coins(uid, jackpot_amount, "🎉 Jackpot win / 老虎机大奖!")
 
         new_balance = _get_balance(uid)
 
@@ -140,7 +154,36 @@ class Casino(commands.Cog):
             embed.add_field(name="亏损 / Loss", value=f"🪙 -{bet}", inline=True)
         embed.add_field(name="新余额 / New Balance", value=f"🪙 {new_balance}", inline=False)
 
+        # Jackpot info
+        current_jackpot = get_jackpot()
+        embed.add_field(name="🎉 Jackpot奖池 / Pool", value=f"🪙 {current_jackpot:,}", inline=True)
+        embed.add_field(name="本次贡献 / Contributed", value=f"🪙 {jackpot_contrib}", inline=True)
+
+        if jackpot_won:
+            embed.add_field(
+                name="🌟 JACKPOT! 🌟",
+                value=f"🎉🎉🎉 **{interaction.user.display_name} 中了 Jackpot!** 🎉🎉🎉\n获得 🪙 **{jackpot_amount:,}** 金币！\n\nHit the JACKPOT! Won 🪙 **{jackpot_amount:,}** coins!",
+                inline=False,
+            )
+            embed.color = 0xFFD700
+
         await interaction.response.send_message(embed=embed)
+
+        # Jackpot announcement
+        if jackpot_won and interaction.guild:
+            try:
+                announce_embed = discord.Embed(
+                    title="🌟 JACKPOT WINNER! 🌟",
+                    description=(
+                        f"🎉 **{interaction.user.display_name}** 中了 **Jackpot**！\n"
+                        f"获得了 🪙 **{jackpot_amount:,}** 金币！\n\n"
+                        f"Jackpot hit! {interaction.user.display_name} won 🪙 **{jackpot_amount:,}** coins!"
+                    ),
+                    color=0xFFD700,
+                )
+                await interaction.channel.send(content="@here", embed=announce_embed)
+            except Exception:
+                pass
 
     @gmpt_casino2_group.command(name="coinflip", description="Flip a coin / 猜硬币正反面")
     @app_commands.describe(

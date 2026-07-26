@@ -71,24 +71,28 @@ class AuctionSellModal(discord.ui.Modal, title="🏷️ 拍卖出售 / Auction S
 
 
 class AuctionBidModal(discord.ui.Modal, title="💰 拍卖出价 / Auction Bid"):
+    auction_id = discord.ui.TextInput(label="拍卖编号 / Auction ID", placeholder="输入要出价的拍卖编号", max_length=10, required=True)
     bid_amount = discord.ui.TextInput(label="出价金额 / Bid Amount", placeholder="Must be higher than current bid", max_length=12, required=True)
-
-    def __init__(self, auction_id: int, current_bid: int, bidder_id: str):
-        super().__init__()
-        self.auction_id = auction_id
-        self.current_bid = current_bid
-        self.bidder_id = bidder_id
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
+            aid = int(self.auction_id.value)
             amount = int(self.bid_amount.value)
         except ValueError:
             return await interaction.response.send_message("请输入有效数字 / Enter a valid number.", ephemeral=True)
 
         uid = str(interaction.user.id)
-        if amount <= self.current_bid:
-            return await interaction.response.send_message(
-                f"出价必须高于当前价 🪙 {self.current_bid:,}! / Bid must exceed current bid.", ephemeral=True)
+
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM auctions WHERE id=? AND status='active'", (aid,))
+            auction = cur.fetchone()
+            if not auction:
+                return await interaction.response.send_message("拍卖不存在或已结束 / Auction not found or ended.", ephemeral=True)
+
+            if amount <= auction["current_bid"]:
+                return await interaction.response.send_message(
+                    f"出价必须高于当前价 🪙 {auction['current_bid']:,}! / Bid must exceed current bid.", ephemeral=True)
 
         bal = get_balance(uid)
         if bal < amount:
@@ -96,7 +100,7 @@ class AuctionBidModal(discord.ui.Modal, title="💰 拍卖出价 / Auction Bid")
 
         with get_db_ctx() as conn:
             cur = conn.cursor()
-            cur.execute("SELECT * FROM auctions WHERE id=? AND status='active'", (self.auction_id,))
+            cur.execute("SELECT * FROM auctions WHERE id=? AND status='active'", (aid,))
             auction = cur.fetchone()
             if not auction:
                 return await interaction.response.send_message("拍卖不存在或已结束 / Auction not found or ended.", ephemeral=True)
@@ -108,10 +112,10 @@ class AuctionBidModal(discord.ui.Modal, title="💰 拍卖出价 / Auction Bid")
             if buyout > 0 and amount >= buyout:
                 amount = buyout
                 # Instant buyout
-                add_coins(uid, -amount, f"Auction buyout #{self.auction_id}")
-                add_coins(auction["seller_id"], amount, f"Auction #{self.auction_id} sold (buyout)")
+                add_coins(uid, -amount, f"Auction buyout #{aid}")
+                add_coins(auction["seller_id"], amount, f"Auction #{aid} sold (buyout)")
                 cur.execute("UPDATE auctions SET status='sold', bidder_id=?, current_bid=? WHERE id=?",
-                            (uid, amount, self.auction_id))
+                            (uid, amount, aid))
                 conn.commit()
                 return await interaction.response.send_message(
                     f"🎉 **一口价成交! / Buyout success!**\n"
@@ -122,14 +126,14 @@ class AuctionBidModal(discord.ui.Modal, title="💰 拍卖出价 / Auction Bid")
             # Refund previous bidder
             old_bidder = auction["bidder_id"]
             if old_bidder and old_bidder != uid:
-                add_coins(old_bidder, auction["current_bid"], f"Auction #{self.auction_id} outbid refund")
+                add_coins(old_bidder, auction["current_bid"], f"Auction #{aid} outbid refund")
 
-            add_coins(uid, -amount, f"Auction bid #{self.auction_id}")
-            cur.execute("UPDATE auctions SET current_bid=?, bidder_id=? WHERE id=?", (amount, uid, self.auction_id))
+            add_coins(uid, -amount, f"Auction bid #{aid}")
+            cur.execute("UPDATE auctions SET current_bid=?, bidder_id=? WHERE id=?", (amount, uid, aid))
             conn.commit()
 
         await interaction.response.send_message(
-            f"✅ 出价成功 / Bid placed! 🪙 **{amount:,}** on **{auction['item_name']}** (Auction #{self.auction_id})",
+            f"✅ 出价成功 / Bid placed! 🪙 **{amount:,}** on **{auction['item_name']}** (Auction #{aid})",
         )
 
 
@@ -171,27 +175,7 @@ class AuctionView(discord.ui.View):
 
     @discord.ui.button(label="💰 出价 / Bid", style=discord.ButtonStyle.success, row=0)
     async def bid_btn(self, interaction: discord.Interaction, button):
-        class AuctionSelectModal(discord.ui.Modal, title="选择拍卖 / Select Auction"):
-            auction_id_input = discord.ui.TextInput(label="拍卖编号 / Auction ID", placeholder="输入要出价的拍卖编号", max_length=10, required=True)
-
-            async def on_submit(self2, sub_interaction: discord.Interaction):
-                try:
-                    aid = int(self2.auction_id_input.value)
-                except ValueError:
-                    return await sub_interaction.response.send_message("无效ID / Invalid ID.", ephemeral=True)
-
-                with get_db_ctx() as conn:
-                    cur = conn.cursor()
-                    cur.execute("SELECT * FROM auctions WHERE id=? AND status='active'", (aid,))
-                    auction = cur.fetchone()
-                if not auction:
-                    return await sub_interaction.response.send_message("拍卖不存在 / Auction not found.", ephemeral=True)
-
-                await sub_interaction.response.send_modal(
-                    AuctionBidModal(aid, auction["current_bid"], str(sub_interaction.user.id))
-                )
-
-        await interaction.response.send_modal(AuctionSelectModal())
+        await interaction.response.send_modal(AuctionBidModal())
 
     @discord.ui.button(label="📦 我的 / My Items", style=discord.ButtonStyle.secondary, row=0)
     async def my_auctions_btn(self, interaction: discord.Interaction, button):
