@@ -958,8 +958,13 @@ class Economy(CogBase):
         self.bot = bot
         _find_fonts()
 
+    economy_group = app_commands.Group(
+        name="gmpt-economy",
+        description="Economy & currency commands / 经济与金币命令"
+    )
+
     # ========== 余额 ==========
-    @app_commands.command(name="gmpt-balance", description="Check your coin balance / 查看余额")
+    @economy_group.command(name="balance", description="Check your coin balance / 查看余额")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def balance_cmd(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
@@ -995,7 +1000,7 @@ class Economy(CogBase):
         if earned >= 15000: check_achievement(uid, "累计获得 15000")
 
     # ========== 玩家资料卡 ==========
-    @app_commands.command(name="gmpt-profile", description="View player profile / 查看玩家资料卡")
+    @economy_group.command(name="profile", description="View player profile / 查看玩家资料卡")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     @app_commands.describe(user="Player to view (default: yourself) / 目标玩家（默认自己）")
     async def profile_cmd(self, interaction: discord.Interaction, user: discord.Member = None):
@@ -1066,7 +1071,7 @@ class Economy(CogBase):
 
     # ========== 等级系统 ==========
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
-    @app_commands.command(name="gmpt-level", description="View your XP level and progress / 查看等级和XP进度")
+    @economy_group.command(name="level", description="View your XP level and progress / 查看等级和XP进度")
     async def level_cmd(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
         with get_db_ctx() as conn:
@@ -1096,7 +1101,7 @@ class Economy(CogBase):
         await interaction.response.send_message(embed=embed)
 
     @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
-    @app_commands.command(name="gmpt-level-leaderboard", description="XP level leaderboard / 等级排行榜")
+    @economy_group.command(name="level-leaderboard", description="XP level leaderboard / 等级排行榜")
     async def level_leaderboard_cmd(self, interaction: discord.Interaction):
         with get_db_ctx() as conn:
             cur = conn.cursor()
@@ -1125,7 +1130,7 @@ class Economy(CogBase):
 
     # ========== 已报名玩家 ==========
     @app_commands.checks.cooldown(2, 5.0, key=lambda i: (i.guild_id, i.user.id))
-    @app_commands.command(name="gmpt-allplayers", description="List all registered players / 列出所有已报名玩家")
+    @economy_group.command(name="allplayers", description="List all registered players / 列出所有已报名玩家")
     async def players_cmd(self, interaction: discord.Interaction):
         with get_db_ctx() as conn:
             cur = conn.cursor()
@@ -1143,7 +1148,7 @@ class Economy(CogBase):
         await interaction.response.send_message("\n".join(lines))
 
     # ========== 赠送 ==========
-    @app_commands.command(name="gmpt-gift", description="Gift coins to another player / 赠送金币")
+    @economy_group.command(name="gift", description="Gift coins to another player / 赠送金币")
     @app_commands.describe(player="Receiver / 接收者", amount="Amount / 数量")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def gift_cmd(self, interaction: discord.Interaction, player: discord.Member, amount: int):
@@ -1203,7 +1208,7 @@ class Economy(CogBase):
         if total >= 5000: check_achievement(uid, "累计赠送 5000")
 
     # ========== 交易记录 ==========
-    @app_commands.command(name="gmpt-transactions", description="View transaction history / 交易记录")
+    @economy_group.command(name="transactions", description="View transaction history / 交易记录")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     @app_commands.describe(count="Number of records (1-20) / 记录数")
     async def tx_cmd(self, interaction: discord.Interaction, count: int = 10):
@@ -1230,7 +1235,7 @@ class Economy(CogBase):
         await interaction.response.send_message("\n".join(lines))
 
     # ========== 商店 ==========
-    @app_commands.command(name="gmpt-economy-shop", description="Open the coin shop / 积分商店")
+    @economy_group.command(name="economy-shop", description="Open the coin shop / 积分商店")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def shop_cmd(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
@@ -1273,14 +1278,14 @@ class Economy(CogBase):
         await interaction.response.send_message(embed=embed, view=view)
 
     # ========== 购买 ==========
-    @app_commands.command(name="gmpt-buy", description="Buy item from shop / 购买商店物品")
+    @economy_group.command(name="buy", description="Buy item from shop / 购买商店物品")
     @app_commands.describe(item_id="Item ID from /gmpt-economy-shop", message="Message content (required for Broadcast)")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def buy_cmd(self, interaction: discord.Interaction, item_id: int, message: str = None):
         await buy_item(interaction, str(interaction.user.id), item_id, broadcast_message=message)
 
     # ========== 背包 ==========
-    @app_commands.command(name="gmpt-inventory", description="View your inventory / 查看背包")
+    @economy_group.command(name="inventory", description="View your inventory / 查看背包")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def inv_cmd(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
@@ -1326,7 +1331,7 @@ class Economy(CogBase):
                 choices.append(app_commands.Choice(name=label[:100], value=r["item_id"]))
         return choices[:25]
 
-    @app_commands.command(name="gmpt-use", description="Use an item from inventory / 使用背包物品")
+    @economy_group.command(name="use", description="Use an item from inventory / 使用背包物品")
     @app_commands.autocomplete(item_id=_use_autocomplete)
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def use_cmd(self, interaction: discord.Interaction, item_id: int):
@@ -1450,7 +1455,7 @@ class Economy(CogBase):
             check_achievement(uid, "使用物品 50 次")
 
     # ========== 成就 ==========
-    @app_commands.command(name="gmpt-achievements", description="View achievements / 成就列表（分页版）")
+    @economy_group.command(name="achievements", description="View achievements / 成就列表（分页版）")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def ach_cmd(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
@@ -1507,7 +1512,7 @@ class Economy(CogBase):
         await interaction.response.send_message(file=f, view=view)
 
     # ========== 管理员加钱 ==========
-    @app_commands.command(name="gmpt-add-coins", description="Add/remove coins for a player / 给玩家加减金币（管理员）")
+    @economy_group.command(name="add-coins", description="Add/remove coins for a player / 给玩家加减金币（管理员）")
     @app_commands.describe(player="Target player / 目标玩家", amount="Amount (positive to add, negative to remove) / 数量（正加负减）")
     async def add_coins_cmd(self, interaction: discord.Interaction, player: discord.Member, amount: int):
         if not interaction.user.guild_permissions.administrator:
@@ -1535,7 +1540,7 @@ class Economy(CogBase):
         )
 
     # ========== 管理员金币面板 ==========
-    @app_commands.command(name="gmpt-admin-coins", description="Admin coin management panel / 管理员金币管理面板")
+    @economy_group.command(name="admin-coins", description="Admin coin management panel / 管理员金币管理面板")
     async def admin_coins_cmd(self, interaction: discord.Interaction):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message(
@@ -1558,7 +1563,7 @@ class Economy(CogBase):
         await interaction.response.send_message(embed=embed, view=view)
 
     # ========== 价格管理 ==========
-    @app_commands.command(name="gmpt-shop-edit", description="Edit shop item price / 修改商店价格（管理员）")
+    @economy_group.command(name="shop-edit", description="Edit shop item price / 修改商店价格（管理员）")
     @app_commands.describe(item_id="Item ID", new_price="New price / 新价格")
     async def shop_edit_cmd(self, interaction: discord.Interaction, item_id: int, new_price: int):
         if not interaction.user.guild_permissions.administrator:
@@ -1590,7 +1595,7 @@ class Economy(CogBase):
 
     # ========== 金币下注 / Betting ==========
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
-    @app_commands.command(name="gmpt-bet", description="[DEPRECATED] 对比赛下注 — 请使用比赛消息中的按钮 / Use bet buttons on match message")
+    @economy_group.command(name="bet", description="[DEPRECATED] 对比赛下注 — 请使用比赛消息中的按钮 / Use bet buttons on match message")
     @app_commands.describe(
         match_id="比赛 ID / Match ID",
         amount="下注金额 / Bet amount (max 500)",
@@ -1687,7 +1692,7 @@ class Economy(CogBase):
         from cogs.match_autocomplete import match_id_autocomplete
         return await match_id_autocomplete(interaction, current)
 
-    @app_commands.command(name="gmpt-bet-stats", description="查看下注历史 / View bet history and stats")
+    @economy_group.command(name="bet-stats", description="查看下注历史 / View bet history and stats")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def bet_stats_cmd(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
@@ -1742,7 +1747,7 @@ class Economy(CogBase):
         await interaction.response.send_message(embed=embed)
 
     # ========== 比赛历史 /gmpt-history ==========
-    @app_commands.command(name="gmpt-history", description="View match history / 查看比赛历史")
+    @economy_group.command(name="history", description="View match history / 查看比赛历史")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     @app_commands.describe(
         user="查看指定用户的战绩 / View specific user's history",
@@ -1938,7 +1943,7 @@ class Economy(CogBase):
         {"title": "观看直播30分钟 / Watch stream 30min", "desc": "观看直播30分钟", "reward": 100, "target": 30, "task_type": "watch_stream"},
     ]
 
-    @app_commands.command(name="gmpt-weekly", description="View this week's challenges / 查看本周挑战")
+    @economy_group.command(name="weekly", description="View this week's challenges / 查看本周挑战")
     async def weekly_cmd(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
         await interaction.response.defer()
@@ -2573,7 +2578,7 @@ class ResetAllModal(discord.ui.Modal, title="重置全部金币 / Reset All Coin
         )
 
     # ══════════ 财务统计 Finance ══════════
-    @app_commands.command(name="gmpt-finance", description="View financial statistics / 查看财务统计")
+    @economy_group.command(name="finance", description="View financial statistics / 查看财务统计")
     @app_commands.describe(user="Target user (Admin only; omit for self) / 目标用户（仅管理员；不填为自己）")
     async def finance_cmd(self, interaction: discord.Interaction, user: discord.Member | None = None):
         await interaction.response.defer(ephemeral=False)

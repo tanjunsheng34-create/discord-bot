@@ -129,6 +129,11 @@ class ActionsCog(CogBase):
     def __init__(self, bot):
         self.bot = bot
 
+    gmpt_action_group = app_commands.Group(
+        name="gmpt-action",
+        description="Social interaction actions / 社交互动动作"
+    )
+
     async def _do_action(self, interaction: discord.Interaction, target: discord.Member, action_name: str):
         """通用动作处理。"""
         if target.id == interaction.user.id and action_name != "hug":
@@ -189,31 +194,31 @@ class ActionsCog(CogBase):
 
     # ── 命令定义 ──
 
-    @app_commands.command(name="gmpt-hug", description="拥抱一个用户 / Hug a user")
+    @gmpt_action_group.command(name="hug", description="拥抱一个用户 / Hug a user")
     @app_commands.describe(target="要拥抱的用户 / User to hug")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def hug_cmd(self, interaction: discord.Interaction, target: discord.Member):
         await self._do_action(interaction, target, "hug")
 
-    @app_commands.command(name="gmpt-slap", description="拍打一个用户 / Slap a user")
+    @gmpt_action_group.command(name="slap", description="拍打一个用户 / Slap a user")
     @app_commands.describe(target="要拍打的用户 / User to slap")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def slap_cmd(self, interaction: discord.Interaction, target: discord.Member):
         await self._do_action(interaction, target, "slap")
 
-    @app_commands.command(name="gmpt-pat", description="摸头一个用户 / Pat a user")
+    @gmpt_action_group.command(name="pat", description="摸头一个用户 / Pat a user")
     @app_commands.describe(target="要摸头的用户 / User to pat")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def pat_cmd(self, interaction: discord.Interaction, target: discord.Member):
         await self._do_action(interaction, target, "pat")
 
-    @app_commands.command(name="gmpt-kiss", description="亲吻一个用户 / Kiss a user")
+    @gmpt_action_group.command(name="kiss", description="亲吻一个用户 / Kiss a user")
     @app_commands.describe(target="要亲吻的用户 / User to kiss")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def kiss_cmd(self, interaction: discord.Interaction, target: discord.Member):
         await self._do_action(interaction, target, "kiss")
 
-    @app_commands.command(name="gmpt-kill", description="击杀一个用户 / Kill a user")
+    @gmpt_action_group.command(name="kill", description="击杀一个用户 / Kill a user")
     @app_commands.describe(target="要击杀的用户 / User to kill")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def kill_cmd(self, interaction: discord.Interaction, target: discord.Member):

@@ -112,6 +112,11 @@ class Games(CogBase):
     hot-reloading a cog does NOT auto-sync the command tree to Discord.
     """
 
+    gmpt_game_group = app_commands.Group(
+        name="gmpt-game",
+        description="Mini games & casino / 小游戏与娱乐"
+    )
+
     def __init__(self, bot):
         self.bot = bot
         self._whispers: dict[str, float] = {}  # cooldown: user_id -> timestamp
@@ -124,8 +129,8 @@ class Games(CogBase):
     # ══════════════════════════════════════════════════════════
     # /gmpt-roll
     # ══════════════════════════════════════════════════════════
-    @app_commands.command(
-        name="gmpt-roll",
+    @gmpt_game_group.command(
+        name="roll",
         description="掷骰子 | Roll dice (e.g. 2d6, 1d20)",
     )
     @app_commands.describe(dice="骰子表达式 / Dice expression (NdM format, N≤20, M≤100)")
@@ -166,8 +171,8 @@ class Games(CogBase):
     # ══════════════════════════════════════════════════════════
     # /gmpt-guess-number
     # ══════════════════════════════════════════════════════════
-    @app_commands.command(
-        name="gmpt-guess-number",
+    @gmpt_game_group.command(
+        name="guess-number",
         description="猜数字游戏 | Number guessing game (default 1-100)",
     )
     @app_commands.describe(max_num="最大数字 / Max number (default: 100)")
@@ -197,8 +202,8 @@ class Games(CogBase):
     # ══════════════════════════════════════════════════════════
     # /gmpt-truth-dare
     # ══════════════════════════════════════════════════════════
-    @app_commands.command(
-        name="gmpt-truth-dare",
+    @gmpt_game_group.command(
+        name="truth-dare",
         description="真心话大冒险 | Truth or Dare",
     )
     @app_commands.describe(mode="模式: truth / dare / random（留空=随机）")
@@ -270,8 +275,8 @@ class Games(CogBase):
     # ══════════════════════════════════════════════════════════
     # /gmpt-whisper
     # ══════════════════════════════════════════════════════════
-    @app_commands.command(
-        name="gmpt-whisper",
+    @gmpt_game_group.command(
+        name="whisper",
         description="匿名投树洞 | Anonymous confession",
     )
     @app_commands.describe(message="你想说的话 / Your message (max 500 chars)")
@@ -325,8 +330,8 @@ class Games(CogBase):
     # ══════════════════════════════════════════════════════════
     # /gmpt-roulette
     # ══════════════════════════════════════════════════════════
-    @app_commands.command(
-        name="gmpt-roulette",
+    @gmpt_game_group.command(
+        name="roulette",
         description="轮盘赌 | Roulette (Red/Black/Green)",
     )
     @app_commands.describe(bet="下注金额 / Bet amount")
@@ -824,7 +829,7 @@ class BanPickView(discord.ui.View):
 # 新命令 — BanPick
 # ══════════════════════════════════════════════════════════════
 
-    @app_commands.command(name="gmpt-banpick", description="⚔️ Ban/Pick 模拟 / Ban/Pick Simulation — 两人对战BP")
+    @gmpt_game_group.command(name="banpick", description="⚔️ Ban/Pick 模拟 / Ban/Pick Simulation — 两人对战BP")
     @app_commands.describe(opponent="对手 / Opponent")
     async def banpick_cmd(self, interaction: discord.Interaction, opponent: discord.Member):
         """⚔️ Ban/Pick 模拟"""

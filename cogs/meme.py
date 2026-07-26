@@ -304,7 +304,12 @@ class Meme(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="gmpt-meme", description="Generate a meme image / 生成表情包")
+    gmpt_meme_group = app_commands.Group(
+        name="gmpt-meme",
+        description="Meme generation / 表情包生成"
+    )
+
+    @gmpt_meme_group.command(name="meme", description="Generate a meme image / 生成表情包")
     @app_commands.describe(
         template="Meme template / 模板名称",
         top_text="Top text / 顶部文字",
@@ -413,7 +418,7 @@ class Meme(commands.Cog):
                 except Exception:
                     pass
 
-    @app_commands.command(name="gmpt-meme-templates", description="List available meme templates / 列出可用模板")
+    @gmpt_meme_group.command(name="meme-templates", description="List available meme templates / 列出可用模板")
     async def meme_templates_cmd(self, interaction: discord.Interaction):
         embed = discord.Embed(
             title="🎨 Meme 模板列表 / Meme Templates",

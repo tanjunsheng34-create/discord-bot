@@ -547,7 +547,7 @@ class TeamAssignView(discord.ui.View):
         embed.description = (
             f"🔵 **A 队 Team A** (ID:{aid}): {' '.join(a_mentions)}\n"
             f"🔴 **B 队 Team B** (ID:{bid}): {' '.join(b_mentions)}\n\n"
-            f"Settle: `/gmpt-lol-settle {self.match_id} <win_team_id>`"
+            f"Settle: `/gmpt-lol lol-settle {self.match_id} <win_team_id>`"
         )
         embed.color = discord.Color.green()
         await interaction.edit_original_response(embed=embed, view=self)
@@ -969,7 +969,7 @@ class ReShuffleView(discord.ui.View):
                 f"🔵 **A 队 Team A** (ID:{aid}): {' '.join(a_mentions)}\n"
                 f"🔴 **B 队 Team B** (ID:{bid}): {' '.join(b_mentions)}\n\n"
                 f"Match ID: {new_mid}\n"
-                f"Settle: `/gmpt-lol-settle {new_mid} <win_team_id>`"
+                f"Settle: `/gmpt-lol lol-settle {new_mid} <win_team_id>`"
             ),
             color=discord.Color.gold(),
         )
@@ -1314,7 +1314,7 @@ class RematchView(discord.ui.View):
                 child.disabled = True
             await interaction.edit_original_response(view=self)
             await interaction.channel.send(
-                f"🔄 **{self.match_name}** 重赛已开启！/ Rematch started!\n使用 `/gmpt-register {self.match_id}` 重新报名 / Use `/gmpt-register {self.match_id}` to re-register."
+                f"🔄 **{self.match_name}** 重赛已开启！/ Rematch started!\n使用 `/gmpt-lol register {self.match_id}` 重新报名 / Use `/gmpt-lol register {self.match_id}` to re-register."
             )
         except Exception as e:
             logger.error(f"RematchView.rematch_btn failed: {e}", exc_info=True)
@@ -1825,7 +1825,7 @@ class ManualTeamView(discord.ui.View):
             f"🔵 **A 队 Team A** (ID:{aid}): {' '.join(a_mentions)}\n"
             f"🔴 **B 队 Team B** (ID:{bid}): {' '.join(b_mentions)}\n\n"
             f"Match ID: {new_mid}\n"
-            f"Settle: `/gmpt-lol-settle {new_mid} <win_team_id>`"
+            f"Settle: `/gmpt-lol lol-settle {new_mid} <win_team_id>`"
         )
         embed.color = discord.Color.green()
         await interaction.edit_original_response(embed=embed, view=self)
@@ -2049,7 +2049,7 @@ class CaptainDraftView(discord.ui.View):
                 f"🔵 **A 队 Team A** (ID:{aid}, 队长 <@{self.captain_a}>): {' '.join(a_mentions)}\n"
                 f"🔴 **B 队 Team B** (ID:{bid}, 队长 <@{self.captain_b}>): {' '.join(b_mentions)}\n\n"
                 f"Match ID: {new_mid}\n"
-                f"Settle: `/gmpt-lol-settle {new_mid} <win_team_id>`"
+                f"Settle: `/gmpt-lol lol-settle {new_mid} <win_team_id>`"
             ),
             color=discord.Color.green(),
         )
@@ -2884,7 +2884,7 @@ class MatchViewWithID(discord.ui.View):
                 f"🔵 **A 队 Team A** (ID:{aid}): {' '.join(a_mentions)}\n"
                 f"🔴 **B 队 Team B** (ID:{bid}): {' '.join(b_mentions)}\n\n"
                 f"Match ID: {mid}\n"
-                f"Settle: `/gmpt-lol-settle {mid} <win_team_id>`"
+                f"Settle: `/gmpt-lol lol-settle {mid} <win_team_id>`"
             ),
             color=discord.Color.gold(),
         )
@@ -4767,28 +4767,24 @@ class WhisperModal(discord.ui.Modal, title="🕊️ 树洞 / Whisper"):
 
 
 class DashboardView(discord.ui.View):
-    """Unified control panel with 5 pages + navigation buttons."""
+    """Interactive control panel with category-based navigation."""
 
-    PAGE_COLORS = {
-        1: 0x3498DB,  # 蓝色
-        2: 0xF1C40F,  # 金色
-        3: 0x2ECC71,  # 绿色
-        4: 0x9B59B6,  # 紫色
-        5: 0xE67E22,  # 橙色
-        6: 0xE74C3C,  # 红色
-        7: 0x95A5A6,  # 灰色
-        8: 0x1ABC9C,  # 青色
+    CATEGORY_COLORS = {
+        0: 0x3498DB,  # 蓝色 - Main
+        1: 0x3498DB,  # 蓝色 - LOL & Match
+        2: 0xF1C40F,  # 金色 - Economy
+        3: 0x2ECC71,  # 绿色 - Games
+        4: 0x9B59B6,  # 紫色 - Social
+        5: 0xE67E22,  # 橙色 - Admin & Tools
     }
 
-    PAGE_TITLES = {
-        1: "⚔️ 比赛 Match",
-        2: "🏆 赛事 Tournament",
-        3: "💰 经济 Economy",
-        4: "👤 玩家 Player",
-        5: "🎮 小游戏 Mini Games",
-        6: "👥 社交中心 Social Hub",
-        7: "🔧 工具与设置 Tools",
-        8: "🎮 游戏中心 Games",
+    CATEGORY_TITLES = {
+        0: "🎮 GMPT 控制面板 | Control Panel",
+        1: "⚔️ LOL & 比赛 | Match",
+        2: "💰 经济系统 | Economy",
+        3: "🎮 游戏中心 | Games",
+        4: "👥 社交中心 | Social Hub",
+        5: "🔧 管理工具 | Admin & Tools",
     }
 
     def __init__(self, guild=None, session=None, bot=None, *args, **kwargs):
@@ -4796,196 +4792,165 @@ class DashboardView(discord.ui.View):
         self.guild = guild
         self.session = session
         self.bot = bot
-        self.page = 1
-        # Only build page buttons on initial creation (not during persistent view reconstruction)
+        self.category = 0  # 0 = main menu
         if not args and not kwargs:
             self.build_page_buttons()
 
-    # ═══════════════════ Page Builder ═══════════════════
+    # ═══════════════════ Category Builder ═══════════════════
 
     def build_page_buttons(self):
-        """Rebuild all buttons for current page."""
+        """Rebuild all buttons for current category."""
         self.clear_items()
-        page = self.page
+        cat = self.category
 
-        if page == 1:
-            btns = [
-                ("🎮 创建比赛\nCreate Match", "create_match"),
-                ("📋 报名\nSign Up", "signup"),
-                ("🎲 随机分队\nRandom", "shuffle"),
-                ("🔴🔵 手动分队\nManual", "assign_teams"),
-                ("🏁 结算\nSettle", "settle"),
-                ("🔊 拉入语音\nPull VC", "pull_voice"),
-                ("👑 选队长\nPick Captain", "pick_captain"),
+        if cat == 0:
+            # ===== MAIN MENU =====
+            main_cats = [
+                ("⚔️ LOL & 比赛\nMatch", "cat_lol", 1),
+                ("💰 经济系统\nEconomy", "cat_economy", 2),
+                ("🎮 游戏中心\nGames", "cat_games", 3),
+                ("👥 社交中心\nSocial", "cat_social", 4),
+                ("🔧 管理工具\nAdmin", "cat_admin", 5),
             ]
-            # Pad to 8 slots for consistent grid
-            while len(btns) < 8:
-                btns.append(None)
-        elif page == 2:
-            btns = [
-                ("🏆 创建赛事\nCreate", "create_tournament"),
-                ("✍️ 报名\nSign Up", "signup_tournament"),
-                ("👤 队长选秀\nDraft", "draft_setup"),
-                ("📊 上报比分\nReport", "report_score"),
-                ("📈 赛事排名\nStandings", "tournament_standings"),
-                ("🗺️ 对阵表\nBracket", "tournament_bracket"),
-                ("📋 赛事记录\nHistory", "tournament_history"),
-                ("📅 定时赛事\nScheduled", "scheduled_event"),
-            ]
-            # Pad to 8 slots for consistent grid
-            while len(btns) < 8:
-                btns.append(None)
-        elif page == 3:
-            # 经济系统 (Economy)
-            btns = [
-                ("🛒 积分商店\nShop", "shop"),
-                ("🎒 我的背包\nInventory", "inventory"),
-                ("💰 余额\nBalance", "balance"),
-                ("🎁 赠送金币\nGift", "gift"),
-                ("📊 交易记录\nTransactions", "transactions"),
-                ("🏅 成就列表\nAchievements", "achievements"),
-                ("💼 打工赚钱\nJobs", "economy_jobs"),
-                ("🗓️ 每日奖励\nDaily", "daily"),
-            ]
-            while len(btns) < 8:
-                btns.append(None)
-        elif page == 4:
-            # 玩家系统 (Player)
-            btns = [
-                ("👤 个人资料\nProfile", "profile"),
-                ("📜 比赛历史\nHistory", "history"),
-                ("📅 每周挑战\nWeekly", "weekly"),
-                ("📅 排位赛季\nSeason", "season"),
-                ("💎 MVP排行榜\nMVP LB", "mvp_lb"),
-                ("📊 数据总览\nStats", "stats"),
-                ("🎖️ 段位列表\nRanks", "ranks"),
-                ("🔥 连胜王\nWin Streak", "win_streak"),
-            ]
-            while len(btns) < 8:
-                btns.append(None)
-        elif page == 5:
-            # 小游戏 (Mini Games)
-            btns = [
-                ("🎰 老虎机\nSlots", "slots"),
-                ("🪙 猜硬币\nCoinflip", "coinflip"),
-                ("🧠 知识问答\nTrivia", "trivia"),
-                ("🦸 猜英雄\nGuess Champ", "guess_champion"),
-                ("🏆 比赛预测\nPredict", "predict"),
-                ("🖼️ 表情包\nMeme", "meme"),
-                ("🎰 博彩中心\nGambling", "gambling"),
-                ("💕 虚拟动作\nActions", "actions"),
-            ]
-            while len(btns) < 8:
-                btns.append(None)
-        elif page == 6:
-            # 社交中心 (Social Hub)
-            btns = [
-                ("🐾 宠物系统\nPets", "pets"),
-                ("🏰 公会系统\nClans", "clans"),
-                ("💍 结婚系统\nMarry", "social_marry"),
-                ("⭐ 声望系统\nRep", "social_rep"),
-                ("🏪 市场出售\nMarket Sell", "marketplace_sell"),
-                ("🛒 市场购买\nMarket Buy", "marketplace_buy"),
-                ("📋 市场列表\nMarket List", "marketplace_list"),
-                ("❌ 取消出售\nCancel", "marketplace_cancel"),
-            ]
-            while len(btns) < 8:
-                btns.append(None)
-        elif page == 7:
-            # 管理工具 (Admin Tools)
-            btns = [
-                ("📤 导出数据\nExport CSV", "export_data"),
-                ("🔒 管理面板\nAdmin", "admin"),
-                ("📢 发送公告\nAnnounce", "announce"),
-                ("🔄 赛季重置\nSeason Reset", "season_reset"),
-                ("🎙️ 赛后拉入\nPost-Match VC", "post_match_pull"),
-                ("🎤 语音排行\nVoice LB", "voice_lb"),
-                ("🔊 排队状态\nQueue Status", "queue_status"),
-                ("📊 全部玩家\nAll Players", "all_players"),
-                ("🏅 MMR排行\nMMR LB", "mmr_lb"),
-                ("🎬 比赛回放\nReplay", "replay"),
-            ]
-            while len(btns) < 12:
-                btns.append(None)
-        elif page == 8:
-            # 游戏中心 (Games Center)
-            btns = [
-                ("🎲 掷骰子\nRoll Dice", "game_roll"),
-                ("🔢 猜数字\nGuess Number", "game_guess"),
-                ("🕊️ 树洞\nWhisper", "game_whisper"),
-                ("🎡 轮盘赌\nRoulette", "game_roulette"),
-                ("🃏 21点\nBlackjack", "game_blackjack"),
-                ("❌⭕ 井字棋\nTic Tac Toe", "game_tictactoe"),
-                ("🏇 赛马\nHorse Race", "game_horserace"),
-                ("📈 Crash", "game_crash"),
-                ("🎲 骰子对决\nDice Duel", "game_diceduel"),
-                ("🎰 刮刮乐\nScratch", "game_scratch"),
-                ("♠️ 德州扑克\nPoker", "game_poker"),
-                ("⚔️ Ban/Pick", "game_banpick"),
-            ]
-            while len(btns) < 12:
-                btns.append(None)
-
-        # Layout: rows of 4
-        rows = []
-        current_row = []
-        for btn in btns:
-            if btn is None:
-                continue
-            current_row.append(btn)
-            if len(current_row) == 4:
-                rows.append(current_row)
-                current_row = []
-        if current_row:
-            rows.append(current_row)
-
-        for row_idx, row_btns in enumerate(rows):
-            for col_idx, (label, cb_id) in enumerate(row_btns):
+            for i, (label, cb_id, _) in enumerate(main_cats):
                 btn = discord.ui.Button(
                     label=label,
-                    style=discord.ButtonStyle.secondary,
-                    row=row_idx,
+                    style=discord.ButtonStyle.primary,
+                    row=0,
                     custom_id=cb_id,
                 )
-                btn.callback = self.make_callback(cb_id)
+                btn.callback = self.make_category_callback(i + 1)
                 self.add_item(btn)
 
-        # Navigation rows — page tabs split across 2 rows (Discord max 5 cols/row)
-        # Row 3: ◀ P1 P2 P3 P4 (5 cols)
-        self.prev_btn = discord.ui.Button(label="◀", style=discord.ButtonStyle.primary, row=3,
-                                           disabled=(page == 1), custom_id="dashboard_prev")
-        self.prev_btn.callback = self.prev_page
-        self.add_item(self.prev_btn)
+        elif cat == 1:
+            # ===== LOL & MATCH =====
+            btns = [
+                ("🎮 创建比赛", "create_match"),
+                ("📋 报名", "signup"),
+                ("🎲 随机分队", "shuffle"),
+                ("🔴🔵 手动分队", "assign_teams"),
+                ("🏁 结算", "settle"),
+                ("🔊 拉入语音", "pull_voice"),
+                ("👑 选队长", "pick_captain"),
+                ("🏆 创建赛事", "create_tournament"),
+                ("✍️ 赛事报名", "signup_tournament"),
+                ("👤 队长选秀", "draft_setup"),
+                ("📊 上报比分", "report_score"),
+                ("📈 赛事排名", "tournament_standings"),
+                ("🗺️ 对阵表", "tournament_bracket"),
+                ("📋 赛事记录", "tournament_history"),
+                ("📅 定时赛事", "scheduled_event"),
+            ]
+            self._build_grid(btns, rows_of=5)
 
-        for p in range(1, 5):
-            is_current = (p == page)
-            btn = discord.ui.Button(
-                label=f"P{p}",
-                style=discord.ButtonStyle.success if is_current else discord.ButtonStyle.secondary,
-                row=3,
-                disabled=is_current,
-                custom_id=f"dashboard_page_{p}",
-            )
-            btn.callback = self.make_page_callback(p)
-            self.add_item(btn)
+        elif cat == 2:
+            # ===== ECONOMY =====
+            btns = [
+                ("💰 余额", "balance"),
+                ("👤 个人资料", "profile"),
+                ("🛒 积分商店", "shop"),
+                ("🎒 我的背包", "inventory"),
+                ("🎁 赠送金币", "gift"),
+                ("📊 交易记录", "transactions"),
+                ("🏅 成就列表", "achievements"),
+                ("💼 打工赚钱", "economy_jobs"),
+                ("🗓️ 每日奖励", "daily"),
+                ("📜 比赛历史", "history"),
+            ]
+            self._build_grid(btns, rows_of=5)
 
-        # Row 4: P5 P6 P7 P8 ▶ (5 cols)
-        for p in range(5, 9):
-            is_current = (p == page)
-            btn = discord.ui.Button(
-                label=f"P{p}",
-                style=discord.ButtonStyle.success if is_current else discord.ButtonStyle.secondary,
+        elif cat == 3:
+            # ===== GAMES =====
+            btns = [
+                ("🎰 老虎机", "slots"),
+                ("🪙 猜硬币", "coinflip"),
+                ("🧠 知识问答", "trivia"),
+                ("🦸 猜英雄", "guess_champion"),
+                ("🏆 比赛预测", "predict"),
+                ("🖼️ 表情包", "meme"),
+                ("💕 虚拟动作", "actions"),
+                ("🎲 掷骰子", "game_roll"),
+                ("🃏 21点", "game_blackjack"),
+                ("🎡 轮盘赌", "game_roulette"),
+                ("🏇 赛马", "game_horserace"),
+                ("📈 Crash", "game_crash"),
+                ("🎲 骰子对决", "game_diceduel"),
+                ("🎰 刮刮乐", "game_scratch"),
+                ("⚔️ Ban/Pick", "game_banpick"),
+            ]
+            self._build_grid(btns, rows_of=5)
+
+        elif cat == 4:
+            # ===== SOCIAL =====
+            btns = [
+                ("🐾 宠物系统", "pets"),
+                ("🏰 公会系统", "clans"),
+                ("💍 结婚系统", "social_marry"),
+                ("⭐ 声望系统", "social_rep"),
+                ("🏪 市场出售", "marketplace_sell"),
+                ("🛒 市场购买", "marketplace_buy"),
+                ("📋 市场列表", "marketplace_list"),
+                ("❌ 取消出售", "marketplace_cancel"),
+                ("🎰 博彩中心", "gambling"),
+                ("🕊️ 树洞", "game_whisper"),
+            ]
+            self._build_grid(btns, rows_of=5)
+
+        elif cat == 5:
+            # ===== ADMIN & TOOLS =====
+            btns = [
+                ("🔒 管理面板", "admin"),
+                ("📢 发送公告", "announce"),
+                ("🔄 赛季重置", "season_reset"),
+                ("📤 导出数据", "export_data"),
+                ("🎤 语音排行", "voice_lb"),
+                ("🔊 排队状态", "queue_status"),
+                ("📊 全部玩家", "all_players"),
+                ("🏅 MMR排行", "mmr_lb"),
+                ("📊 数据总览", "stats"),
+                ("🎖️ 段位列表", "ranks"),
+                ("🔥 连胜王", "win_streak"),
+                ("🎬 比赛回放", "replay"),
+                ("🎙️ 赛后拉入", "post_match_pull"),
+                ("📅 每周挑战", "weekly"),
+                ("📅 排位赛季", "season"),
+            ]
+            self._build_grid(btns, rows_of=5)
+
+        # Back button on sub-pages
+        if cat > 0:
+            back_btn = discord.ui.Button(
+                label="◀ 返回主菜单 | Back to Main",
+                style=discord.ButtonStyle.danger,
                 row=4,
-                disabled=is_current,
-                custom_id=f"dashboard_page_{p}",
+                custom_id="dashboard_back",
             )
-            btn.callback = self.make_page_callback(p)
+            back_btn.callback = self.back_to_main
+            self.add_item(back_btn)
+
+    def _build_grid(self, btns, rows_of=4):
+        """Build a grid of buttons, up to 4 rows of function buttons (row 0-3)."""
+        for i, (label, cb_id) in enumerate(btns):
+            row_idx = i // rows_of
+            if row_idx > 3:
+                break  # Discord max 5 rows, row 4 reserved for back button
+            btn = discord.ui.Button(
+                label=label,
+                style=discord.ButtonStyle.secondary,
+                row=row_idx,
+                custom_id=cb_id,
+            )
+            btn.callback = self.make_callback(cb_id)
             self.add_item(btn)
 
-        self.next_btn = discord.ui.Button(label="▶", style=discord.ButtonStyle.primary, row=4,
-                                           disabled=(page == 8), custom_id="dashboard_next")
-        self.next_btn.callback = self.next_page
-        self.add_item(self.next_btn)
+    def make_category_callback(self, target_cat: int):
+        """Navigate to a category sub-page."""
+        async def go_cat(interaction: discord.Interaction):
+            self.category = target_cat
+            self.build_page_buttons()
+            embed = self._build_page_embed()
+            await interaction.response.edit_message(embed=embed, view=self)
+        return go_cat
 
     def make_callback(self, cb_id):
         """Factory to create lambda-free callbacks (avoids closure issues)."""
@@ -5005,150 +4970,38 @@ class DashboardView(discord.ui.View):
                             log_error("dashboard", "fallback_send", e)
         return inner
 
-    def make_page_callback(self, target_page: int):
-        """Factory for page-tab navigation buttons (highlights current page)."""
-        async def go_page(interaction: discord.Interaction):
-            self.page = target_page
-            self.build_page_buttons()
-            embed = self._build_page_embed()
-            await interaction.response.edit_message(embed=embed, view=self)
-        return go_page
-
     # ═══════════════════ Navigation ═══════════════════
 
-    async def prev_page(self, interaction: discord.Interaction):
-        if self.page > 1:
-            self.page -= 1
-        self.build_page_buttons()
-        embed = self._build_page_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
-
-    async def next_page(self, interaction: discord.Interaction):
-        if self.page < 8:
-            self.page += 1
+    async def back_to_main(self, interaction: discord.Interaction):
+        """Return to main menu."""
+        self.category = 0
         self.build_page_buttons()
         embed = self._build_page_embed()
         await interaction.response.edit_message(embed=embed, view=self)
 
     def _build_page_embed(self):
-        title = f"🎮 GMPT 控制面板 | Control Panel"
-        color = self.PAGE_COLORS.get(self.page, 0x3498DB)
+        cat = self.category
+        title = self.CATEGORY_TITLES.get(cat, "🎮 GMPT 控制面板 | Control Panel")
+        color = self.CATEGORY_COLORS.get(cat, 0x3498DB)
 
-        embed = discord.Embed(
-            title=title,
-            color=color,
-        )
+        embed = discord.Embed(title=title, color=color)
 
-        page_field_map = {
-            1: (
-                "⚔️ 比赛 | Match",
-                (
-                    "━━━━━━━━━━━━━━━━━━━━\n"
-                    "🛠️ **创建比赛** Create Match — 新建内战\n"
-                    "📝 **报名** Sign Up — 选手加入比赛\n"
-                    "🎲 **随机分队** Random — 自动分配队伍\n"
-                    "🔴🔵 **手动分队** Manual — 手动分配AB队\n"
-                    "💰 **结算** Settle — 计算奖励\n"
-                    "🔊 **拉入语音** Pull VC — 自动分房\n"
-                    "👑 **选队长** Captains — 随机或手动选队长"
-                ),
-            ),
-            2: (
-                "🏆 赛事 | Tournament",
-                (
-                    "━━━━━━━━━━━━━━━━━━━━\n"
-                    "① 创建赛事 Create → ② 报名 Sign Up\n"
-                    "③ 队长选秀 Draft → ④ 上报比分 Report\n"
-                    "⑤ 对阵表 Bracket → ⑥ 排名 Standings\n"
-                    "⑦ 记录 History → ⑧ 定时赛事 Scheduled"
-                ),
-            ),
-            3: (
-                "💰 经济 | Economy",
-                (
-                    "━━━━━━━━━━━━━━━━━━━━\n"
-                    "💳 **余额** Balance — 查询金币\n"
-                    "👤 **个人档案** Profile — 查看数据\n"
-                    "🏪 **道具商店** Shop — 购买道具\n"
-                    "📊 **财务统计** Finance — 收支明细\n"
-                    "🏆 **成就** Achievements — 徽章展示"
-                ),
-            ),
-            4: (
-                "👤 玩家 | Player",
-                (
-                    "━━━━━━━━━━━━━━━━━━━━\n"
-                    "📊 **个人资料** Profile — 比赛数据总览\n"
-                    "📜 **比赛历史** History — 历史战绩回顾\n"
-                    "📅 **每周挑战** Weekly — 周常任务\n"
-                    "💎 **MVP排行** MVP LB — 最有价值选手\n"
-                    "🎖️ **段位** Ranks — 段位排行\n"
-                    "🔥 **连胜** Win Streak — 连胜记录"
-                ),
-            ),
-            5: (
-                "🎮 小游戏 | Mini Games",
-                (
-                    "━━━━━━━━━━━━━━━━━━━━\n"
-                    "🎰 **老虎机** Slots — 试试手气\n"
-                    "🪙 **猜硬币** Coinflip — 正反下注\n"
-                    "🧠 **知识问答** Trivia — LOL知识竞赛\n"
-                    "🦸 **猜英雄** Guess Champ — 猜英雄挑战\n"
-                    "🏆 **比赛预测** Predict — 竞猜比赛\n"
-                    "🖼️ **表情包** Meme — 生成梗图\n"
-                    "💕 **虚拟动作** Actions — 互动动作\n"
-                    "🎉 **抽奖** Giveaway — 参与抽奖"
-                ),
-            ),
-            6: (
-                "🎮 LoL | League",
-                (
-                    "━━━━━━━━━━━━━━━━━━━━\n"
-                    "🎤 **语音排行** Voice LB — 语音频道排行\n"
-                    "🔊 **排队状态** Queue — 组队排队\n"
-                    "👥 **全部玩家** All Players — 玩家列表\n"
-                    "🏅 **MMR排行** MMR LB — MMR排行榜\n"
-                    "🎬 **比赛回放** Replay — 赛后回顾\n"
-                    "🎙️ **赛后拉入** Post-Match VC — 结算后分房"
-                ),
-            ),
-            7: (
-                "🔧 工具与设置 | Tools & Settings",
-                (
-                    "━━━━━━━━━━━━━━━━━━━━\n"
-                    "📤 **导出数据** Export CSV — 导出比赛数据\n"
-                    "🔒 **管理面板** Admin — 管理员功能\n"
-                    "📢 **发送公告** Announce — 全员推送\n"
-                    "🔄 **赛季重置** Season Reset — 重置赛季\n"
-                    "🎙️ **赛后拉入** Post-Match VC — 赛后语音分房"
-                ),
-            ),
-            8: (
-                "🎮 游戏中心 | Games",
-                (
-                    "━━━━━━━━━━━━━━━━━━━━\n"
-                    "🎮 **游戏大厅** Game Lobby — `/gmpt-gamelobby`\n"
-                    "🎲 **掷骰子** Roll Dice — `/gmpt-roll 2d6`\n"
-                    "🔢 **猜数字** Guess Number — `/gmpt-guess-number`\n"
-                    "📝 **真心话大冒险** Truth or Dare — `/gmpt-truth-dare`\n"
-                    "🕊️ **树洞** Whisper — `/gmpt-whisper`\n"
-                    "🎡 **轮盘赌** Roulette — `/gmpt-roulette`\n"
-                    "🃏 **21点** Blackjack — `/gmpt-blackjack`\n"
-                    "❌⭕ **井字棋** Tic Tac Toe — `/gmpt-tictactoe`\n"
-                    "🏇 **赛马** Horse Race — `/gmpt-horserace`\n"
-                    "📈 **Crash** — `/gmpt-crash`\n"
-                    "🎲 **骰子对决** Dice Duel — `/gmpt-diceduel`\n"
-                    "🎰 **刮刮乐** Scratch — `/gmpt-scratch`\n"
-                    "⚔️ **Ban/Pick** — `/gmpt-banpick`\n"
-                    "◀️ **返回主菜单** Back to Main — 回到第一页"
-                ),
-            ),
-        }
+        if cat == 0:
+            embed.description = (
+                "**欢迎使用 GMPT 控制面板！** Welcome to the Control Panel!\n\n"
+                "点击下方分类按钮进入对应功能区：\n"
+                "⚔️ **LOL & 比赛** — 创建比赛、赛事、分队、结算\n"
+                "💰 **经济系统** — 余额、商店、背包、成就、打工\n"
+                "🎮 **游戏中心** — 老虎机、21点、赛马等小游戏\n"
+                "👥 **社交中心** — 宠物、公会、结婚、市场\n"
+                "🔧 **管理工具** — 数据导出、公告、赛季管理\n\n"
+                "每个功能按钮点击即可查看使用说明或直接操作。"
+            )
+            embed.set_footer(text="GMPT Dashboard v4.0 | 分类导航")
+        else:
+            embed.description = "点击按钮查看功能详情或执行操作。\nClick a button to view details or execute."
+            embed.set_footer(text=f"GMPT Dashboard v4.0 | {title}")
 
-        key = self.page if self.page in page_field_map else 1
-        field_name, field_value = page_field_map[key]
-        embed.add_field(name=field_name, value=field_value, inline=False)
-        embed.set_footer(text=f"GMPT Dashboard v3.5 | Page {self.page}/8")
         return embed
 
     # ═══════════════════ Page 1 — Match ═══════════════════
@@ -5281,7 +5134,7 @@ class DashboardView(discord.ui.View):
                 description=(
                     f"🔵 **A 队 Team A** (ID:{aid}): {' '.join(a_mentions)}\n"
                     f"🔴 **B 队 Team B** (ID:{bid}): {' '.join(b_mentions)}\n\n"
-                    f"Settle: `/gmpt-lol-settle {mid} <win_team_id>`"
+                    f"Settle: `/gmpt-lol lol-settle {mid} <win_team_id>`"
                 ),
                 color=discord.Color.gold(),
             )
@@ -6146,7 +5999,7 @@ class DashboardView(discord.ui.View):
         embed.add_field(name="Win Rate / 胜率", value=win_rate, inline=True)
         embed.add_field(name="Achievements / 成就", value=f"{ach_ct}", inline=True)
         embed.add_field(name="Items / 道具", value=str(inv_ct), inline=True)
-        embed.set_footer(text="View others: /gmpt-profile @user")
+        embed.set_footer(text="View others: /gmpt-economy profile @user")
 
         await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -6467,7 +6320,7 @@ class DashboardView(discord.ui.View):
             value = value[:1020] + "..."
         embed.add_field(name="", value=value, inline=False)
         if total_ct > 20:
-            embed.set_footer(text=f"Showing first 20 of {total_ct}. Use /gmpt-achievements for full list.")
+            embed.set_footer(text=f"Showing first 20 of {total_ct}. Use /gmpt-economy achievements for full list.")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     async def _daily(self, interaction: discord.Interaction):
@@ -6529,7 +6382,7 @@ class DashboardView(discord.ui.View):
             embed.add_field(name="Streak / 连胜", value=f"{streak} days", inline=True)
             if milestone_bonus > 0:
                 embed.add_field(name="Milestone Bonus / 里程碑奖励", value=f"+{milestone_bonus} coins", inline=True)
-            embed.set_footer(text="Use /gmpt-daily claim to claim | 使用 /gmpt-daily claim 领取")
+            embed.set_footer(text="Use /gmpt-daily claim claim to claim | 使用 /gmpt-daily claim claim 领取")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     async def _giveaway(self, interaction: discord.Interaction):
@@ -6557,12 +6410,12 @@ class DashboardView(discord.ui.View):
                     ),
                     color=0xFFD700,
                 )
-                embed.set_footer(text=f"Giveaway #{gw['id']} | Use /gmpt-giveaway enter {gw['id']} to enter with tickets")
+                embed.set_footer(text=f"Giveaway #{gw['id']} | Use /gmpt-economy giveaway enter {gw['id']} to enter with tickets")
                 await interaction.followup.send(embed=embed, ephemeral=True)
             else:
                 await interaction.followup.send(
                     "No active giveaway. / 暂无活动抽奖。\n"
-                    "Get tickets from `/gmpt-shop` / 去商店购买抽奖券: `/gmpt-shop`",
+                    "Get tickets from `/gmpt-economy economy-shop` / 去商店购买抽奖券: `/gmpt-economy economy-shop`",
                     ephemeral=True,
                 )
 
@@ -6578,10 +6431,10 @@ class DashboardView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
         embed = discord.Embed(
             title="🧠 知识问答 Trivia",
-            description="LOL/电竞知识问答（中英双语）！Use `/gmpt-trivia` to start.\n10 题 | 每题 +50 💰 | 前三名额外奖励",
+            description="LOL/电竞知识问答（中英双语）！Use `/gmpt-trivia trivia` to start.\n10 题 | 每题 +50 💰 | 前三名额外奖励",
             color=0x3498DB,
         )
-        embed.add_field(name="使用方式", value="`/gmpt-trivia [题数]` — 开始游戏\n`/gmpt-trivia-stop` — 管理员终止", inline=False)
+        embed.add_field(name="使用方式", value="`/gmpt-trivia trivia [题数]` — 开始游戏\n`/gmpt-trivia trivia-stop` — 管理员终止", inline=False)
         embed.set_footer(text="同时只允许一场 | One game at a time")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -6681,9 +6534,9 @@ class DashboardView(discord.ui.View):
                 "`/gmpt-lottery buy` — 🎟️ 购买彩票 Buy Ticket\n"
                 "`/gmpt-lottery status` — 📊 彩票状态 Status\n"
                 "`/gmpt-lottery draw` — 🎯 开奖 Draw\n"
-                "`/gmpt-diceduel <amount>` — 🎲 骰子对决 Dice Duel\n"
-                "`/gmpt-crash <bet>` — 📈 Crash 游戏 Crash\n"
-                "`/gmpt-scratch <bet>` — 💳 刮刮乐 Scratch Card"
+                "`/gmpt-game diceduel <amount>` — 🎲 骰子对决 Dice Duel\n"
+                "`/gmpt-game crash <bet>` — 📈 Crash 游戏 Crash\n"
+                "`/gmpt-game scratch <bet>` — 💳 刮刮乐 Scratch Card"
             ),
             inline=False,
         )
@@ -6779,7 +6632,7 @@ class DashboardView(discord.ui.View):
         )
         embed.add_field(
             name="使用方式",
-            value="`/gmpt-shop sell <item_name> <price> [quantity]`",
+            value="`/gmpt-economy economy-shop sell <item_name> <price> [quantity]`",
             inline=False,
         )
         embed.add_field(name="手续费", value="5% 上架费（最低 1💰）/ 5% listing fee (min 1💰)", inline=False)
@@ -6794,11 +6647,11 @@ class DashboardView(discord.ui.View):
         )
         embed.add_field(
             name="使用方式",
-            value="`/gmpt-shop buy <listing_id> [quantity]`",
+            value="`/gmpt-economy economy-shop buy <listing_id> [quantity]`",
             inline=False,
         )
         embed.add_field(name="手续费", value="5% 交易费 / 5% transaction fee", inline=False)
-        embed.add_field(name="提示", value="先用 `/gmpt-shop list` 查看市场列表", inline=False)
+        embed.add_field(name="提示", value="先用 `/gmpt-economy economy-shop list` 查看市场列表", inline=False)
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     async def _marketplace_list(self, interaction: discord.Interaction):
@@ -6810,7 +6663,7 @@ class DashboardView(discord.ui.View):
         )
         embed.add_field(
             name="使用方式",
-            value="`/gmpt-shop list [page]`",
+            value="`/gmpt-economy economy-shop list [page]`",
             inline=False,
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
@@ -6824,7 +6677,7 @@ class DashboardView(discord.ui.View):
         )
         embed.add_field(
             name="使用方式",
-            value="`/gmpt-shop cancel <listing_id>`",
+            value="`/gmpt-economy economy-shop cancel <listing_id>`",
             inline=False,
         )
         embed.add_field(name="注意", value="只能取消你自己的商品 / Only your own listings", inline=False)
@@ -7569,8 +7422,8 @@ class DashboardView(discord.ui.View):
     async def _game_guess(self, interaction: discord.Interaction):
         """🔢 猜数字 / Guess Number — 需要在聊天框输入命令"""
         await interaction.response.send_message(
-            "请在聊天框输入 `/gmpt-guess-number` 开始猜数字！\n"
-            "Use `/gmpt-guess-number` to start the guessing game!",
+            "请在聊天框输入 `/gmpt-game guess` 开始猜数字！\n"
+            "Use `/gmpt-game guess` to start the guessing game!",
             ephemeral=True,
         )
 
@@ -7643,8 +7496,8 @@ class DashboardView(discord.ui.View):
     async def _game_tictactoe(self, interaction: discord.Interaction):
         """❌⭕ 井字棋 / Tic Tac Toe — 需要在聊天框输入命令"""
         await interaction.response.send_message(
-            "请在聊天框输入 `/gmpt-tictactoe @对手` 开始井字棋！\n"
-            "Use `/gmpt-tictactoe @opponent` to play Tic Tac Toe!",
+            "请在聊天框输入 `/gmpt-game tictactoe @对手` 开始井字棋！\n"
+            "Use `/gmpt-game tictactoe @opponent` to play Tic Tac Toe!",
             ephemeral=True,
         )
 
@@ -7667,8 +7520,8 @@ class DashboardView(discord.ui.View):
     async def _game_banpick(self, interaction: discord.Interaction):
         """⚔️ Ban/Pick — 需要在聊天框输入命令"""
         await interaction.response.send_message(
-            "请在聊天框输入 `/gmpt-banpick @对手` 开始 BP 对战！\n"
-            "Use `/gmpt-banpick @opponent` to start Ban/Pick!",
+            "请在聊天框输入 `/gmpt-game banpick @对手` 开始 BP 对战！\n"
+            "Use `/gmpt-game banpick @opponent` to start Ban/Pick!",
             ephemeral=True,
         )
 
@@ -7688,6 +7541,16 @@ class Dashboard(CogBase):
     _croniter_warned = False
     def __init__(self, bot):
         self.bot = bot
+
+    admin_group = app_commands.Group(
+        name="gmpt-admin",
+        description="Admin management commands / 管理员命令"
+    )
+
+    stats_group = app_commands.Group(
+        name="gmpt-stats",
+        description="Stats & leaderboards / 数据统计与排行"
+    )
 
     @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member):
@@ -7956,8 +7819,8 @@ class Dashboard(CogBase):
         await self._close_lol_vote()
         await interaction.followup.send("已结算投票 / Vote closed.", ephemeral=True)
 
-    @app_commands.command(
-        name="gmpt-test-welcome",
+    @admin_group.command(
+        name="test-welcome",
         description="Preview welcome message",
     )
     @app_commands.default_permissions(administrator=True)
@@ -7986,7 +7849,7 @@ class Dashboard(CogBase):
             "🎮 `/gmpt-dashboard`\n\n"
 
             "📚 **教学 | Guides**\n"
-            "🧠 `/gmpt-trivia`\n"
+            "🧠 `/gmpt-trivia trivia`\n"
             "🕵️ `/gmpt-guess-champion`"
         )
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
@@ -7994,8 +7857,8 @@ class Dashboard(CogBase):
         await welcome_channel.send(embed=embed)
         await interaction.response.send_message("已发送欢迎预览", ephemeral=True)
 
-    @app_commands.command(
-        name="setup-economy-info",
+    @admin_group.command(
+        name="setup-economy",
         description="Setup economy info panel in economy-info channel",
     )
     @app_commands.default_permissions(administrator=True)
@@ -8195,8 +8058,8 @@ class Dashboard(CogBase):
             except Exception as e:
                 log_error("dashboard", "dashboard_cmd", e)
 
-    @app_commands.command(
-        name="gmpt-stats",
+    @stats_group.command(
+        name="stats",
         description="View player MMR, rank, and win/loss stats / 查看玩家MMR/段位/胜负",
     )
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
@@ -8238,8 +8101,8 @@ class Dashboard(CogBase):
         embed.set_thumbnail(url=target.display_avatar.url)
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(
-        name="gmpt-leaderboard-mmr",
+    @stats_group.command(
+        name="leaderboard-mmr",
         description="View MMR leaderboard / 查看MMR排行榜",
     )
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
@@ -8279,8 +8142,8 @@ class Dashboard(CogBase):
         )
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(
-        name="gmpt-mmr-board",
+    @stats_group.command(
+        name="mmr-board",
         description="Send a live MMR leaderboard to a channel (auto-refreshes after each match)",
     )
     @app_commands.describe(
@@ -8334,8 +8197,8 @@ class Dashboard(CogBase):
             ephemeral=True,
         )
 
-    @app_commands.command(
-        name="gmpt-mmr-reset",
+    @admin_group.command(
+        name="mmr-reset",
         description="Reset MMR (admin only). No @user = reset all; @user = reset one player",
     )
     @app_commands.default_permissions(administrator=True)
@@ -8373,8 +8236,8 @@ class Dashboard(CogBase):
             ephemeral=True,
         )
 
-    @app_commands.command(
-        name="gmpt-recover",
+    @admin_group.command(
+        name="recover",
         description="Recover a deleted match panel / 恢复被删除的比赛面板",
     )
     @app_commands.default_permissions(administrator=True)
@@ -8465,7 +8328,7 @@ class Dashboard(CogBase):
 
     # ========== VC Auto-Assign / 语音自动分房 ==========
 
-    @app_commands.command(name="gmpt-vc-setup", description="Setup auto voice channel assignment / 设置自动语音分房 (Admin)")
+    @admin_group.command(name="vc-setup", description="Setup auto voice channel assignment / 设置自动语音分房 (Admin)")
     @app_commands.describe(
         team_a="A队语音频道 / Team A voice channel",
         team_b="B队语音频道 / Team B voice channel",
@@ -8564,7 +8427,7 @@ class Dashboard(CogBase):
             + (f"\n⚠️ 失败: {failed} 人" if failed else "")
         )
 
-    @app_commands.command(name="gmpt-vc-assign", description="Auto-assign players to voice channels / 自动语音分房")
+    @admin_group.command(name="vc-assign", description="Auto-assign players to voice channels / 自动语音分房")
     @app_commands.describe(match_id="比赛 ID / Match ID (optional, uses latest)")
     async def vc_assign_cmd(self, interaction: discord.Interaction, match_id: int = None):
         await interaction.response.defer(ephemeral=True)

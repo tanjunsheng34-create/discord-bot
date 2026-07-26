@@ -797,12 +797,17 @@ class CasinoGames(CogBase):
     def __init__(self, bot):
         self.bot = bot
 
+    gmpt_casino_group = app_commands.Group(
+        name="gmpt-casino",
+        description="Casino mini games / 赌场小游戏"
+    )
+
     async def cog_load(self):
         """在 Cog 加载时打印已注册命令名称用于调试."""
         cmds = [cmd.qualified_name for cmd in self.get_app_commands()]
         logger.info(f"[CasinoGames] cog_load — 已注册 {len(cmds)} 个命令: {', '.join(cmds)}")
 
-    @app_commands.command(name="gmpt-blackjack", description="🃏 21点 / Blackjack — 与庄家对决")
+    @gmpt_casino_group.command(name="blackjack", description="🃏 21点 / Blackjack — 与庄家对决")
     @app_commands.describe(bet="下注金额 / Bet amount")
     @app_commands.checks.cooldown(1, 3, key=lambda i: (i.guild_id, i.user.id))
     async def blackjack_cmd(self, interaction: discord.Interaction, bet: int):
@@ -864,7 +869,7 @@ class CasinoGames(CogBase):
             else:
                 await interaction.followup.send("❌ 21点游戏出错，请重试 / Blackjack error, please retry.", ephemeral=True)
 
-    @app_commands.command(name="gmpt-tictactoe", description="❌⭕ 井字棋 / Tic Tac Toe — 两人对战")
+    @gmpt_casino_group.command(name="tictactoe", description="❌⭕ 井字棋 / Tic Tac Toe — 两人对战")
     @app_commands.describe(opponent="对手 / Opponent")
     @app_commands.checks.cooldown(1, 5, key=lambda i: (i.guild_id, i.user.id))
     async def tictactoe_cmd(self, interaction: discord.Interaction, opponent: discord.Member):
@@ -894,7 +899,7 @@ class CasinoGames(CogBase):
             else:
                 await interaction.followup.send("❌ 井字棋出错，请重试 / Tic Tac Toe error, please retry.", ephemeral=True)
 
-    @app_commands.command(name="gmpt-horserace", description="🏇 赛马 / Horse Race — 下注赛马")
+    @gmpt_casino_group.command(name="horserace", description="🏇 赛马 / Horse Race — 下注赛马")
     @app_commands.describe(bet="下注金额 / Bet amount")
     @app_commands.checks.cooldown(1, 3, key=lambda i: (i.guild_id, i.user.id))
     async def horserace_cmd(self, interaction: discord.Interaction, bet: int):
@@ -937,7 +942,7 @@ class CasinoGames(CogBase):
     # ══════════════════════════════════════════════════════════
     # /gmpt-gamelobby — 游戏大厅 / Game Lobby
     # ══════════════════════════════════════════════════════════
-    @app_commands.command(name="gmpt-gamelobby", description="🎮 游戏大厅 / Game Lobby — 一站式游戏入口")
+    @gmpt_casino_group.command(name="gamelobby", description="🎮 游戏大厅 / Game Lobby — 一站式游戏入口")
     @app_commands.checks.cooldown(1, 10, key=lambda i: (i.guild_id, i.user.id))
     async def gamelobby_cmd(self, interaction: discord.Interaction):
         """🎮 游戏大厅 / Game Lobby"""

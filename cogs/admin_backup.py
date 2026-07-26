@@ -17,7 +17,12 @@ class AdminBackup(CogBase):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="gmpt-backup", description="Export all data as JSON backup (admin only)")
+    gmpt_admin_group = app_commands.Group(
+        name="gmpt-admin",
+        description="Admin backup & restore / 管理员备份与恢复"
+    )
+
+    @gmpt_admin_group.command(name="backup", description="Export all data as JSON backup (admin only)")
     async def backup_cmd(self, interaction: discord.Interaction):
         """Export all user/voice/giveaway data as a JSON file."""
         if not interaction.user.guild_permissions.administrator:
@@ -68,7 +73,7 @@ class AdminBackup(CogBase):
             attachments=[file],
         )
 
-    @app_commands.command(name="gmpt-restore", description="Restore data from JSON backup file (admin only)")
+    @gmpt_admin_group.command(name="restore", description="Restore data from JSON backup file (admin only)")
     @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
     @app_commands.describe(file="The gmpt_backup.json file to restore from")
     async def restore_cmd(self, interaction: discord.Interaction, file: discord.Attachment):

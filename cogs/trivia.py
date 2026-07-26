@@ -585,6 +585,12 @@ class TriviaGame:
 
 
 class Trivia(commands.Cog):
+
+    gmpt_trivia_group = app_commands.Group(
+        name="gmpt-trivia",
+        description="Trivia quiz / 知识问答"
+    )
+
     def __init__(self, bot):
         self.bot = bot
         self.active_game: TriviaGame | None = None
@@ -699,7 +705,7 @@ class Trivia(commands.Cog):
         await game.channel.send(embed=embed)
         self.active_game = None
 
-    @app_commands.command(name="gmpt-trivia", description="Start a trivia quiz / 开始问答游戏")
+    @gmpt_trivia_group.command(name="trivia", description="Start a trivia quiz / 开始问答游戏")
     @app_commands.describe(questions="Number of questions (default 10) / 题目数量（默认10）")
     async def trivia_cmd(self, interaction: discord.Interaction, questions: int = 10):
         uid = interaction.user.id
@@ -738,7 +744,7 @@ class Trivia(commands.Cog):
 
             await self._finish_game(game)
 
-    @app_commands.command(name="gmpt-trivia-stop", description="Stop the ongoing trivia / 提前终止问答")
+    @gmpt_trivia_group.command(name="trivia-stop", description="Stop the ongoing trivia / 提前终止问答")
     @app_commands.default_permissions(administrator=True)
     async def trivia_stop_cmd(self, interaction: discord.Interaction):
         if self.active_game is None:

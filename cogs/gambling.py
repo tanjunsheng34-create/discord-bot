@@ -60,6 +60,11 @@ class Gambling(CogBase):
     def __init__(self, bot):
         self.bot = bot
 
+    gmpt_gamble_group = app_commands.Group(
+        name="gmpt-gamble",
+        description="Gambling & betting / 博彩投注"
+    )
+
     async def cog_load(self):
         cmds = [cmd.qualified_name for cmd in self.get_app_commands()]
         logger.info(f"[Gambling] cog_load — 已注册 {len(cmds)} 个命令: {', '.join(cmds)}")
@@ -194,7 +199,7 @@ class Gambling(CogBase):
     # ══════════════════════════════════════════════════════════
     # /gmpt-diceduel — 骰子对决
     # ══════════════════════════════════════════════════════════
-    @app_commands.command(name="gmpt-diceduel", description="🎲 骰子对决 / Dice Duel — bet against another player")
+    @gmpt_gamble_group.command(name="diceduel", description="🎲 骰子对决 / Dice Duel — bet against another player")
     @app_commands.describe(opponent="对手 / Opponent", bet="下注金额 / Bet amount")
     @app_commands.checks.cooldown(1, 5, key=lambda i: (i.guild_id, i.user.id))
     async def diceduel_cmd(self, interaction: discord.Interaction, opponent: discord.Member, bet: int):
@@ -274,7 +279,7 @@ class Gambling(CogBase):
     # ══════════════════════════════════════════════════════════
     # /gmpt-crash — Crash 游戏
     # ══════════════════════════════════════════════════════════
-    @app_commands.command(name="gmpt-crash", description="📈 Crash游戏 / Crash Game — cash out before it crashes!")
+    @gmpt_gamble_group.command(name="crash", description="📈 Crash游戏 / Crash Game — cash out before it crashes!")
     @app_commands.describe(bet="下注金额 / Bet amount")
     @app_commands.checks.cooldown(1, 10, key=lambda i: (i.guild_id, i.user.id))
     async def crash_cmd(self, interaction: discord.Interaction, bet: int):
@@ -311,7 +316,7 @@ class Gambling(CogBase):
     # ══════════════════════════════════════════════════════════
     # /gmpt-scratch — 刮刮乐
     # ══════════════════════════════════════════════════════════
-    @app_commands.command(name="gmpt-scratch", description="🎰 刮刮乐 / Scratch card (50 coins)")
+    @gmpt_gamble_group.command(name="scratch", description="🎰 刮刮乐 / Scratch card (50 coins)")
     @app_commands.checks.cooldown(1, 10, key=lambda i: (i.guild_id, i.user.id))
     async def scratch_cmd(self, interaction: discord.Interaction):
         """刮刮乐."""

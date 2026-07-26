@@ -27,6 +27,12 @@ def format_duration(total_seconds):
 
 
 class VoiceTracker(CogBase):
+
+    gmpt_voice_group = app_commands.Group(
+        name="gmpt-voice",
+        description="Voice time tracking / 语音时长统计"
+    )
+
     def __init__(self, bot):
         self.bot = bot
         # Track join times in memory: user_id -> join_datetime
@@ -202,7 +208,7 @@ class VoiceTracker(CogBase):
         )
         return embed
 
-    @app_commands.command(name="gmpt-voicetime", description="Check voice time stats / 查看语音时长统计")
+    @gmpt_voice_group.command(name="voicetime", description="Check voice time stats / 查看语音时长统计")
     @app_commands.describe(user="User to check (admin only) / 要查看的用户（管理员可用）")
     async def voicetime_cmd(self, interaction: discord.Interaction, user: discord.Member = None):
         """Button-based voice time stats."""
@@ -241,7 +247,7 @@ class VoiceTracker(CogBase):
             view = VoiceTimeView(user=interaction.user, guild=interaction.guild, is_admin=is_admin, cog=self)
             await interaction.response.send_message(embed=embed, view=view)
 
-    @app_commands.command(name="gmpt-voice-leaderboard", description="Voice time leaderboard / 语音时长排行榜")
+    @gmpt_voice_group.command(name="voice-leaderboard", description="Voice time leaderboard / 语音时长排行榜")
     @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
     async def voice_leaderboard_cmd(self, interaction: discord.Interaction):
         data = VoiceLeaderboardView._fetch_leaderboard_data()

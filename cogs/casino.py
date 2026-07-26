@@ -95,7 +95,12 @@ class Casino(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="gmpt-slots", description="Play the slot machine / 玩老虎机")
+    gmpt_casino2_group = app_commands.Group(
+        name="gmpt-casino2",
+        description="Additional casino games / 额外赌场游戏"
+    )
+
+    @gmpt_casino2_group.command(name="slots", description="Play the slot machine / 玩老虎机")
     @app_commands.describe(bet="Bet amount / 下注金额（正整数）")
     async def slots_cmd(self, interaction: discord.Interaction, bet: int):
         uid = str(interaction.user.id)
@@ -137,7 +142,7 @@ class Casino(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="gmpt-coinflip", description="Flip a coin / 猜硬币正反面")
+    @gmpt_casino2_group.command(name="coinflip", description="Flip a coin / 猜硬币正反面")
     @app_commands.describe(
         bet="Bet amount / 下注金额（正整数）",
         choice="正面 or 反面 / Heads or Tails",

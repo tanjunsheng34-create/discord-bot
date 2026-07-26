@@ -347,6 +347,11 @@ class GMPT(CogBase):
         self.session = None
         self.watch_channels = set()  # 被监控的频道 ID
 
+    lol_group = app_commands.Group(
+        name="gmpt-lol",
+        description="LOL match & player commands / 英雄联盟比赛与玩家命令"
+    )
+
     async def cog_load(self):
         self.session = aiohttp.ClientSession()
 
@@ -430,8 +435,8 @@ class GMPT(CogBase):
             pass
 
     # ============ 设置自动监控 ============
-    @app_commands.command(
-        name="gmpt-autozone",
+    @lol_group.command(
+        name="autozone",
         description="Toggle auto LFG detect / 开启/关闭当前频道自动开黑检测",
     )
     async def autozone(self, interaction: discord.Interaction):
@@ -447,8 +452,8 @@ class GMPT(CogBase):
             )
 
     # ============ 创建比赛 ============
-    @app_commands.command(
-        name="gmpt-create",
+    @lol_group.command(
+        name="create",
         description="Create a LOL match / 创建比赛",
     )
     @app_commands.describe(
@@ -492,8 +497,8 @@ class GMPT(CogBase):
 
 
     # ============ 列出比赛 ============
-    @app_commands.command(
-        name="gmpt-list",
+    @lol_group.command(
+        name="list",
         description="List active matches / 列出活跃比赛 (分页, finished 通过历史入口查看)",
     )
     @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
@@ -508,8 +513,8 @@ class GMPT(CogBase):
             await interaction.followup.send(f"查询失败 / Query failed: {e}", ephemeral=True)
 
     # ============ 报名 ============
-    @app_commands.command(
-        name="gmpt-join",
+    @lol_group.command(
+        name="join",
         description="Join a match / 报名",
     )
     @app_commands.describe(match_id="Match ID")
@@ -541,8 +546,8 @@ class GMPT(CogBase):
         await interaction.response.send_message(f"{interaction.user.mention} 报名成功！({cnt+1}/{max_p})")
 
     # ============ 分队 ============
-    @app_commands.command(
-        name="gmpt-shuffle",
+    @lol_group.command(
+        name="shuffle",
         description="Split into 2 teams / 分队",
     )
     @app_commands.describe(match_id="Match ID")
@@ -603,8 +608,8 @@ class GMPT(CogBase):
             )
 
     # ============ 结算 ============
-    @app_commands.command(
-        name="gmpt-lol-settle",
+    @lol_group.command(
+        name="lol-settle",
         description="Settle match / 结算积分",
     )
     @app_commands.default_permissions(administrator=True)
@@ -719,8 +724,8 @@ class GMPT(CogBase):
             )
 
     # ============ 查看玩家 ============
-    @app_commands.command(
-        name="gmpt-players",
+    @lol_group.command(
+        name="players",
         description="List match players / 查看报名玩家",
     )
     @app_commands.describe(match_id="Match ID")
@@ -741,8 +746,8 @@ class GMPT(CogBase):
         )
 
     # ============ 踢人 ============
-    @app_commands.command(
-        name="gmpt-kick",
+    @lol_group.command(
+        name="kick",
         description="Kick a player / 踢出玩家",
     )
     @app_commands.describe(match_id="Match ID", player="Player to kick")
@@ -765,8 +770,8 @@ class GMPT(CogBase):
         await _refresh_player_list_from_cmd(match_id, interaction.channel, interaction.guild)
 
     # ============ 取消比赛 ============
-    @app_commands.command(
-        name="gmpt-cancel",
+    @lol_group.command(
+        name="cancel",
         description="Cancel a match / 取消比赛",
     )
     @app_commands.describe(match_id="Match ID")
@@ -797,8 +802,8 @@ class GMPT(CogBase):
             remove_player_list_msg(match_id)
 
     # ============ 历史记录 ============
-    @app_commands.command(
-        name="gmpt-match-history",
+    @lol_group.command(
+        name="match-history",
         description="Match history / 历史比赛",
     )
     @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
@@ -830,8 +835,8 @@ class GMPT(CogBase):
         await interaction.response.send_message("\n".join(lines))
 
     # ============ 选手直播通知 ============
-    @app_commands.command(
-        name="gmpt-stream",
+    @lol_group.command(
+        name="stream",
         description="Share your stream link / 分享直播链接",
     )
     @app_commands.describe(
@@ -870,8 +875,8 @@ class GMPT(CogBase):
         )
 
     # ============ 排行榜 ============
-    @app_commands.command(
-        name="gmpt-rank",
+    @lol_group.command(
+        name="rank",
         description="Leaderboard / 排行榜",
     )
     @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
@@ -888,8 +893,8 @@ class GMPT(CogBase):
         await interaction.response.send_message("\n".join(lines))
 
     # ============ 查段位 ============
-    @app_commands.command(
-        name="gmpt-profile-lol",
+    @lol_group.command(
+        name="profile-lol",
         description="Lookup summoner profile / 查玩家段位",
     )
     @app_commands.describe(
@@ -952,8 +957,8 @@ class GMPT(CogBase):
         await interaction.followup.send(embed=embed)
 
     # ============ 战绩 ============
-    @app_commands.command(
-        name="gmpt-match",
+    @lol_group.command(
+        name="match",
         description="Recent match history / 最近战绩",
     )
     @app_commands.describe(
@@ -1010,8 +1015,8 @@ class GMPT(CogBase):
         await interaction.followup.send("\n".join(lines))
 
     # ============ 实时对局 ============
-    @app_commands.command(
-        name="gmpt-live-game",
+    @lol_group.command(
+        name="live-game",
         description="Live game info / 当前对局",
     )
     @app_commands.describe(
@@ -1063,8 +1068,8 @@ class GMPT(CogBase):
 
 
     # ============ 临时讨论区 ============
-    @app_commands.command(
-        name="gmpt-zone",
+    @lol_group.command(
+        name="zone",
         description="Create temp channels / 创建临时子区 (自动删除)",
     )
     @app_commands.describe(
@@ -1118,8 +1123,8 @@ class GMPT(CogBase):
                     pass
 
     # ============ Riot API 状态检测 ============
-    @app_commands.command(
-        name="gmpt-riot-status",
+    @lol_group.command(
+        name="riot-status",
         description="Check Riot API Key status / 检测 API Key 是否有效",
     )
     @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
@@ -1150,8 +1155,8 @@ class GMPT(CogBase):
 
 
     # ============ Riot 账号关联 ============
-    @app_commands.command(
-        name="gmpt-link-riot",
+    @lol_group.command(
+        name="link-riot",
         description="Link your Riot ID / 关联你的Riot账号",
     )
     @app_commands.describe(
@@ -1197,8 +1202,8 @@ class GMPT(CogBase):
         )
 
     # ============ 报名玩家段位显示 ============
-    @app_commands.command(
-        name="gmpt-ranks",
+    @lol_group.command(
+        name="ranks",
         description="Show registered players with League ranks / 已报名玩家段位",
     )
     async def ranks_cmd(self, interaction: discord.Interaction):
@@ -1262,8 +1267,8 @@ class GMPT(CogBase):
         await interaction.followup.send("\n".join(lines))
 
     # ============ 自定义分队 ============
-    @app_commands.command(
-        name="gmpt-custom-team",
+    @lol_group.command(
+        name="custom-team",
         description="Custom team assignment with buttons / 自定义分队（按钮交互）",
     )
     @app_commands.describe(match_id="Match ID / 比赛ID")

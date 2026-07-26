@@ -31,6 +31,11 @@ class EconomyJobs(CogBase):
     def __init__(self, bot):
         self.bot = bot
 
+    gmpt_job_group = app_commands.Group(
+        name="gmpt-job",
+        description="Economy jobs to earn coins / 打工赚钱"
+    )
+
     async def cog_load(self):
         cmds = [cmd.qualified_name for cmd in self.get_app_commands()]
         logger.info(f"[EconomyJobs] cog_load — 已注册 {len(cmds)} 个命令: {', '.join(cmds)}")
@@ -38,7 +43,7 @@ class EconomyJobs(CogBase):
     # ══════════════════════════════════════════════════════════
     # /gmpt-work — 打工赚钱
     # ══════════════════════════════════════════════════════════
-    @app_commands.command(name="gmpt-work", description="💼 打工赚钱 / Work to earn coins (1h cooldown)")
+    @gmpt_job_group.command(name="work", description="💼 打工赚钱 / Work to earn coins (1h cooldown)")
     @app_commands.checks.cooldown(1, 3600, key=lambda i: (i.guild_id, i.user.id))
     async def work_cmd(self, interaction: discord.Interaction):
         """打工赚钱，每小时一次."""
@@ -77,7 +82,7 @@ class EconomyJobs(CogBase):
     # ══════════════════════════════════════════════════════════
     # /gmpt-rob — 打劫其他用户
     # ══════════════════════════════════════════════════════════
-    @app_commands.command(name="gmpt-rob", description="🥷 打劫其他用户 / Rob another user (2h cooldown)")
+    @gmpt_job_group.command(name="rob", description="🥷 打劫其他用户 / Rob another user (2h cooldown)")
     @app_commands.describe(target="打劫目标 / Target user")
     @app_commands.checks.cooldown(1, 7200, key=lambda i: (i.guild_id, i.user.id))
     async def rob_cmd(self, interaction: discord.Interaction, target: discord.Member):
@@ -149,7 +154,7 @@ class EconomyJobs(CogBase):
     # ══════════════════════════════════════════════════════════
     # /gmpt-beg — 乞讨
     # ══════════════════════════════════════════════════════════
-    @app_commands.command(name="gmpt-beg", description="🙏 乞讨 / Beg for coins (5 min cooldown)")
+    @gmpt_job_group.command(name="beg", description="🙏 乞讨 / Beg for coins (5 min cooldown)")
     @app_commands.checks.cooldown(1, 300, key=lambda i: (i.guild_id, i.user.id))
     async def beg_cmd(self, interaction: discord.Interaction):
         """乞讨."""
@@ -200,7 +205,7 @@ class EconomyJobs(CogBase):
     # ══════════════════════════════════════════════════════════
     # /gmpt-fish — 钓鱼
     # ══════════════════════════════════════════════════════════
-    @app_commands.command(name="gmpt-fish", description="🎣 钓鱼 / Go fishing (3 min cooldown)")
+    @gmpt_job_group.command(name="fish", description="🎣 钓鱼 / Go fishing (3 min cooldown)")
     @app_commands.checks.cooldown(1, 180, key=lambda i: (i.guild_id, i.user.id))
     async def fish_cmd(self, interaction: discord.Interaction):
         """钓鱼."""
@@ -264,7 +269,7 @@ class EconomyJobs(CogBase):
     # ══════════════════════════════════════════════════════════
     # /gmpt-hunt — 狩猎
     # ══════════════════════════════════════════════════════════
-    @app_commands.command(name="gmpt-hunt", description="🏹 狩猎 / Go hunting (5 min cooldown)")
+    @gmpt_job_group.command(name="hunt", description="🏹 狩猎 / Go hunting (5 min cooldown)")
     @app_commands.checks.cooldown(1, 300, key=lambda i: (i.guild_id, i.user.id))
     async def hunt_cmd(self, interaction: discord.Interaction):
         """狩猎."""
