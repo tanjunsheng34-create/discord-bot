@@ -50,7 +50,7 @@ class WheelView(discord.ui.View):
         cost = SPIN_COST if count == 1 else BULK_COST
         bal = get_balance(uid)
         if bal < cost:
-            return await interaction.response.send_message(
+            return await interaction.followup.send(
                 f"金币不足！你需要 🪙 {cost:,}，当前余额 🪙 {bal:,} / Not enough coins!",
                 ephemeral=True,
             )
@@ -138,6 +138,7 @@ class WheelView(discord.ui.View):
 
     @discord.ui.button(label="◀ 返回 / Back", style=discord.ButtonStyle.danger, row=1)
     async def back_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer()
         try:
             from cogs.dashboard import DashboardView
         except ImportError:

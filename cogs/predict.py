@@ -193,12 +193,12 @@ class PredictView(discord.ui.View):
         self.team_a = team_a
         self.team_b = team_b
 
-    @discord.ui.button(label="投注 A 队", style=discord.ButtonStyle.primary, emoji="🅰️")
+    @discord.ui.button(label="投注 A 队 / Bet Team A", style=discord.ButtonStyle.primary, emoji="🅰️")
     async def bet_a(self, interaction: discord.Interaction, button):
         modal = PredictBetModal(self.predict_id, "A", self.team_a)
         await interaction.response.send_modal(modal)
 
-    @discord.ui.button(label="投注 B 队", style=discord.ButtonStyle.danger, emoji="🅱️")
+    @discord.ui.button(label="投注 B 队 / Bet Team B", style=discord.ButtonStyle.danger, emoji="🅱️")
     async def bet_b(self, interaction: discord.Interaction, button):
         modal = PredictBetModal(self.predict_id, "B", self.team_b)
         await interaction.response.send_modal(modal)

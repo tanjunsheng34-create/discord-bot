@@ -658,7 +658,7 @@ class CreateTournamentView(discord.ui.View):
     # ---------------------------------------------------------------
     # 取消赛事 (仅管理员/创建者) / Cancel Tournament
     # ---------------------------------------------------------------
-    @discord.ui.button(label="取消赛事(管理员) Cancel", style=discord.ButtonStyle.danger, row=0)
+    @discord.ui.button(label="取消赛事 / Cancel (Admin)", style=discord.ButtonStyle.danger, row=0)
     async def cancel_tournament(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         with get_db_ctx() as conn:

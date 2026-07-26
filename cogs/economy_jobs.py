@@ -26,28 +26,69 @@ def _format_coins(amount: int) -> str:
     return f"🪙 {amount:,}"
 
 
+# ========== Module-level cooldown logic (shared by View buttons & slash commands) ==========
+
+COOLDOWNS = {
+    "work": 3600,    # 1 hour
+    "rob": 7200,     # 2 hours
+    "beg": 300,      # 5 min
+    "fish": 180,     # 3 min
+    "hunt": 300,     # 5 min
+}
+
+COOLDOWN_LABELS = {
+    "work": "1小时 / 1h",
+    "rob": "2小时 / 2h",
+    "beg": "5分钟 / 5min",
+    "fish": "3分钟 / 3min",
+    "hunt": "5分钟 / 5min",
+}
+
+
+def _get_cd_remaining(user_id: str, job: str) -> int:
+    """Return remaining cooldown seconds (0 = ready)."""
+    cd_sec = COOLDOWNS.get(job, 0)
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT last_used FROM job_cooldowns WHERE user_id=? AND job_type=?",
+            (user_id, job),
+        )
+        row = cur.fetchone()
+    if not row:
+        return 0
+    elapsed = time.time() - row["last_used"]
+    remaining = int(cd_sec - elapsed)
+    return max(0, remaining)
+
+
+def _update_cd(user_id: str, job: str):
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT OR REPLACE INTO job_cooldowns (user_id, job_type, last_used) VALUES (?,?,?)",
+            (user_id, job, time.time()),
+        )
+        conn.commit()
+
+
+def _format_cd(seconds: int) -> str:
+    if seconds < 60:
+        return f"{seconds}s"
+    elif seconds < 3600:
+        return f"{seconds // 60}m{seconds % 60}s"
+    else:
+        h = seconds // 3600
+        m = (seconds % 3600) // 60
+        return f"{h}h{m}m"
+
+
 # ══════════════════════════════════════════════════════════════
 # EconomyJobsView — 打工按钮面板 / Job Button Panel
 # ══════════════════════════════════════════════════════════════
 
 class EconomyJobsView(discord.ui.View):
     """打工赚钱按钮面板 — 点击按钮即可打工，无需打指令。"""
-
-    COOLDOWNS = {
-        "work": 3600,    # 1 hour
-        "rob": 7200,     # 2 hours
-        "beg": 300,      # 5 min
-        "fish": 180,     # 3 min
-        "hunt": 300,     # 5 min
-    }
-
-    COOLDOWN_LABELS = {
-        "work": "1小时 / 1h",
-        "rob": "2小时 / 2h",
-        "beg": "5分钟 / 5min",
-        "fish": "3分钟 / 3min",
-        "hunt": "5分钟 / 5min",
-    }
 
     JOB_LABELS = {
         "work":  "🏭 打工 Work",
@@ -70,41 +111,6 @@ class EconomyJobsView(discord.ui.View):
         self.guild = guild
         self.dashboard_view = dashboard_view  # optional ref for back-to-dashboard
         self._build_buttons()
-
-    def _get_cd_remaining(self, user_id: str, job: str) -> int:
-        """Return remaining cooldown seconds (0 = ready)."""
-        cd_sec = self.COOLDOWNS.get(job, 0)
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT last_used FROM job_cooldowns WHERE user_id=? AND job_type=?",
-                (user_id, job),
-            )
-            row = cur.fetchone()
-        if not row:
-            return 0
-        elapsed = time.time() - row["last_used"]
-        remaining = int(cd_sec - elapsed)
-        return max(0, remaining)
-
-    def _update_cd(self, user_id: str, job: str):
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
-            cur.execute(
-                "INSERT OR REPLACE INTO job_cooldowns (user_id, job_type, last_used) VALUES (?,?,?)",
-                (user_id, job, time.time()),
-            )
-            conn.commit()
-
-    def _format_cd(self, seconds: int) -> str:
-        if seconds < 60:
-            return f"{seconds}s"
-        elif seconds < 3600:
-            return f"{seconds // 60}m{seconds % 60}s"
-        else:
-            h = seconds // 3600
-            m = (seconds % 3600) // 60
-            return f"{h}h{m}m"
 
     def _build_buttons(self):
         self.clear_items()
@@ -132,12 +138,12 @@ class EconomyJobsView(discord.ui.View):
     def _make_job_callback(self, job: str):
         async def cb(interaction: discord.Interaction):
             uid = str(interaction.user.id)
-            remaining = self._get_cd_remaining(uid, job)
+            remaining = _get_cd_remaining(uid, job)
             if remaining > 0:
-                cd_label = self.COOLDOWN_LABELS.get(job, "?")
+                cd_label = COOLDOWN_LABELS.get(job, "?")
                 return await interaction.response.send_message(
                     f"⏳ **{self.JOB_LABELS[job]}** 冷却中！\n"
-                    f"剩余 / Remaining: **{self._format_cd(remaining)}**\n"
+                    f"剩余 / Remaining: **{_format_cd(remaining)}**\n"
                     f"冷却时间 / Cooldown: {cd_label}",
                     ephemeral=True,
                 )
@@ -187,7 +193,7 @@ class EconomyJobsView(discord.ui.View):
             )
             embed.add_field(name="💰 余额 / Balance", value=_format_coins(bal), inline=False)
             embed.set_footer(text="每小时可打工一次 / Work once per hour")
-            self._update_cd(uid, job)
+            _update_cd(uid, job)
             await interaction.followup.send(embed=embed)
 
         elif job == "beg":
@@ -221,7 +227,7 @@ class EconomyJobsView(discord.ui.View):
                 )
                 embed.add_field(name="💰 余额 / Balance", value=_format_coins(bal), inline=False)
             embed.set_footer(text="乞讨冷却 5 分钟 / Beg cooldown: 5 min")
-            self._update_cd(uid, job)
+            _update_cd(uid, job)
             await interaction.followup.send(embed=embed)
 
         elif job == "fish":
@@ -262,7 +268,7 @@ class EconomyJobsView(discord.ui.View):
             embed = discord.Embed(title=f"🎣 {uname} 钓鱼 / Fishing", description=desc, color=color)
             embed.add_field(name="💰 余额 / Balance", value=_format_coins(bal), inline=False)
             embed.set_footer(text="钓鱼冷却 3 分钟 / Fish cooldown: 3 min")
-            self._update_cd(uid, job)
+            _update_cd(uid, job)
             await interaction.followup.send(embed=embed)
 
         elif job == "hunt":
@@ -307,7 +313,7 @@ class EconomyJobsView(discord.ui.View):
             embed = discord.Embed(title=f"🏹 {uname} 狩猎 / Hunting", description=desc, color=color)
             embed.add_field(name="💰 余额 / Balance", value=_format_coins(bal), inline=False)
             embed.set_footer(text="狩猎冷却 5 分钟 / Hunt cooldown: 5 min")
-            self._update_cd(uid, job)
+            _update_cd(uid, job)
             await interaction.followup.send(embed=embed)
 
     async def _handle_rob(self, interaction: discord.Interaction, uid: str):
@@ -389,7 +395,7 @@ class EconomyJobsView(discord.ui.View):
                 embed.add_field(name="💰 你的余额 / Your Balance", value=_format_coins(robber_bal), inline=True)
 
             embed.set_footer(text="打劫冷却 2 小时 / Rob cooldown: 2 hours")
-            self._update_cd(uid, "rob")
+            _update_cd(uid, "rob")
             await sel_int.response.send_message(embed=embed)
 
         select.callback = rob_select_callback
@@ -422,6 +428,12 @@ class EconomyJobs(CogBase):
         """打工赚钱，每小时一次."""
         try:
             uid = str(interaction.user.id)
+            remaining = _get_cd_remaining(uid, "work")
+            if remaining > 0:
+                return await interaction.response.send_message(
+                    f"⏳ 打工冷却中！剩余 **{_format_cd(remaining)}** / Work cooldown! Remaining: **{_format_cd(remaining)}**",
+                    ephemeral=True,
+                )
             uname = interaction.user.display_name
 
             base = random.randint(50, 200)
@@ -434,6 +446,7 @@ class EconomyJobs(CogBase):
                 bonus_msg = f"\n🔥 **加班事件 / Overtime Bonus!** 🪙 +{bonus:,}"
 
             add_coins(uid, base, "打工收入 / Work income")
+            _update_cd(uid, "work")
             bal = get_balance(uid)
 
             embed = discord.Embed(
@@ -462,6 +475,12 @@ class EconomyJobs(CogBase):
         """打劫目标用户."""
         try:
             uid = str(interaction.user.id)
+            remaining = _get_cd_remaining(uid, "rob")
+            if remaining > 0:
+                return await interaction.response.send_message(
+                    f"⏳ 打劫冷却中！剩余 **{_format_cd(remaining)}** / Rob cooldown! Remaining: **{_format_cd(remaining)}**",
+                    ephemeral=True,
+                )
             tid = str(target.id)
             uname = interaction.user.display_name
             tname = target.display_name
@@ -533,6 +552,12 @@ class EconomyJobs(CogBase):
         """乞讨."""
         try:
             uid = str(interaction.user.id)
+            remaining = _get_cd_remaining(uid, "beg")
+            if remaining > 0:
+                return await interaction.response.send_message(
+                    f"⏳ 乞讨冷却中！剩余 **{_format_cd(remaining)}** / Beg cooldown! Remaining: **{_format_cd(remaining)}**",
+                    ephemeral=True,
+                )
             uname = interaction.user.display_name
 
             roll = random.random()
@@ -567,6 +592,7 @@ class EconomyJobs(CogBase):
                 embed.add_field(name="💰 余额 / Balance", value=_format_coins(bal), inline=False)
 
             embed.set_footer(text="乞讨冷却 5 分钟 / Beg cooldown: 5 min")
+            _update_cd(uid, "beg")
             await interaction.response.send_message(embed=embed)
         except Exception as e:
             logger.error(f"[beg_cmd] error: {e}", exc_info=True)
@@ -584,6 +610,12 @@ class EconomyJobs(CogBase):
         """钓鱼."""
         try:
             uid = str(interaction.user.id)
+            remaining = _get_cd_remaining(uid, "fish")
+            if remaining > 0:
+                return await interaction.response.send_message(
+                    f"⏳ 钓鱼冷却中！剩余 **{_format_cd(remaining)}** / Fish cooldown! Remaining: **{_format_cd(remaining)}**",
+                    ephemeral=True,
+                )
             uname = interaction.user.display_name
 
             roll = random.random()
@@ -631,6 +663,7 @@ class EconomyJobs(CogBase):
             )
             embed.add_field(name="💰 余额 / Balance", value=_format_coins(bal), inline=False)
             embed.set_footer(text="钓鱼冷却 3 分钟 / Fish cooldown: 3 min")
+            _update_cd(uid, "fish")
             await interaction.response.send_message(embed=embed)
         except Exception as e:
             logger.error(f"[fish_cmd] error: {e}", exc_info=True)
@@ -648,6 +681,12 @@ class EconomyJobs(CogBase):
         """狩猎."""
         try:
             uid = str(interaction.user.id)
+            remaining = _get_cd_remaining(uid, "hunt")
+            if remaining > 0:
+                return await interaction.response.send_message(
+                    f"⏳ 狩猎冷却中！剩余 **{_format_cd(remaining)}** / Hunt cooldown! Remaining: **{_format_cd(remaining)}**",
+                    ephemeral=True,
+                )
             uname = interaction.user.display_name
 
             roll = random.random()
@@ -700,6 +739,7 @@ class EconomyJobs(CogBase):
             )
             embed.add_field(name="💰 余额 / Balance", value=_format_coins(bal), inline=False)
             embed.set_footer(text="狩猎冷却 5 分钟 / Hunt cooldown: 5 min")
+            _update_cd(uid, "hunt")
             await interaction.response.send_message(embed=embed)
         except Exception as e:
             logger.error(f"[hunt_cmd] error: {e}", exc_info=True)

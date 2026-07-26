@@ -1360,7 +1360,7 @@ class CustomTeamView(discord.ui.View):
         name = member.display_name if member else f"<@{val}>"
         await interaction.followup.send(f"已选择: {name}，点击加入A队或B队", ephemeral=True)
 
-    @discord.ui.button(label="加入A队", style=discord.ButtonStyle.primary, emoji="🔵", row=1, custom_id="custom_team_a")
+    @discord.ui.button(label="加入A队 / Join Team A", style=discord.ButtonStyle.primary, emoji="🔵", row=1, custom_id="custom_team_a")
     async def add_to_a(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.captain_id:
@@ -1378,7 +1378,7 @@ class CustomTeamView(discord.ui.View):
         embed = self.build_embed()
         await interaction.edit_original_response(embed=embed, view=self)
 
-    @discord.ui.button(label="加入B队", style=discord.ButtonStyle.danger, emoji="🔴", row=1, custom_id="custom_team_b")
+    @discord.ui.button(label="加入B队 / Join Team B", style=discord.ButtonStyle.danger, emoji="🔴", row=1, custom_id="custom_team_b")
     async def add_to_b(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.captain_id:
@@ -1396,7 +1396,7 @@ class CustomTeamView(discord.ui.View):
         embed = self.build_embed()
         await interaction.edit_original_response(embed=embed, view=self)
 
-    @discord.ui.button(label="清空", style=discord.ButtonStyle.secondary, emoji="🔄", row=2, custom_id="custom_team_clear")
+    @discord.ui.button(label="清空 / Clear", style=discord.ButtonStyle.secondary, emoji="🔄", row=2, custom_id="custom_team_clear")
     async def clear_teams(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.captain_id:
@@ -1408,7 +1408,7 @@ class CustomTeamView(discord.ui.View):
         embed = self.build_embed()
         await interaction.edit_original_response(embed=embed, view=self)
 
-    @discord.ui.button(label="确认", style=discord.ButtonStyle.success, emoji="✅", row=2, custom_id="custom_team_confirm")
+    @discord.ui.button(label="确认 / Confirm", style=discord.ButtonStyle.success, emoji="✅", row=2, custom_id="custom_team_confirm")
     async def confirm_teams(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         if str(interaction.user.id) != self.captain_id:

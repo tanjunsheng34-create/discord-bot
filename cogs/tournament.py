@@ -339,21 +339,21 @@ class AssignView(discord.ui.View):
         self._rebuild_select()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="⚡ 自动平衡分队", style=discord.ButtonStyle.success, row=2, custom_id="assign_auto_balance")
+    @discord.ui.button(label="⚡ 自动平衡分队 / Auto Balance", style=discord.ButtonStyle.success, row=2, custom_id="assign_auto_balance")
     async def btn_auto_balance(self, interaction: discord.Interaction, button):
         await interaction.response.defer()
         self._auto_balance()
         self._rebuild_select()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="🎲 随机分队", style=discord.ButtonStyle.secondary, row=2, custom_id="assign_random")
+    @discord.ui.button(label="🎲 随机分队 / Random", style=discord.ButtonStyle.secondary, row=2, custom_id="assign_random")
     async def btn_random(self, interaction: discord.Interaction, button):
         await interaction.response.defer()
         self._random_split()
         self._rebuild_select()
         await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="✅ 确认分队", style=discord.ButtonStyle.primary, row=3, custom_id="assign_confirm")
+    @discord.ui.button(label="✅ 确认分队 / Confirm", style=discord.ButtonStyle.primary, row=3, custom_id="assign_confirm")
     async def btn_confirm(self, interaction: discord.Interaction, button):
         await interaction.response.defer()
 

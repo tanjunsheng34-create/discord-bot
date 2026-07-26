@@ -873,7 +873,7 @@ class ReShuffleView(discord.ui.View):
         except Exception as e:
             log_error("dashboard", "_refresh_embed", e)
 
-    @discord.ui.button(label="完赛", style=discord.ButtonStyle.success, emoji="✅", row=0)
+    @discord.ui.button(label="完赛 / Finish", style=discord.ButtonStyle.success, emoji="✅", row=0)
     async def finish_btn(self, interaction: discord.Interaction, button):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("管理员专用 / Admin only.", ephemeral=True)
@@ -902,7 +902,7 @@ class ReShuffleView(discord.ui.View):
         except Exception as e:
             log_error("dashboard", "finish_btn", e)
 
-    @discord.ui.button(label="重新分队", style=discord.ButtonStyle.primary, emoji="🔄", row=0)
+    @discord.ui.button(label="重新分队 / Reshuffle", style=discord.ButtonStyle.primary, emoji="🔄", row=0)
     async def reshuffle_btn(self, interaction: discord.Interaction, button):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("管理员专用 / Admin only.", ephemeral=True)
@@ -983,7 +983,7 @@ class ReShuffleView(discord.ui.View):
         )
         await interaction.followup.send(embed=embed)
 
-    @discord.ui.button(label="自己分队", style=discord.ButtonStyle.secondary, emoji="✋", row=0)
+    @discord.ui.button(label="自己分队 / Self Assign", style=discord.ButtonStyle.secondary, emoji="✋", row=0)
     async def manual_btn(self, interaction: discord.Interaction, button):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("管理员专用 / Admin only.", ephemeral=True)
@@ -1019,7 +1019,7 @@ class ReShuffleView(discord.ui.View):
             ephemeral=True,
         )
 
-    @discord.ui.button(label="队长分队", style=discord.ButtonStyle.secondary, emoji="👑", row=0)
+    @discord.ui.button(label="队长分队 / Captain Assign", style=discord.ButtonStyle.secondary, emoji="👑", row=0)
     async def captain_btn(self, interaction: discord.Interaction, button):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("管理员专用 / Admin only.", ephemeral=True)
@@ -1054,7 +1054,7 @@ class ReShuffleView(discord.ui.View):
             ephemeral=True,
         )
 
-    @discord.ui.button(label="结算", style=discord.ButtonStyle.danger, emoji="💰", row=1)
+    @discord.ui.button(label="结算 / Settle", style=discord.ButtonStyle.danger, emoji="💰", row=1)
     async def settle_btn(self, interaction: discord.Interaction, button):
         """Settle the match -- select winner + MVP, distribute coins."""
         await interaction.response.defer(ephemeral=True)
@@ -1144,7 +1144,7 @@ class ReShuffleView(discord.ui.View):
         win_view.add_item(win_select)
         await interaction.followup.send("选择获胜队伍 / Select winning team:", view=win_view, ephemeral=True)
 
-    @discord.ui.button(label="报名", style=discord.ButtonStyle.primary, emoji="📝", row=1)
+    @discord.ui.button(label="报名 / Sign Up", style=discord.ButtonStyle.primary, emoji="📝", row=1)
     async def signup_btn(self, interaction: discord.Interaction, button):
         """Re-add the clicking user to this match's registrations."""
         await interaction.response.defer(ephemeral=True)
@@ -1186,7 +1186,7 @@ class ReShuffleView(discord.ui.View):
         await interaction.followup.send(f"{interaction.user.mention} 已报名 / Signed up.", ephemeral=False)
         await self._refresh_embed(interaction)
 
-    @discord.ui.button(label="退出", style=discord.ButtonStyle.secondary, emoji="🚪", row=1)
+    @discord.ui.button(label="退出 / Leave", style=discord.ButtonStyle.secondary, emoji="🚪", row=1)
     async def leave_btn(self, interaction: discord.Interaction, button):
         """Remove self from this match's registrations and update embed."""
         await interaction.response.defer(ephemeral=True)
@@ -1254,7 +1254,7 @@ class ReShuffleView(discord.ui.View):
             lines.append(f"⚠️ {team_label}队未在语音频道(无法拉入):{' '.join(not_in)}")
         return lines
 
-    @discord.ui.button(label="🔵 拉 A 队入语音", style=discord.ButtonStyle.primary, emoji="📢", row=2)
+    @discord.ui.button(label="🔵 拉 A 队入语音 / Pull Team A", style=discord.ButtonStyle.primary, emoji="📢", row=2)
     async def pull_voice_a_btn(self, interaction: discord.Interaction, button):
         if self._voice_used_a:
             return await interaction.response.send_message("A队已经拉过了!", ephemeral=True)
@@ -1275,7 +1275,7 @@ class ReShuffleView(discord.ui.View):
         await interaction.edit_original_response(view=self)
         await interaction.followup.send("A 队拉入完成!", ephemeral=True)
 
-    @discord.ui.button(label="🔴 拉 B 队入语音", style=discord.ButtonStyle.primary, emoji="📢", row=2)
+    @discord.ui.button(label="🔴 拉 B 队入语音 / Pull Team B", style=discord.ButtonStyle.primary, emoji="📢", row=2)
     async def pull_voice_b_btn(self, interaction: discord.Interaction, button):
         if self._voice_used_b:
             return await interaction.response.send_message("B队已经拉过了!", ephemeral=True)
@@ -1482,7 +1482,7 @@ class VoicePullView(discord.ui.View):
             except Exception as e:
                 log_error("dashboard", "VoicePullView._notify", e)
 
-    @discord.ui.button(label="🔵 拉 A 队入语音", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="🔵 拉 A 队入语音 / Pull Team A", style=discord.ButtonStyle.primary, row=0)
     async def pull_a_btn(self, interaction: discord.Interaction, button):
         if self._used_a:
             return await interaction.response.send_message("A队已经拉过了!", ephemeral=True)
@@ -1497,7 +1497,7 @@ class VoicePullView(discord.ui.View):
         await interaction.edit_original_response(view=self)
         await interaction.followup.send("A 队拉入完成!", ephemeral=True)
 
-    @discord.ui.button(label="🔴 拉 B 队入语音", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="🔴 拉 B 队入语音 / Pull Team B", style=discord.ButtonStyle.primary, row=0)
     async def pull_b_btn(self, interaction: discord.Interaction, button):
         if self._used_b:
             return await interaction.response.send_message("B队已经拉过了!", ephemeral=True)
@@ -1557,7 +1557,7 @@ class KillReportView(discord.ui.View):
             f"✅ {interaction.user.mention} 上报了 **{label}** 事件!", ephemeral=True
         )
 
-    @discord.ui.button(label="⚔️ 我击杀了", style=discord.ButtonStyle.danger, row=0)
+    @discord.ui.button(label="⚔️ 我击杀了 / I Killed", style=discord.ButtonStyle.danger, row=0)
     async def kill_btn(self, interaction: discord.Interaction, button):
         # Show user select for target
         with get_db_ctx() as conn:
@@ -1598,11 +1598,11 @@ class KillReportView(discord.ui.View):
         view._record_event = self._record_event
         await interaction.response.send_message("选择击杀目标:", view=view, ephemeral=True)
 
-    @discord.ui.button(label="💀 我阵亡了", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="💀 我阵亡了 / I Died", style=discord.ButtonStyle.secondary, row=0)
     async def death_btn(self, interaction: discord.Interaction, button):
         await self._record_event(interaction, "death")
 
-    @discord.ui.button(label="🤝 助攻", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="🤝 助攻 / Assist", style=discord.ButtonStyle.primary, row=0)
     async def assist_btn(self, interaction: discord.Interaction, button):
         await self._record_event(interaction, "assist")
 
@@ -1619,7 +1619,7 @@ class PostMatchPullView(discord.ui.View):
         super().__init__(timeout=timeout)
         self.guild = guild
 
-    @discord.ui.button(label="拉入赛后频道", style=discord.ButtonStyle.success, emoji="📢", row=0)
+    @discord.ui.button(label="拉入赛后频道 / Post-Match VC", style=discord.ButtonStyle.success, emoji="📢", row=0)
     async def pull_post_match(self, interaction: discord.Interaction, button):
         # Permission check: admins only (no match context available for participant check)
         if not interaction.user.guild_permissions.manage_channels:
@@ -2445,7 +2445,7 @@ class MatchViewWithID(discord.ui.View):
             logger.error(f"[MatchView] view error: {e}", exc_info=True)
             await interaction.followup.send("查询失败 / Query failed.", ephemeral=True)
 
-    @discord.ui.button(label="替补", style=discord.ButtonStyle.primary, emoji="📋", row=0, custom_id="matchv2_sub_signup")
+    @discord.ui.button(label="替补 / Substitute", style=discord.ButtonStyle.primary, emoji="📋", row=0, custom_id="matchv2_sub_signup")
     async def sub_signup_btn(self, interaction: discord.Interaction, button):
         """任何玩家点击直接以 is_sub=1 报名。"""
         await interaction.response.defer(ephemeral=True)
@@ -2708,7 +2708,7 @@ class MatchViewWithID(discord.ui.View):
             logger.error(f"[MatchView] leave error: {e}", exc_info=True)
             await interaction.followup.send("退赛失败 / Leave failed, please try again.", ephemeral=True)
 
-    @discord.ui.button(label="下注 A队", style=discord.ButtonStyle.primary, emoji="🔵", row=3, custom_id="matchv2_bet_a")
+    @discord.ui.button(label="下注 A队 / Bet Team A", style=discord.ButtonStyle.primary, emoji="🔵", row=3, custom_id="matchv2_bet_a")
     async def bet_a_btn(self, interaction: discord.Interaction, button):
         mid, t, guild = await self._get_context(interaction)
         if not mid:
@@ -2723,7 +2723,7 @@ class MatchViewWithID(discord.ui.View):
             return await interaction.response.send_message("A队不存在", ephemeral=True)
         await interaction.response.send_modal(BetModal(mid, ta["id"], guild))
 
-    @discord.ui.button(label="下注 B队", style=discord.ButtonStyle.danger, emoji="🔴", row=3, custom_id="matchv2_bet_b")
+    @discord.ui.button(label="下注 B队 / Bet Team B", style=discord.ButtonStyle.danger, emoji="🔴", row=3, custom_id="matchv2_bet_b")
     async def bet_b_btn(self, interaction: discord.Interaction, button):
         mid, t, guild = await self._get_context(interaction)
         if not mid:
@@ -2820,7 +2820,7 @@ class MatchViewWithID(discord.ui.View):
             ephemeral=True,
         )
 
-    @discord.ui.button(label="🔄 重新分队", style=discord.ButtonStyle.secondary, emoji="🎲", row=2, custom_id="matchv2_reshuffle")
+    @discord.ui.button(label="🔄 重新分队 / Reshuffle", style=discord.ButtonStyle.secondary, emoji="🎲", row=2, custom_id="matchv2_reshuffle")
     async def reshuffle_btn(self, interaction: discord.Interaction, button):
         """Re-shuffle existing registered players into new teams (in-place)."""
         await interaction.response.defer(ephemeral=True)
@@ -2910,7 +2910,7 @@ class MatchViewWithID(discord.ui.View):
 
         await interaction.followup.send("重新分队完成!", ephemeral=True)
 
-    @discord.ui.button(label="管理员加人", style=discord.ButtonStyle.primary, emoji="➕", row=2, custom_id="matchv2_admin_add")
+    @discord.ui.button(label="管理员加人 / Add Player", style=discord.ButtonStyle.primary, emoji="➕", row=2, custom_id="matchv2_admin_add")
     async def admin_add_btn(self, interaction: discord.Interaction, button):
         """Admin-only: batch add players or substitutes via UserSelect + type dropdown."""
         if not interaction.user.guild_permissions.administrator:
@@ -3631,7 +3631,7 @@ class PostSettleView(discord.ui.View):
         self.guild = guild
         self.include_kill_report = include_kill_report
 
-    @discord.ui.button(label="MVP 投票", style=discord.ButtonStyle.primary, emoji="🏅", row=0)
+    @discord.ui.button(label="MVP 投票 / MVP Vote", style=discord.ButtonStyle.primary, emoji="🏅", row=0)
     async def mvp_vote(self, interaction: discord.Interaction, button):
         try:
             await MvpVoteView.send_vote(
@@ -3643,7 +3643,7 @@ class PostSettleView(discord.ui.View):
             logger.error(f"[PostSettleView] mvp_vote error: {e}")
             await interaction.response.send_message("MVP投票失败 / MVP vote failed.", ephemeral=True)
 
-    @discord.ui.button(label="重新分队", style=discord.ButtonStyle.secondary, emoji="🔄", row=0)
+    @discord.ui.button(label="重新分队 / Reshuffle", style=discord.ButtonStyle.secondary, emoji="🔄", row=0)
     async def reshuffle(self, interaction: discord.Interaction, button):
         try:
             reshuffle_view = ReShuffleView(match_id=self.match_id, guild=self.guild)
@@ -3654,7 +3654,7 @@ class PostSettleView(discord.ui.View):
             logger.error(f"[PostSettleView] reshuffle error: {e}")
             await interaction.response.send_message("重新分队失败 / Reshuffle failed.", ephemeral=True)
 
-    @discord.ui.button(label="再来一局", style=discord.ButtonStyle.success, emoji="🔁", row=0)
+    @discord.ui.button(label="再来一局 / Rematch", style=discord.ButtonStyle.success, emoji="🔁", row=0)
     async def rematch(self, interaction: discord.Interaction, button):
         try:
             rematch_view = RematchView(match_id=self.match_id, guild=self.guild, match_name=self.match_name)
@@ -3667,7 +3667,7 @@ class PostSettleView(discord.ui.View):
             logger.error(f"[PostSettleView] rematch error: {e}")
             await interaction.response.send_message("失败 / Failed.", ephemeral=True)
 
-    @discord.ui.button(label="赛后拉语音", style=discord.ButtonStyle.secondary, emoji="🎙️", row=1)
+    @discord.ui.button(label="赛后拉语音 / Post-Match VC", style=discord.ButtonStyle.secondary, emoji="🎙️", row=1)
     async def pull_vc(self, interaction: discord.Interaction, button):
         try:
             post_match_view = PostMatchPullView(guild=self.guild)
@@ -3680,7 +3680,7 @@ class PostSettleView(discord.ui.View):
             logger.error(f"[PostSettleView] pull_vc error: {e}")
             await interaction.response.send_message("失败 / Failed.", ephemeral=True)
 
-    @discord.ui.button(label="比赛回放", style=discord.ButtonStyle.primary, emoji="⚔️", row=1)
+    @discord.ui.button(label="比赛回放 / Replay", style=discord.ButtonStyle.primary, emoji="⚔️", row=1)
     async def kill_report(self, interaction: discord.Interaction, button):
         if not self.include_kill_report:
             return await interaction.response.send_message("此功能未启用 / This feature is disabled.", ephemeral=True)
@@ -4089,7 +4089,7 @@ class VoteView(discord.ui.View):
         self.vote_a_btn.label = f"\U0001f535 {self.team_a_name} 赢 ({counts['A']})"
         self.vote_b_btn.label = f"\U0001f534 {self.team_b_name} 赢 ({counts['B']})"
 
-    @discord.ui.button(label="A队赢", style=discord.ButtonStyle.primary, emoji="\U0001f535", row=0)
+    @discord.ui.button(label="A队赢 / Team A Wins", style=discord.ButtonStyle.primary, emoji="\U0001f535", row=0)
     async def vote_a_btn(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         uid = str(interaction.user.id)
@@ -4107,7 +4107,7 @@ class VoteView(discord.ui.View):
             f"\u2705 你投给了 **{self.team_a_name}**!You voted for {self.team_a_name}!", ephemeral=True
         )
 
-    @discord.ui.button(label="B队赢", style=discord.ButtonStyle.danger, emoji="\U0001f534", row=0)
+    @discord.ui.button(label="B队赢 / Team B Wins", style=discord.ButtonStyle.danger, emoji="\U0001f534", row=0)
     async def vote_b_btn(self, interaction: discord.Interaction, button):
         await interaction.response.defer(ephemeral=True)
         uid = str(interaction.user.id)
@@ -4813,21 +4813,21 @@ class DashboardView(discord.ui.View):
         elif cat == 1:
             # ===== LOL & MATCH =====
             btns = [
-                ("🎮 创建比赛", "create_match"),
-                ("📋 报名", "signup"),
-                ("🎲 随机分队", "shuffle"),
-                ("🔴🔵 手动分队", "assign_teams"),
-                ("🏁 结算", "settle"),
-                ("🔊 拉入语音", "pull_voice"),
-                ("👑 选队长", "pick_captain"),
-                ("🏆 创建赛事", "create_tournament"),
-                ("✍️ 赛事报名", "signup_tournament"),
-                ("👤 队长选秀", "draft_setup"),
-                ("📊 上报比分", "report_score"),
-                ("📈 赛事排名", "tournament_standings"),
-                ("🗺️ 对阵表", "tournament_bracket"),
-                ("📋 赛事记录", "tournament_history"),
-                ("📅 定时赛事", "scheduled_event"),
+                ("🎮 创建比赛 / Create Match", "create_match"),
+                ("📋 报名 / Sign Up", "signup"),
+                ("🎲 随机分队 / Shuffle", "shuffle"),
+                ("🔴🔵 手动分队 / Assign Teams", "assign_teams"),
+                ("🏁 结算 / Settle", "settle"),
+                ("🔊 拉入语音 / Pull Voice", "pull_voice"),
+                ("👑 选队长 / Pick Captain", "pick_captain"),
+                ("🏆 创建赛事 / Create Tournament", "create_tournament"),
+                ("✍️ 赛事报名 / Tournament Sign Up", "signup_tournament"),
+                ("👤 队长选秀 / Captain Draft", "draft_setup"),
+                ("📊 上报比分 / Report Score", "report_score"),
+                ("📈 赛事排名 / Standings", "tournament_standings"),
+                ("🗺️ 对阵表 / Bracket", "tournament_bracket"),
+                ("📋 赛事记录 / Tournament History", "tournament_history"),
+                ("📅 定时赛事 / Scheduled Event", "scheduled_event"),
             ]
             self._build_grid(btns, rows_of=5)
 
@@ -4893,7 +4893,8 @@ class DashboardView(discord.ui.View):
         elif cat == 5:
             # ===== ADMIN & TOOLS =====
             btns = [
-                ("🔒 管理面板", "admin"),
+                ("🔒 管理面板 / Admin Panel", "admin"),
+                ("🪙 调整金币 / Adjust Coins", "admin_coins"),
                 ("📢 发送公告", "announce"),
                 ("🔄 赛季重置", "season_reset"),
                 ("📤 导出数据", "export_data"),
@@ -6759,17 +6760,17 @@ class DashboardView(discord.ui.View):
                 if page >= total_pages - 1:
                     self.next_btn.disabled = True
 
-            @discord.ui.button(label="⬅️ 上一页", style=discord.ButtonStyle.secondary)
+            @discord.ui.button(label="⬅️ 上一页 / Prev", style=discord.ButtonStyle.secondary)
             async def prev_btn(self, btn_int: discord.Interaction, button):
                 await btn_int.response.defer()
                 await dashboard_self._show_players_page(btn_int, page - 1, search_term)
 
-            @discord.ui.button(label="下一页 ➡️", style=discord.ButtonStyle.secondary)
+            @discord.ui.button(label="下一页 / Next ➡️", style=discord.ButtonStyle.secondary)
             async def next_btn(self, btn_int: discord.Interaction, button):
                 await btn_int.response.defer()
                 await dashboard_self._show_players_page(btn_int, page + 1, search_term)
 
-            @discord.ui.button(label="🔍 搜索", style=discord.ButtonStyle.primary)
+            @discord.ui.button(label="🔍 搜索 / Search", style=discord.ButtonStyle.primary)
             async def search_btn(self, btn_int: discord.Interaction, button):
                 class SearchModal(discord.ui.Modal, title="搜索玩家 / Search Player"):
                     keyword = discord.ui.TextInput(
@@ -6799,6 +6800,19 @@ class DashboardView(discord.ui.View):
             "`/gmpt-mmr-reset` — Reset MMR / 重置MMR",
             ephemeral=True,
         )
+
+    async def _admin_coins(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.followup.send("仅管理员可使用 / Admin only.", ephemeral=True)
+        from cogs.economy import AdminCoinsView
+        view = AdminCoinsView()
+        embed = discord.Embed(
+            title="🪙 管理金币 / Admin Coins",
+            description="查看、重置或调整用户金币 / View, reset, or adjust user coins.",
+            color=0xF1C40F,
+        )
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     # ═══════════════════ Page 2 — Tournament History ═══════════════════
 

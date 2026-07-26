@@ -145,6 +145,7 @@ class AuctionView(discord.ui.View):
 
     @discord.ui.button(label="📋 浏览 / Browse", style=discord.ButtonStyle.primary, row=0)
     async def browse_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer()
         with get_db_ctx() as conn:
             cur = conn.cursor()
             cur.execute("SELECT * FROM auctions WHERE status='active' ORDER BY ends_at ASC LIMIT 10")
@@ -194,6 +195,7 @@ class AuctionView(discord.ui.View):
 
     @discord.ui.button(label="📦 我的 / My Items", style=discord.ButtonStyle.secondary, row=0)
     async def my_auctions_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer()
         uid = str(interaction.user.id)
         with get_db_ctx() as conn:
             cur = conn.cursor()
@@ -216,6 +218,7 @@ class AuctionView(discord.ui.View):
 
     @discord.ui.button(label="◀ 返回 / Back", style=discord.ButtonStyle.danger, row=1)
     async def back_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer()
         try:
             from cogs.dashboard import DashboardView
         except ImportError:

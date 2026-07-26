@@ -38,6 +38,7 @@ class LeaderboardView(discord.ui.View):
 
     @discord.ui.button(label="🪙 金币榜 / Coins", style=discord.ButtonStyle.primary, row=0)
     async def coin_lb(self, interaction: discord.Interaction, button):
+        await interaction.response.defer()
         embed = await self._get_top(
             "SELECT discord_id, score FROM users ORDER BY score DESC LIMIT 20",
             (), "🪙 金币富豪榜 / Coin Leaderboard", 0xF1C40F,
@@ -47,6 +48,7 @@ class LeaderboardView(discord.ui.View):
 
     @discord.ui.button(label="⚔️ 胜场王 / Wins", style=discord.ButtonStyle.primary, row=0)
     async def win_lb(self, interaction: discord.Interaction, button):
+        await interaction.response.defer()
         embed = await self._get_top(
             "SELECT discord_id, wins FROM mmr ORDER BY wins DESC LIMIT 20",
             (), "⚔️ 胜场王 / Wins Leaderboard", 0x2ECC71,
@@ -56,6 +58,7 @@ class LeaderboardView(discord.ui.View):
 
     @discord.ui.button(label="🏆 MVP榜 / MVP", style=discord.ButtonStyle.primary, row=0)
     async def mvp_lb(self, interaction: discord.Interaction, button):
+        await interaction.response.defer()
         with get_db_ctx() as conn:
             cur = conn.cursor()
             cur.execute("""
@@ -77,6 +80,7 @@ class LeaderboardView(discord.ui.View):
 
     @discord.ui.button(label="📊 等级榜 / Level", style=discord.ButtonStyle.primary, row=0)
     async def level_lb(self, interaction: discord.Interaction, button):
+        await interaction.response.defer()
         embed = await self._get_top(
             "SELECT discord_id, xp FROM users ORDER BY xp DESC LIMIT 20",
             (), "📊 等级榜 / Level Leaderboard", 0x9B59B6,
@@ -86,6 +90,7 @@ class LeaderboardView(discord.ui.View):
 
     @discord.ui.button(label="🎤 语音榜 / Voice", style=discord.ButtonStyle.primary, row=1)
     async def voice_lb(self, interaction: discord.Interaction, button):
+        await interaction.response.defer()
         embed = await self._get_top(
             "SELECT discord_id, total_minutes FROM voice_time ORDER BY total_minutes DESC LIMIT 20",
             (), "🎤 语音榜 / Voice Leaderboard", 0x3498DB,
@@ -95,6 +100,7 @@ class LeaderboardView(discord.ui.View):
 
     @discord.ui.button(label="◀ 返回 / Back", style=discord.ButtonStyle.danger, row=1)
     async def back_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer()
         try:
             from cogs.dashboard import DashboardView
         except ImportError:

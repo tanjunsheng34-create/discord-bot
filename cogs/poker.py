@@ -445,7 +445,7 @@ class NewHandView(discord.ui.View):
         super().__init__(timeout=60)
         self.game = game
 
-    @discord.ui.button(label="Deal 发牌", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="Deal / 发牌", style=discord.ButtonStyle.primary)
     async def deal(self, interaction: discord.Interaction, button: discord.ui.Button):
         g = self.game
         dealer_id = g.order[g.dealer_idx]
@@ -816,6 +816,7 @@ class PokerPanelView(discord.ui.View):
 
     @discord.ui.button(label="📊 状态 / Status", style=discord.ButtonStyle.secondary, row=0)
     async def status_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer()
         cid = interaction.channel_id
         if cid not in _games:
             return await interaction.response.send_message("本频道没有活跃牌局 / No active game.", ephemeral=True)
@@ -834,6 +835,7 @@ class PokerPanelView(discord.ui.View):
 
     @discord.ui.button(label="◀ 返回 / Back", style=discord.ButtonStyle.danger, row=1)
     async def back_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.defer()
         from cogs.dashboard import DashboardView
         view = DashboardView(guild=interaction.guild, bot=None)
         view.category = 0

@@ -397,11 +397,11 @@ class MarryPanelView(discord.ui.View):
         self.clear_items()
 
         btns = [
-            ("💍 求婚", "marry_propose", discord.ButtonStyle.success),
-            ("✅ 接受求婚", "marry_accept", discord.ButtonStyle.primary),
-            ("❌ 拒绝求婚", "marry_decline", discord.ButtonStyle.danger),
-            ("💔 离婚", "marry_divorce", discord.ButtonStyle.danger),
-            ("📋 查看状态", "marry_status", discord.ButtonStyle.primary),
+            ("💍 求婚 / Propose", "marry_propose", discord.ButtonStyle.success),
+            ("✅ 接受 / Accept", "marry_accept", discord.ButtonStyle.primary),
+            ("❌ 拒绝 / Decline", "marry_decline", discord.ButtonStyle.danger),
+            ("💔 离婚 / Divorce", "marry_divorce", discord.ButtonStyle.danger),
+            ("📋 状态 / Status", "marry_status", discord.ButtonStyle.primary),
         ]
         for i, (label, cid, style) in enumerate(btns):
             btn = discord.ui.Button(label=label, style=style, row=0, custom_id=f"marryp_{cid}")
@@ -625,9 +625,9 @@ class RepPanelView(discord.ui.View):
         self.clear_items()
 
         btns = [
-            ("⭐ 给予声望", "rep_give", discord.ButtonStyle.success),
-            ("📊 查看声望", "rep_check", discord.ButtonStyle.primary),
-            ("🏆 排行榜", "rep_leaderboard", discord.ButtonStyle.primary),
+            ("⭐ 给予声望 / Give Rep", "rep_give", discord.ButtonStyle.success),
+            ("📊 查看声望 / Check Rep", "rep_check", discord.ButtonStyle.primary),
+            ("🏆 排行榜 / Leaderboard", "rep_leaderboard", discord.ButtonStyle.primary),
         ]
         for i, (label, cid, style) in enumerate(btns):
             btn = discord.ui.Button(label=label, style=style, row=0, custom_id=f"repp_{cid}")
@@ -753,6 +753,85 @@ class RepGiveSelectView(discord.ui.View):
             f"⭐ {interaction.user.mention} 给了 {target.mention} 声望！(**{new_count}** 总声望 / total rep)"
         )
 
+    @app_commands.command(name="gmpt-profile", description="查看玩家资料 / View player profile")
+    @app_commands.describe(target="要查看的玩家 / Player to view (默认自己 / default: yourself)")
+    async def gmpt_profile(self, interaction: discord.Interaction, target: discord.Member = None):
+        """查看玩家资料 / View player profile."""
+        if target is None:
+            target = interaction.user
+        uid = str(target.id)
+        await interaction.response.defer()
+
+        # Query user data
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT score, mmr, xp, level, win_streak FROM users WHERE discord_id=?", (uid,))
+            user = cur.fetchone()
+
+            # Marriage status
+            cur.execute(
+                "SELECT proposer_id, target_id FROM marriages "
+                "WHERE status='married' AND (proposer_id=? OR target_id=?)",
+                (uid, uid)
+            )
+            marriage = cur.fetchone()
+
+            # Pet count
+            cur.execute("SELECT COUNT(*) as cnt FROM pets WHERE owner_id=?", (uid,))
+            pet_count = cur.fetchone()["cnt"]
+
+            # Clan membership
+            cur.execute(
+                "SELECT c.name FROM clan_members cm JOIN clans c ON c.id = cm.clan_id WHERE cm.user_id=?",
+                (uid,)
+            )
+            clan_row = cur.fetchone()
+
+            # Achievement count
+            cur.execute("SELECT COUNT(*) as cnt FROM user_achievements WHERE user_id=?", (uid,))
+            ach_count = cur.fetchone()["cnt"]
+
+        coins = user["score"] if user else 0
+        mmr = user["mmr"] if user else 1000
+        xp = user["xp"] if user else 0
+        level = user["level"] if user else 1
+        win_streak = user["win_streak"] if user else 0
+
+        # Build embed
+        embed = discord.Embed(
+            title=f"👤 {target.display_name} 的资料 / Profile",
+            color=target.color if target.color.value else 0x3498DB,
+        )
+        embed.set_thumbnail(url=target.display_avatar.url)
+
+        embed.add_field(name="🪙 金币 / Coins", value=f"{coins:,}", inline=True)
+        embed.add_field(name="📊 等级 / Level", value=f"{level} ({xp:,} XP)", inline=True)
+        embed.add_field(name="🏅 MMR", value=str(mmr), inline=True)
+        embed.add_field(name="🔥 连胜 / Win Streak", value=str(win_streak), inline=True)
+
+        # Marriage
+        if marriage:
+            partner_id = marriage["target_id"] if marriage["proposer_id"] == uid else marriage["proposer_id"]
+            try:
+                partner = await interaction.guild.fetch_member(int(partner_id))
+                partner_name = partner.display_name
+            except Exception:
+                partner_name = partner_id
+            embed.add_field(name="💍 婚姻 / Married to", value=partner_name, inline=True)
+        else:
+            embed.add_field(name="💍 婚姻 / Marriage", value="单身 / Single", inline=True)
+
+        # Pets
+        embed.add_field(name="🐾 宠物 / Pets", value=f"{pet_count} 只", inline=True)
+
+        # Clan
+        embed.add_field(name="🏰 公会 / Clan", value=clan_row["name"] if clan_row else "无 / None", inline=True)
+
+        # Achievements
+        embed.add_field(name="🏅 成就 / Achievements", value=f"{ach_count} 个", inline=True)
+
+        embed.set_footer(text=f"ID: {uid}")
+        await interaction.followup.send(embed=embed)
 
 
 async def setup(bot):
