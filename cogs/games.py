@@ -772,7 +772,7 @@ class BanPickView(discord.ui.View):
             action = "Ban" if phase_name.startswith("ban") else "Pick"
             player_letter = "A" if "ban_a" in phase_name or "pick_a" in phase_name else "B"
             phase_text = f"{action}阶段 — 玩家{player_letter} (第{self.phase_round+1}/{total}轮)"
-            current_text = self._current_player_name()
+            current_text = self._current_player_name
             color = 0xE74C3C if action == "Ban" else 0x3498DB
 
         embed = discord.Embed(

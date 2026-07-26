@@ -220,7 +220,7 @@ class BlackjackView(discord.ui.View):
                 add_coins(uid, self.bet, "21点超时平局 / Blackjack timeout push")
             for child in self.children:
                 child.disabled = True
-            if self.message:
+            if hasattr(self, 'message') and self.message:
                 embed = await self._build_embed(show_dealer=True)
                 embed.set_footer(text="⏰ 超时 / Timed out")
                 try:
@@ -516,7 +516,7 @@ class HorseRaceView(discord.ui.View):
         if self.chosen is None:
             for child in self.children:
                 child.disabled = True
-            if self.message:
+            if hasattr(self, 'message') and self.message:
                 embed = discord.Embed(
                     title="🏇 赛马 / Horse Race",
                     description="⏰ 超时未选择 / Timed out — no horse chosen",
