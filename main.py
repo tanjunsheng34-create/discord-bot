@@ -63,7 +63,6 @@ COGS = [
     "cogs.shop",
     "cogs.pets",
     "cogs.clans",
-    "cogs.social",
 ]
 
 
@@ -437,18 +436,32 @@ async def on_ready():
     # Restore data from Discord backup channel (if configured)
     await auto_restore()
     logger.info(f"Bot online: {bot.user}")
-    # ── 一次性清理：清除 Discord 服务端残留的旧全局命令 ──
-    # 之前版本使用 bot.tree.sync() 全局注册了命令，导致与公会命令重复显示。
-    # clear_commands + sync 提交空命令树，清除 Discord 上的残留全局命令。
-    # TODO: 首次部署成功后，可以删除下面 7 行一次性清理代码。
+    # ── 释放全局命令配额 + 清除 Discord 残留全局命令 ──
+    # 所有 cog 的 @app_commands.command() 默认注册为全局命令，占用 100 条配额。
+    # 先将已有全局命令移至公会作用域，清空全局树，再加载 cogs.social。
+    for guild in bot.guilds:
+        bot.tree.copy_global_to(guild=guild)
+    bot.tree.clear_commands(guild=None)
+
+    # 一次性清理：将空命令树同步到 Discord，清除服务端残留全局命令
     try:
-        bot.tree.clear_commands(guild=None)
         await bot.tree.sync()
         logger.info("Cleared residual global commands from Discord")
     except Exception as e:
         logger.error(f"Failed to clear global commands: {e}")
 
-    # ── 仅在公会作用域注册命令（避免重复显示 + 绕过 100 条全局限制） ──
+    # 加载 cogs.social（其命令将注册为全局，但配额已腾出）
+    try:
+        await bot.load_extension("cogs.social")
+        logger.info("Loaded: cogs.social")
+    except Exception as e:
+        logger.error(f"FAILED to load cogs.social: {e}", exc_info=True)
+
+    # 将 social 的命令也复制到公会作用域
+    for guild in bot.guilds:
+        bot.tree.copy_global_to(guild=guild)
+
+    # ── 仅在公会作用域注册命令 ──
     total = 0
     for guild in bot.guilds:
         try:
