@@ -4922,7 +4922,6 @@ class DashboardView(discord.ui.View):
                 ("🎰 刮刮乐\nScratch", "game_scratch"),
                 ("♠️ 德州扑克\nPoker", "game_poker"),
                 ("⚔️ Ban/Pick", "game_banpick"),
-                ("◀️ 返回主菜单\nBack to Main", "game_back"),
             ]
             while len(btns) < 12:
                 btns.append(None)

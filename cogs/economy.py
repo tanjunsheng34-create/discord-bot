@@ -1230,7 +1230,7 @@ class Economy(CogBase):
         await interaction.response.send_message("\n".join(lines))
 
     # ========== 商店 ==========
-    @app_commands.command(name="gmpt-shop", description="Open the coin shop / 积分商店")
+    @app_commands.command(name="gmpt-economy-shop", description="Open the coin shop / 积分商店")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def shop_cmd(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
@@ -1274,7 +1274,7 @@ class Economy(CogBase):
 
     # ========== 购买 ==========
     @app_commands.command(name="gmpt-buy", description="Buy item from shop / 购买商店物品")
-    @app_commands.describe(item_id="Item ID from /gmpt-shop", message="Message content (required for Broadcast)")
+    @app_commands.describe(item_id="Item ID from /gmpt-economy-shop", message="Message content (required for Broadcast)")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def buy_cmd(self, interaction: discord.Interaction, item_id: int, message: str = None):
         await buy_item(interaction, str(interaction.user.id), item_id, broadcast_message=message)
@@ -1296,7 +1296,7 @@ class Economy(CogBase):
 
         if not rows:
             return await interaction.response.send_message(
-                "Backpack is empty. Visit `/gmpt-shop`! / 背包是空的，去 `/gmpt-shop` 逛逛吧！"
+                "Backpack is empty. Visit `/gmpt-economy-shop`! / 背包是空的，去 `/gmpt-economy-shop` 逛逛吧！"
             )
 
         lines = ["**Backpack / 背包**\n"]
@@ -2468,7 +2468,7 @@ class ResetAllModal(discord.ui.Modal, title="重置全部金币 / Reset All Coin
             row = cur.fetchone()
             if not row or row["tickets"] <= 0:
                 return await interaction.response.send_message(
-                    "You have no giveaway tickets! Buy them from `/gmpt-shop`. / 你没有抽奖券！去商店购买吧。",
+                    "You have no giveaway tickets! Buy them from `/gmpt-economy-shop`. / 你没有抽奖券！去商店购买吧。",
                     ephemeral=True,
                 )
 
