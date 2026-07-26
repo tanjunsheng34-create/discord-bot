@@ -2950,7 +2950,7 @@ class GiveawayPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=180)
 
-    @discord.ui.button(label="🎉 创建抽奖(管理)", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="🎉 创建 / Create (Admin)", style=discord.ButtonStyle.primary, row=0)
     async def create_btn(self, interaction: discord.Interaction, button):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("仅管理员可用 / Admin only.", ephemeral=True)
@@ -2971,11 +2971,11 @@ class GiveawayPanelView(discord.ui.View):
                 )
         await interaction.response.send_modal(GiveawayCreateModal())
 
-    @discord.ui.button(label="🎟️ 参与抽奖", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="🎟️ 参与 / Enter", style=discord.ButtonStyle.success, row=0)
     async def enter_btn(self, interaction: discord.Interaction, button):
         await interaction.response.send_message("使用 `/gmpt-giveaway enter <ID>` 参与抽奖 / Use command to enter.", ephemeral=True)
 
-    @discord.ui.button(label="📊 查看奖券", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="📊 奖券 / Tickets", style=discord.ButtonStyle.secondary, row=0)
     async def tickets_btn(self, interaction: discord.Interaction, button):
         uid = str(interaction.user.id)
         with get_db_ctx() as conn:
@@ -2985,7 +2985,7 @@ class GiveawayPanelView(discord.ui.View):
         tix = row["tickets"] if row else 0
         await interaction.response.send_message(f"🎟️ 你有 **{tix}** 张抽奖券 / You have **{tix}** tickets.", ephemeral=True)
 
-    @discord.ui.button(label="📋 抽奖列表", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="📋 列表 / List", style=discord.ButtonStyle.secondary, row=0)
     async def list_btn(self, interaction: discord.Interaction, button):
         with get_db_ctx() as conn:
             cur = conn.cursor()
@@ -3002,7 +3002,7 @@ class GiveawayPanelView(discord.ui.View):
             )
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="◀ 返回主菜单", style=discord.ButtonStyle.danger, row=1)
+    @discord.ui.button(label="◀ 返回 / Back", style=discord.ButtonStyle.danger, row=1)
     async def back_btn(self, interaction: discord.Interaction, button):
         from cogs.dashboard import DashboardView
         view = DashboardView(guild=interaction.guild, bot=None)
@@ -3019,7 +3019,7 @@ class LotteryPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=180)
 
-    @discord.ui.button(label="🎫 买票 (50金币)", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="🎫 买票 / Buy (50💰)", style=discord.ButtonStyle.success, row=0)
     async def buy_btn(self, interaction: discord.Interaction, button):
         uid = str(interaction.user.id)
         bal = get_balance(uid)
@@ -3038,7 +3038,7 @@ class LotteryPanelView(discord.ui.View):
             f"🎫 彩票购买成功！/ Ticket purchased!\n编号 #{tid} | 号码: **{nums}**", ephemeral=True
         )
 
-    @discord.ui.button(label="📊 查看状态", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="📊 状态 / Status", style=discord.ButtonStyle.secondary, row=0)
     async def status_btn(self, interaction: discord.Interaction, button):
         uid = str(interaction.user.id)
         with get_db_ctx() as conn:
@@ -3053,7 +3053,7 @@ class LotteryPanelView(discord.ui.View):
             lines.append(f"#{r['id']} — {r['numbers']} — {status}")
         await interaction.response.send_message("🎫 你的彩票 / Your tickets:\n" + "\n".join(lines), ephemeral=True)
 
-    @discord.ui.button(label="🎰 开奖(管理员)", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="🎰 开奖 / Draw (Admin)", style=discord.ButtonStyle.primary, row=0)
     async def draw_btn(self, interaction: discord.Interaction, button):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("仅管理员可用 / Admin only.", ephemeral=True)
@@ -3080,7 +3080,7 @@ class LotteryPanelView(discord.ui.View):
             f"🎰 **彩票开奖！/ Lottery Draw!**\n中奖号码 / Winning numbers: **{', '.join(map(str, winning))}**\n\n{win_text}"
         )
 
-    @discord.ui.button(label="◀ 返回主菜单", style=discord.ButtonStyle.danger, row=1)
+    @discord.ui.button(label="◀ 返回 / Back", style=discord.ButtonStyle.danger, row=1)
     async def back_btn(self, interaction: discord.Interaction, button):
         from cogs.dashboard import DashboardView
         view = DashboardView(guild=interaction.guild, bot=None)
@@ -3097,7 +3097,7 @@ class SeasonPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=180)
 
-    @discord.ui.button(label="📈 赛季排行榜", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="📈 排行榜 / Standings", style=discord.ButtonStyle.primary, row=0)
     async def standings_btn(self, interaction: discord.Interaction, button):
         with get_db_ctx() as conn:
             cur = conn.cursor()
@@ -3122,7 +3122,7 @@ class SeasonPanelView(discord.ui.View):
             embed.description = "\n".join(lines)
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="👤 我的排名", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="👤 我的 / My Rank", style=discord.ButtonStyle.success, row=0)
     async def my_rank_btn(self, interaction: discord.Interaction, button):
         uid = str(interaction.user.id)
         with get_db_ctx() as conn:
@@ -3141,7 +3141,7 @@ class SeasonPanelView(discord.ui.View):
         embed.add_field(name="Losses", value=str(row["losses"]), inline=True)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="ℹ️ 赛季信息", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="ℹ️ 信息 / Info", style=discord.ButtonStyle.secondary, row=0)
     async def info_btn(self, interaction: discord.Interaction, button):
         with get_db_ctx() as conn:
             cur = conn.cursor()
@@ -3153,10 +3153,10 @@ class SeasonPanelView(discord.ui.View):
             cnt = cur.fetchone()["cnt"]
         embed = discord.Embed(title=f"ℹ️ {season['name']}", color=0xE67E22)
         embed.add_field(name="开始时间 / Start", value=str(season["start_date"]), inline=True)
-        embed.add_field(name="参与人数", value=str(cnt), inline=True)
+        embed.add_field(name="参与人数 / Participants", value=str(cnt), inline=True)
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="◀ 返回主菜单", style=discord.ButtonStyle.danger, row=1)
+    @discord.ui.button(label="◀ 返回 / Back", style=discord.ButtonStyle.danger, row=1)
     async def back_btn(self, interaction: discord.Interaction, button):
         from cogs.dashboard import DashboardView
         view = DashboardView(guild=interaction.guild, bot=None)
@@ -3173,7 +3173,7 @@ class ItemPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=180)
 
-    @discord.ui.button(label="🎒 查看背包", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="🎒 背包 / Backpack", style=discord.ButtonStyle.primary, row=0)
     async def backpack_btn(self, interaction: discord.Interaction, button):
         uid = str(interaction.user.id)
         with get_db_ctx() as conn:
@@ -3192,11 +3192,11 @@ class ItemPanelView(discord.ui.View):
             embed.add_field(name=f"{r['name']} (x{r['quantity']})", value=f"类型: {r['item_type']}", inline=True)
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="⚡ 使用道具", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="⚡ 使用 / Use", style=discord.ButtonStyle.success, row=0)
     async def use_btn(self, interaction: discord.Interaction, button):
         await interaction.response.send_message("使用 `/gmpt-item use <道具类型> <目标>` 使用道具 / Use command to use items.", ephemeral=True)
 
-    @discord.ui.button(label="📚 道具图鉴", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="📚 图鉴 / Catalog", style=discord.ButtonStyle.secondary, row=0)
     async def catalog_btn(self, interaction: discord.Interaction, button):
         # Show ITEM_EFFECTS catalog from Economy cog
         item_list = [
@@ -3231,7 +3231,7 @@ class ItemPanelView(discord.ui.View):
         embed.add_field(name="更多 / More (1-10)", value="\n".join(lines[10:]) or "...", inline=False)
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="◀ 返回主菜单", style=discord.ButtonStyle.danger, row=1)
+    @discord.ui.button(label="◀ 返回 / Back", style=discord.ButtonStyle.danger, row=1)
     async def back_btn(self, interaction: discord.Interaction, button):
         from cogs.dashboard import DashboardView
         view = DashboardView(guild=interaction.guild, bot=None)

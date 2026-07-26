@@ -4716,63 +4716,6 @@ class ScratchDashboardModal(discord.ui.Modal, title="🎰 刮刮乐 / Scratch Ca
         await interaction.response.send_message(embed=embed)
 
 
-class DiceDuelDashboardModal(discord.ui.Modal, title="🎲 骰子对决 / Dice Duel"):
-    opponent = discord.ui.TextInput(
-        label="对手 @用户 | Opponent @user",
-        placeholder="@username",
-        required=True, max_length=40,
-    )
-    bet = discord.ui.TextInput(
-        label="下注金额 | Bet amount",
-        placeholder="1 - 50000",
-        required=True, min_length=1, max_length=6,
-    )
-
-    async def on_submit(self, interaction: discord.Interaction):
-        uid = str(interaction.user.id)
-        raw = self.opponent.value.strip().lstrip('@')
-        resolved = resolve_name(interaction.guild, raw)
-        if not resolved:
-            return await interaction.response.send_message("找不到该用户 / User not found.", ephemeral=True)
-        opponent_id = str(resolved.id)
-        if opponent_id == uid:
-            return await interaction.response.send_message("不能和自己对决 / Cannot duel yourself.", ephemeral=True)
-        try:
-            amount = int(self.bet.value)
-        except ValueError:
-            return await interaction.response.send_message("请输入有效数字 / Enter a valid number.", ephemeral=True)
-        if amount <= 0 or amount > 50000:
-            return await interaction.response.send_message("下注金额需在 1-50000 之间 / Bet must be 1-50000.", ephemeral=True)
-        balance = _get_balance(uid)
-        opp_balance = _get_balance(opponent_id)
-        if balance < amount:
-            return await interaction.response.send_message(f"你的金币不足 / Insufficient coins. 余额: 🪙 {balance}", ephemeral=True)
-        if opp_balance < amount:
-            return await interaction.response.send_message(f"对方金币不足 / Opponent has insufficient coins. 余额: 🪙 {opp_balance}", ephemeral=True)
-
-        _add_coins(uid, -amount, "Dice duel bet")
-        _add_coins(opponent_id, -amount, "Dice duel bet (opponent)")
-
-        p1_roll = random.randint(1, 6)
-        p2_roll = random.randint(1, 6)
-        if p1_roll > p2_roll:
-            _add_coins(uid, amount * 2, f"Dice duel win vs {resolved.display_name}")
-            result_text = f"{interaction.user.mention} 获胜！/ Wins!"
-        elif p2_roll > p1_roll:
-            _add_coins(opponent_id, amount * 2, f"Dice duel win vs {interaction.user.display_name}")
-            result_text = f"{resolved.mention} 获胜！/ Wins!"
-        else:
-            _add_coins(uid, amount, "Dice duel draw refund")
-            _add_coins(opponent_id, amount, "Dice duel draw refund")
-            result_text = "平局！双方退款 / Draw! Both refunded."
-
-        embed = discord.Embed(title="🎲 骰子对决 | Dice Duel", color=discord.Color.blue())
-        embed.add_field(name=f"{interaction.user.display_name}", value=f"🎲 {p1_roll}", inline=True)
-        embed.add_field(name=f"{resolved.display_name}", value=f"🎲 {p2_roll}", inline=True)
-        embed.add_field(name="结果 / Result", value=result_text, inline=False)
-        await interaction.response.send_message(embed=embed)
-
-
 class WhisperModal(discord.ui.Modal, title="🕊️ 树洞 / Whisper"):
     """Modal for anonymous confession from dashboard button."""
 
@@ -7544,8 +7487,87 @@ class DashboardView(discord.ui.View):
         await interaction.response.send_modal(CrashDashboardModal())
 
     async def _game_diceduel(self, interaction: discord.Interaction):
-        """🎲 骰子对决 / Dice Duel — 打开对决弹窗"""
-        await interaction.response.send_modal(DiceDuelDashboardModal())
+        """🎲 骰子对决 / Dice Duel — 选择对手"""
+        view = DiceDuelSelectView()
+        await interaction.response.send_message(
+            "🎲 搜索并选择对手 / Search & select opponent:",
+            view=view, ephemeral=True,
+        )
+
+
+class DiceDuelSelectView(discord.ui.View):
+    """UserSelect view for Dice Duel opponent."""
+
+    def __init__(self):
+        super().__init__(timeout=120)
+        self.opponent_select = discord.ui.UserSelect(
+            placeholder="搜索并选择对手 / Search & select opponent",
+            min_values=1, max_values=1,
+        )
+        self.opponent_select.callback = self._select_callback
+        self.add_item(self.opponent_select)
+
+    async def _select_callback(self, interaction: discord.Interaction):
+        opponent = self.opponent_select.values[0]
+        if opponent.id == interaction.user.id:
+            return await interaction.response.send_message(
+                "不能和自己对决 / Cannot duel yourself.", ephemeral=True)
+        if opponent.bot:
+            return await interaction.response.send_message(
+                "不能和机器人对决 / Cannot duel bots.", ephemeral=True)
+        await interaction.response.send_modal(DiceDuelBetModal(opponent))
+
+
+class DiceDuelBetModal(discord.ui.Modal, title="🎲 骰子对决下注 / Dice Duel Bet"):
+    bet = discord.ui.TextInput(
+        label="下注金额 | Bet amount",
+        placeholder="1 - 50000",
+        required=True, min_length=1, max_length=6,
+    )
+
+    def __init__(self, opponent: discord.Member):
+        super().__init__()
+        self.opponent = opponent
+
+    async def on_submit(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        opponent_id = str(self.opponent.id)
+        resolved = self.opponent
+
+        try:
+            amount = int(self.bet.value)
+        except ValueError:
+            return await interaction.response.send_message("请输入有效数字 / Enter a valid number.", ephemeral=True)
+        if amount <= 0 or amount > 50000:
+            return await interaction.response.send_message("下注金额需在 1-50000 之间 / Bet must be 1-50000.", ephemeral=True)
+        balance = _get_balance(uid)
+        opp_balance = _get_balance(opponent_id)
+        if balance < amount:
+            return await interaction.response.send_message(f"你的金币不足 / Insufficient coins. 余额: 🪙 {balance}", ephemeral=True)
+        if opp_balance < amount:
+            return await interaction.response.send_message(f"对方金币不足 / Opponent has insufficient coins. 余额: 🪙 {opp_balance}", ephemeral=True)
+
+        _add_coins(uid, -amount, "Dice duel bet")
+        _add_coins(opponent_id, -amount, "Dice duel bet (opponent)")
+
+        p1_roll = random.randint(1, 6)
+        p2_roll = random.randint(1, 6)
+        if p1_roll > p2_roll:
+            _add_coins(uid, amount * 2, f"Dice duel win vs {resolved.display_name}")
+            result_text = f"{interaction.user.mention} 获胜！/ Wins!"
+        elif p2_roll > p1_roll:
+            _add_coins(opponent_id, amount * 2, f"Dice duel win vs {interaction.user.display_name}")
+            result_text = f"{resolved.mention} 获胜！/ Wins!"
+        else:
+            _add_coins(uid, amount, "Dice duel draw refund")
+            _add_coins(opponent_id, amount, "Dice duel draw refund")
+            result_text = "平局！双方退款 / Draw! Both refunded."
+
+        embed = discord.Embed(title="🎲 骰子对决 | Dice Duel", color=discord.Color.blue())
+        embed.add_field(name=f"{interaction.user.display_name}", value=f"🎲 {p1_roll}", inline=True)
+        embed.add_field(name=f"{resolved.display_name}", value=f"🎲 {p2_roll}", inline=True)
+        embed.add_field(name="结果 / Result", value=result_text, inline=False)
+        await interaction.response.send_message(embed=embed)
 
     async def _game_scratch(self, interaction: discord.Interaction):
         """🎰 刮刮乐 / Scratch Card — 打开下注弹窗"""

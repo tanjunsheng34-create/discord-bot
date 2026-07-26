@@ -522,40 +522,39 @@ class MarryPanelView(discord.ui.View):
                 )
                 return
 
-            # propose needs modal
+            # propose — show UserSelect view
             if action == "marry_propose":
-                modal = MarryProposeModal()
-                await interaction.response.send_modal(modal)
+                view = MarryProposeSelectView()
+                await interaction.response.send_message(
+                    "💍 搜索并选择求婚对象 / Search & select who to propose to:",
+                    view=view, ephemeral=True,
+                )
 
         return cb
 
 
-class MarryProposeModal(discord.ui.Modal, title="💍 求婚 / Propose"):
-    target = discord.ui.TextInput(
-        label="对方 Discord ID 或 @提及 / Target ID or @mention",
-        placeholder="@用户名 或 直接输入ID",
-        max_length=50, required=True,
-    )
+class MarryProposeSelectView(discord.ui.View):
+    """UserSelect view for marriage proposal target."""
 
-    async def on_submit(self, interaction: discord.Interaction):
+    def __init__(self):
+        super().__init__(timeout=120)
+        self.target_select = discord.ui.UserSelect(
+            placeholder="搜索并选择求婚对象 / Search & select target",
+            min_values=1, max_values=1,
+        )
+        self.target_select.callback = self._select_callback
+        self.add_item(self.target_select)
+
+    async def _select_callback(self, interaction: discord.Interaction):
+        target = self.target_select.values[0]
         uid = str(interaction.user.id)
-        raw = self.target.value.strip().lstrip('<@').lstrip('!').rstrip('>')
 
-        # Try to find target
-        target = None
-        try:
-            member = interaction.guild.get_member(int(raw))
-            if member:
-                target = member
-        except (ValueError, AttributeError):
-            pass
-
-        if not target:
-            return await interaction.response.send_message("找不到该用户 / User not found.", ephemeral=True)
         if target.id == interaction.user.id:
-            return await interaction.response.send_message("不能和自己结婚 / Cannot marry yourself!", ephemeral=True)
+            return await interaction.response.send_message(
+                "不能和自己结婚 / Cannot marry yourself!", ephemeral=True)
         if target.bot:
-            return await interaction.response.send_message("不能和机器人结婚 / Cannot marry bots!", ephemeral=True)
+            return await interaction.response.send_message(
+                "不能和机器人结婚 / Cannot marry bots!", ephemeral=True)
 
         tid = str(target.id)
         bal = get_balance(uid)
@@ -573,7 +572,8 @@ class MarryProposeModal(discord.ui.Modal, title="💍 求婚 / Propose"):
             )
             if cur.fetchone():
                 conn.rollback()
-                return await interaction.response.send_message("你已经结婚了！/ You're already married!", ephemeral=True)
+                return await interaction.response.send_message(
+                    "你已经结婚了！/ You're already married!", ephemeral=True)
             cur.execute(
                 "SELECT * FROM marriages WHERE "
                 "(proposer_id=? OR target_id=?) AND status='married'",
@@ -590,7 +590,8 @@ class MarryProposeModal(discord.ui.Modal, title="💍 求婚 / Propose"):
             )
             if cur.fetchone():
                 conn.rollback()
-                return await interaction.response.send_message("你已经向此人求过婚了！/ Already proposed!", ephemeral=True)
+                return await interaction.response.send_message(
+                    "你已经向此人求过婚了！/ Already proposed!", ephemeral=True)
 
             add_coins(uid, -PROPOSE_COST, f"求婚: {target.display_name} / Proposed")
             cur.execute("INSERT INTO marriages (proposer_id, target_id) VALUES (?, ?)", (uid, tid))
@@ -690,37 +691,37 @@ class RepPanelView(discord.ui.View):
                 return
 
             if action == "rep_give":
-                modal = RepGiveModal()
-                await interaction.response.send_modal(modal)
+                view = RepGiveSelectView()
+                await interaction.response.send_message(
+                    "⭐ 搜索并选择给予声望的用户 / Search & select who to give rep to:",
+                    view=view, ephemeral=True,
+                )
 
         return cb
 
 
-class RepGiveModal(discord.ui.Modal, title="⭐ 给予声望 / Give Rep"):
-    target = discord.ui.TextInput(
-        label="对方 Discord ID 或 @提及 / Target",
-        placeholder="@用户名 或 直接输入ID",
-        max_length=50, required=True,
-    )
+class RepGiveSelectView(discord.ui.View):
+    """UserSelect view for giving reputation."""
 
-    async def on_submit(self, interaction: discord.Interaction):
+    def __init__(self):
+        super().__init__(timeout=120)
+        self.target_select = discord.ui.UserSelect(
+            placeholder="搜索并选择目标用户 / Search & select target",
+            min_values=1, max_values=1,
+        )
+        self.target_select.callback = self._select_callback
+        self.add_item(self.target_select)
+
+    async def _select_callback(self, interaction: discord.Interaction):
+        target = self.target_select.values[0]
         uid = str(interaction.user.id)
-        raw = self.target.value.strip().lstrip('<@').lstrip('!').rstrip('>')
 
-        target = None
-        try:
-            member = interaction.guild.get_member(int(raw))
-            if member:
-                target = member
-        except (ValueError, AttributeError):
-            pass
-
-        if not target:
-            return await interaction.response.send_message("找不到该用户 / User not found.", ephemeral=True)
         if target.id == interaction.user.id:
-            return await interaction.response.send_message("不能给自己声望 / Cannot rep yourself!", ephemeral=True)
+            return await interaction.response.send_message(
+                "不能给自己声望 / Cannot rep yourself!", ephemeral=True)
         if target.bot:
-            return await interaction.response.send_message("不能给机器人声望 / Cannot rep bots!", ephemeral=True)
+            return await interaction.response.send_message(
+                "不能给机器人声望 / Cannot rep bots!", ephemeral=True)
 
         tid = str(target.id)
         from datetime import datetime

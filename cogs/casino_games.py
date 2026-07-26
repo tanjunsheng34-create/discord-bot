@@ -602,15 +602,39 @@ class BlackjackBetModal(discord.ui.Modal, title="🃏 21点下注 / Blackjack Be
             view.message = await interaction.original_response()
 
 
-class TicTacToeModal(discord.ui.Modal, title="❌⭕ 井字棋 / Tic Tac Toe"):
-    """Modal for entering opponent and optional bet."""
+class TicTacToeSelectView(discord.ui.View):
+    """UserSelect view for choosing TicTacToe opponent."""
 
-    opponent_input = discord.ui.TextInput(
-        label="对手 Discord ID 或 @mention",
-        placeholder="输入对手的 Discord ID 或 @用户名",
-        max_length=100,
-        required=True,
-    )
+    def __init__(self, player_id: str, player_name: str, guild: discord.Guild):
+        super().__init__(timeout=120)
+        self.player_id = player_id
+        self.player_name = player_name
+        self.guild = guild
+        self.opponent_select = discord.ui.UserSelect(
+            placeholder="搜索并选择对手 / Search & select opponent",
+            min_values=1, max_values=1,
+        )
+        self.opponent_select.callback = self._select_callback
+        self.add_item(self.opponent_select)
+
+    async def _select_callback(self, interaction: discord.Interaction):
+        member = self.opponent_select.values[0]
+        if member.id == interaction.user.id:
+            return await interaction.response.send_message(
+                "不能和自己下棋 / Cannot play against yourself!", ephemeral=True)
+        if member.bot:
+            return await interaction.response.send_message(
+                "不能和机器人下棋 / Cannot play against bots!", ephemeral=True)
+
+        self.opponent = member
+        await interaction.response.send_modal(
+            TicTacToeBetModal(self.player_id, self.player_name, member, self.guild)
+        )
+
+
+class TicTacToeBetModal(discord.ui.Modal, title="❌⭕ 井字棋下注 / Tic Tac Toe Bet"):
+    """Modal for entering bet amount after opponent selected."""
+
     bet_input = discord.ui.TextInput(
         label="下注金额（可选，默认0）/ Bet (optional, default 0)",
         placeholder="0",
@@ -619,44 +643,16 @@ class TicTacToeModal(discord.ui.Modal, title="❌⭕ 井字棋 / Tic Tac Toe"):
         default="0",
     )
 
-    def __init__(self, player_id: str, player_name: str, guild: discord.Guild):
+    def __init__(self, player_id: str, player_name: str, opponent: discord.Member, guild: discord.Guild):
         super().__init__()
         self.player_id = player_id
         self.player_name = player_name
+        self.opponent = opponent
         self.guild = guild
 
     async def on_submit(self, interaction: discord.Interaction):
-        raw = self.opponent_input.value.strip()
-        member = None
+        member = self.opponent
 
-        # Resolve opponent
-        if raw.startswith("<@") and raw.endswith(">"):
-            uid = raw.replace("<@", "").replace("!", "").replace(">", "")
-            member = self.guild.get_member(int(uid))
-        elif raw.isdigit():
-            member = self.guild.get_member(int(raw))
-        if not member:
-            member = discord.utils.get(self.guild.members, name=raw)
-        if not member:
-            member = discord.utils.get(self.guild.members, display_name=raw)
-        if not member:
-            lower = raw.lower()
-            for m in self.guild.members:
-                if m.name.lower() == lower or m.display_name.lower() == lower:
-                    member = m
-                    break
-
-        if not member:
-            return await interaction.response.send_message(
-                f"找不到用户: `{raw}` / User not found.", ephemeral=True)
-        if member.id == interaction.user.id:
-            return await interaction.response.send_message(
-                "不能和自己下棋 / Cannot play against yourself!", ephemeral=True)
-        if member.bot:
-            return await interaction.response.send_message(
-                "不能和机器人下棋 / Cannot play against bots!", ephemeral=True)
-
-        # Parse bet
         try:
             bet = int(self.bet_input.value.strip() or "0")
         except ValueError:
@@ -680,9 +676,8 @@ class TicTacToeModal(discord.ui.Modal, title="❌⭕ 井字棋 / Tic Tac Toe"):
             self.player_id, self.player_name,
             str(member.id), member.display_name,
         )
-        view.bet = bet  # Store bet for later use
+        view.bet = bet
 
-        # Override _check_winner behavior to handle bets
         embed = view._build_embed()
         await interaction.response.send_message(
             f"{member.mention} 你被挑战了 / You've been challenged!",
@@ -770,12 +765,14 @@ class GameLobbyView(discord.ui.View):
             BlackjackBetModal(self.player_id, self.player_name)
         )
 
-    @discord.ui.button(label="❌⭕ 井字棋 Tic Tac Toe", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="❌⭕ 井字棋 / Tic Tac Toe", style=discord.ButtonStyle.success, row=0)
     async def tictactoe_btn(self, interaction: discord.Interaction, button):
         if not await self._check_owner(interaction):
             return
-        await interaction.response.send_modal(
-            TicTacToeModal(self.player_id, self.player_name, self.guild)
+        view = TicTacToeSelectView(self.player_id, self.player_name, self.guild)
+        await interaction.response.send_message(
+            "❌⭕ 搜索并选择对手 / Search & select opponent:",
+            view=view, ephemeral=True,
         )
 
     @discord.ui.button(label="🏇 赛马 Horse Race", style=discord.ButtonStyle.danger, row=0)

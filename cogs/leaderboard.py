@@ -36,7 +36,7 @@ class LeaderboardView(discord.ui.View):
         embed.set_footer(text=f"Top {len(rows)}")
         return embed
 
-    @discord.ui.button(label="🪙 金币富豪榜", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="🪙 金币榜 / Coins", style=discord.ButtonStyle.primary, row=0)
     async def coin_lb(self, interaction: discord.Interaction, button):
         embed = await self._get_top(
             "SELECT discord_id, score FROM users ORDER BY score DESC LIMIT 20",
@@ -45,7 +45,7 @@ class LeaderboardView(discord.ui.View):
         )
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="⚔️ 胜场王", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="⚔️ 胜场王 / Wins", style=discord.ButtonStyle.primary, row=0)
     async def win_lb(self, interaction: discord.Interaction, button):
         embed = await self._get_top(
             "SELECT discord_id, wins FROM mmr ORDER BY wins DESC LIMIT 20",
@@ -54,7 +54,7 @@ class LeaderboardView(discord.ui.View):
         )
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="🏆 MVP榜", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="🏆 MVP榜 / MVP", style=discord.ButtonStyle.primary, row=0)
     async def mvp_lb(self, interaction: discord.Interaction, button):
         with get_db_ctx() as conn:
             cur = conn.cursor()
@@ -75,7 +75,7 @@ class LeaderboardView(discord.ui.View):
             embed.description = "\n".join(lines)
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="📊 等级榜", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="📊 等级榜 / Level", style=discord.ButtonStyle.primary, row=0)
     async def level_lb(self, interaction: discord.Interaction, button):
         embed = await self._get_top(
             "SELECT discord_id, xp FROM users ORDER BY xp DESC LIMIT 20",
@@ -84,7 +84,7 @@ class LeaderboardView(discord.ui.View):
         )
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="🎤 语音榜", style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label="🎤 语音榜 / Voice", style=discord.ButtonStyle.primary, row=1)
     async def voice_lb(self, interaction: discord.Interaction, button):
         embed = await self._get_top(
             "SELECT discord_id, total_minutes FROM voice_time ORDER BY total_minutes DESC LIMIT 20",
@@ -93,7 +93,7 @@ class LeaderboardView(discord.ui.View):
         )
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="◀ 返回主菜单", style=discord.ButtonStyle.danger, row=1)
+    @discord.ui.button(label="◀ 返回 / Back", style=discord.ButtonStyle.danger, row=1)
     async def back_btn(self, interaction: discord.Interaction, button):
         try:
             from cogs.dashboard import DashboardView

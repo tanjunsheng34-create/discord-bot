@@ -765,7 +765,7 @@ class PokerPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=180)
 
-    @discord.ui.button(label="🃏 创建牌桌", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="🃏 创建 / Create", style=discord.ButtonStyle.primary, row=0)
     async def create_table(self, interaction: discord.Interaction, button):
         from cogs.poker import _games
         cid = interaction.channel_id
@@ -806,15 +806,15 @@ class PokerPanelView(discord.ui.View):
                 )
         await interaction.response.send_modal(PokerCreateModal())
 
-    @discord.ui.button(label="👥 加入", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="👥 加入 / Join", style=discord.ButtonStyle.success, row=0)
     async def join_table(self, interaction: discord.Interaction, button):
         await interaction.response.send_message("使用 `/poker join` 加入当前牌局 / Use `/poker join` to join.", ephemeral=True)
 
-    @discord.ui.button(label="🎴 开始发牌", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="🎴 发牌 / Deal", style=discord.ButtonStyle.primary, row=0)
     async def deal_btn(self, interaction: discord.Interaction, button):
         await interaction.response.send_message("使用 `/poker deal` 发牌 / Use `/poker deal` to deal.", ephemeral=True)
 
-    @discord.ui.button(label="📊 牌局状态", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="📊 状态 / Status", style=discord.ButtonStyle.secondary, row=0)
     async def status_btn(self, interaction: discord.Interaction, button):
         cid = interaction.channel_id
         if cid not in _games:
@@ -832,7 +832,7 @@ class PokerPanelView(discord.ui.View):
         embed.add_field(name="Players", value="\n".join(p_lines) or "无 / None", inline=False)
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="◀ 返回主菜单", style=discord.ButtonStyle.danger, row=1)
+    @discord.ui.button(label="◀ 返回 / Back", style=discord.ButtonStyle.danger, row=1)
     async def back_btn(self, interaction: discord.Interaction, button):
         from cogs.dashboard import DashboardView
         view = DashboardView(guild=interaction.guild, bot=None)

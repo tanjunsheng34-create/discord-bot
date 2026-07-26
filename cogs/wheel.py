@@ -114,17 +114,17 @@ class WheelView(discord.ui.View):
 
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="🎡 转一次 (50金币)", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="🎡 转一次 / Spin x1 (50💰)", style=discord.ButtonStyle.success, row=0)
     async def spin_once(self, interaction: discord.Interaction, button):
         await interaction.response.defer()
         await self._do_spin(interaction, 1)
 
-    @discord.ui.button(label="🎰 转十次 (450金币)", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="🎰 转十次 / Spin x10 (450💰)", style=discord.ButtonStyle.primary, row=0)
     async def spin_ten(self, interaction: discord.Interaction, button):
         await interaction.response.defer()
         await self._do_spin(interaction, 10)
 
-    @discord.ui.button(label="📋 奖品预览", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="📋 奖品预览 / Prizes", style=discord.ButtonStyle.secondary, row=0)
     async def preview_btn(self, interaction: discord.Interaction, button):
         embed = discord.Embed(title="🎡 奖品预览 / Prize Preview", color=0xFFD700)
         lines = []
@@ -132,11 +132,11 @@ class WheelView(discord.ui.View):
             pct = weight / sum(p[3] for p in PRIZE_POOL) * 100
             lines.append(f"{display} — {pct:.1f}%")
         embed.description = "\n".join(lines)
-        embed.add_field(name="🪙 单次价格", value=f"{SPIN_COST} 金币", inline=True)
-        embed.add_field(name="🎰 十连价格", value=f"{BULK_COST} 金币 (省50!)", inline=True)
+        embed.add_field(name="🪙 单次价格 / Single Spin", value=f"{SPIN_COST} 金币 / coins", inline=True)
+        embed.add_field(name="🎰 十连价格 / Bulk (10)", value=f"{BULK_COST} 金币 / coins (省/save 50!)", inline=True)
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="◀ 返回主菜单", style=discord.ButtonStyle.danger, row=1)
+    @discord.ui.button(label="◀ 返回 / Back", style=discord.ButtonStyle.danger, row=1)
     async def back_btn(self, interaction: discord.Interaction, button):
         try:
             from cogs.dashboard import DashboardView

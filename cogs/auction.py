@@ -139,11 +139,11 @@ class AuctionView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=180)
 
-    @discord.ui.button(label="🏷️ 出售物品", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="🏷️ 出售 / Sell", style=discord.ButtonStyle.primary, row=0)
     async def sell_btn(self, interaction: discord.Interaction, button):
         await interaction.response.send_modal(AuctionSellModal(str(interaction.user.id)))
 
-    @discord.ui.button(label="📋 浏览拍卖", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="📋 浏览 / Browse", style=discord.ButtonStyle.primary, row=0)
     async def browse_btn(self, interaction: discord.Interaction, button):
         with get_db_ctx() as conn:
             cur = conn.cursor()
@@ -168,7 +168,7 @@ class AuctionView(discord.ui.View):
         embed.set_footer(text="点击「出价」按钮参与竞拍 / Click Bid to participate")
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="💰 出价", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="💰 出价 / Bid", style=discord.ButtonStyle.success, row=0)
     async def bid_btn(self, interaction: discord.Interaction, button):
         class AuctionSelectModal(discord.ui.Modal, title="选择拍卖 / Select Auction"):
             auction_id_input = discord.ui.TextInput(label="拍卖编号 / Auction ID", placeholder="输入要出价的拍卖编号", max_length=10, required=True)
@@ -192,7 +192,7 @@ class AuctionView(discord.ui.View):
 
         await interaction.response.send_modal(AuctionSelectModal())
 
-    @discord.ui.button(label="📦 我的拍卖", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="📦 我的 / My Items", style=discord.ButtonStyle.secondary, row=0)
     async def my_auctions_btn(self, interaction: discord.Interaction, button):
         uid = str(interaction.user.id)
         with get_db_ctx() as conn:
@@ -214,7 +214,7 @@ class AuctionView(discord.ui.View):
             )
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="◀ 返回主菜单", style=discord.ButtonStyle.danger, row=1)
+    @discord.ui.button(label="◀ 返回 / Back", style=discord.ButtonStyle.danger, row=1)
     async def back_btn(self, interaction: discord.Interaction, button):
         try:
             from cogs.dashboard import DashboardView
