@@ -47,6 +47,7 @@ COMMON_COGS = [
     "cogs.actions",
     "cogs.voice_tracker",
     "cogs.stats",
+    "cogs.dashboard",
 ]
 
 ROLE_COGS = {
@@ -80,10 +81,9 @@ ROLE_COGS = {
     "arena": [
         "cogs.tournament",
         "cogs.lol",
-        "cogs.dashboard",
         "cogs.help",
         "cogs.queue",
-        "cogs.gamelobby",  # placeholder: cog file not yet created
+        "cogs.gamelobby",
     ],
 }
 
