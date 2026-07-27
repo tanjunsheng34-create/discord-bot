@@ -585,7 +585,7 @@ class Poker(commands.Cog):
         self.bot = bot
 
     poker_group = app_commands.Group(
-        name="poker",
+        name="gmpt-holdem",
         description="Texas Hold'em Poker 德州扑克",
     )
 

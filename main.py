@@ -75,11 +75,7 @@ ROLE_COGS = {
         # ── New duel system (involves money) ──
         "cogs.duel",
     ],
-    "gambling": [
-        "cogs.reaction_roles",
-        "cogs.polls",
-        "cogs.afk",
-    ],
+    "gambling": [],
     "community": [
         "cogs.pets",
         "cogs.clans",
