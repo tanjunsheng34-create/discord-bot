@@ -329,14 +329,6 @@ class EconomyJobsView(discord.ui.View):
                 embed = discord.Embed(title=f"🎣 {uname} 钓鱼 / Fishing", description=desc, color=color)
                 if caught_member.avatar:
                     embed.set_thumbnail(url=caught_member.avatar.url)
-                try:
-                    await caught_member.send(
-                        f"🐟 **{uname}** 钓鱼时把你钓上来了！\n"
-                        f"You were fished up by **{uname}**!\n"
-                        f"{caught_msg}"
-                    )
-                except Exception:
-                    pass
             elif earned > 0:
                 desc = f"{uname} 钓到了 {fish_emoji} **{fish_name}**！卖得 🪙 **{earned:,}** 金币！\nCaught {fish_emoji} **{fish_name}**! Sold for 🪙 **{earned:,}** coins!"
             else:
@@ -351,6 +343,11 @@ class EconomyJobsView(discord.ui.View):
                 f"🐟 有东西上钩了！",
                 f"💰 {uname} 收竿！",
             ], embed)
+            if caught_member:
+                await interaction.channel.send(
+                    f"🐟 {caught_member.mention} 被 **{uname}** 钓鱼时钓上来了！\n"
+                    f"You were fished up by **{uname}**!\n{caught_msg}"
+                )
 
         elif job == "hunt":
             roll = random.random()
@@ -791,14 +788,6 @@ class EconomyJobs(CogBase):
                 embed = discord.Embed(title=f"🎣 {uname} 钓鱼 / Fishing", description=desc, color=color)
                 if caught_member.avatar:
                     embed.set_thumbnail(url=caught_member.avatar.url)
-                try:
-                    await caught_member.send(
-                        f"🐟 **{uname}** 钓鱼时把你钓上来了！\n"
-                        f"You were fished up by **{uname}**!\n"
-                        f"{caught_msg}"
-                    )
-                except Exception:
-                    pass
             elif earned > 0:
                 desc = f"{uname} 钓到了 {fish_emoji} **{fish_name}**！卖得 🪙 **{earned:,}** 金币！\nCaught {fish_emoji} **{fish_name}**! Sold for 🪙 **{earned:,}** coins!"
             else:
@@ -811,6 +800,11 @@ class EconomyJobs(CogBase):
             embed.set_footer(text="钓鱼冷却 3 分钟 / Fish cooldown: 3 min")
             _update_cd(uid, "fish")
             await interaction.response.send_message(embed=embed)
+            if caught_member:
+                await interaction.channel.send(
+                    f"🐟 {caught_member.mention} 被 **{uname}** 钓鱼时钓上来了！\n"
+                    f"You were fished up by **{uname}**!\n{caught_msg}"
+                )
         except Exception as e:
             logger.error(f"[fish_cmd] error: {e}", exc_info=True)
             if not interaction.response.is_done():

@@ -2,6 +2,7 @@
 GMPT Bot — Dashboard / 统一控制面板
 """
 import asyncio
+import os
 import random
 import discord
 from discord import app_commands
@@ -13,6 +14,9 @@ from config import (POST_MATCH_VC_TEAM_A, POST_MATCH_VC_TEAM_B,
                         RESULT_CHANNEL_ID, LOL_VOTE_CHANNEL_ID,
                         MEMBER_LEAVE_LOG_CHANNEL_ID, TEAM_B_VC_ID,
                         LIVE_ROOM_ID, WELCOME_CHANNEL_ID, WHISPER_CHANNEL_ID)
+
+# Bot role awareness for dashboard category filtering
+_BOT_ROLE = os.getenv("BOT_ROLE", "full").strip().lower()
 
 # Try to import shared utilities from tournament cog
 from cogs.tournament import (
@@ -4837,22 +4841,26 @@ class DashboardView(discord.ui.View):
         cat = self.category
 
         if cat == 0:
-            # ===== MAIN MENU =====
-            main_cats = [
-                ("⚔️ LOL & 比赛 / Match", "cat_lol", 1),
-                ("💰 经济系统 / Economy", "cat_economy", 2),
-                ("🎮 游戏中心 / Games", "cat_games", 3),
-                ("👥 社交中心 / Social", "cat_social", 4),
-                ("🔧 管理工具 / Admin", "cat_admin", 5),
-            ]
-            for i, (label, cb_id, _) in enumerate(main_cats):
+            # ===== MAIN MENU (role-aware) =====
+            main_cats = []
+            if _BOT_ROLE in ("full", "arena"):
+                main_cats.append(("⚔️ LOL & 比赛 / Match", "cat_lol", 1))
+            if _BOT_ROLE == "full":
+                main_cats.append(("💰 经济系统 / Economy", "cat_economy", 2))
+            if _BOT_ROLE == "full":
+                main_cats.append(("🎮 游戏中心 / Games", "cat_games", 3))
+            if _BOT_ROLE != "arena":
+                main_cats.append(("👥 社交中心 / Social", "cat_social", 4))
+            main_cats.append(("🔧 管理工具 / Admin", "cat_admin", 5))
+
+            for label, cb_id, cat_val in main_cats:
                 btn = discord.ui.Button(
                     label=label,
                     style=discord.ButtonStyle.primary,
                     row=0,
                     custom_id=cb_id,
                 )
-                btn.callback = self.make_category_callback(i + 1)
+                btn.callback = self.make_category_callback(cat_val)
                 self.add_item(btn)
 
         elif cat == 1:
@@ -5034,17 +5042,25 @@ class DashboardView(discord.ui.View):
         embed = discord.Embed(title=title, color=color)
 
         if cat == 0:
+            role_name_map = {
+                "full": "全功能主 Bot / Main Bot",
+                "gambling": "工具 Bot / Utility Bot",
+                "community": "社区 Bot / Community Bot",
+                "arena": "竞技 Bot / Arena Bot",
+            }
+            role_label = role_name_map.get(_BOT_ROLE, _BOT_ROLE.upper())
             embed.description = (
-                "**欢迎使用 GMPT 控制面板！** Welcome to the Control Panel!\n\n"
+                f"**欢迎使用 GMPT 控制面板！** Welcome to the Control Panel!\n"
+                f"当前 Bot 角色: **{role_label}**\n\n"
                 "点击下方分类按钮进入对应功能区：\n"
-                "⚔️ **LOL & 比赛** — 创建比赛、赛事、分队、结算\n"
-                "💰 **经济系统** — 余额、商店、背包、成就、打工\n"
-                "🎮 **游戏中心** — 老虎机、21点、赛马等小游戏\n"
-                "👥 **社交中心** — 宠物、公会、结婚、市场\n"
-                "🔧 **管理工具** — 数据导出、公告、赛季管理\n\n"
+                + ("⚔️ **LOL & 比赛** — 创建比赛、赛事、分队、结算\n" if _BOT_ROLE in ("full", "arena") else "")
+                + ("💰 **经济系统** — 余额、商店、背包、成就、打工\n" if _BOT_ROLE == "full" else "")
+                + ("🎮 **游戏中心** — 老虎机、21点、赛马等小游戏\n" if _BOT_ROLE == "full" else "")
+                + ("👥 **社交中心** — 宠物、公会、结婚、市场\n" if _BOT_ROLE != "arena" else "")
+                + "🔧 **管理工具** — 数据导出、公告、赛季管理\n\n"
                 "每个功能按钮点击即可查看使用说明或直接操作。"
             )
-            embed.set_footer(text="GMPT Dashboard v4.0 | 分类导航")
+            embed.set_footer(text=f"GMPT Dashboard v4.0 | Role: {_BOT_ROLE}")
         elif cat == 1:
             embed.description = (
                 "⚔️ **LOL & 比赛** — 使用 `/gmpt-lol` 管理比赛，`/gmpt-tournament` 创建赛事。\n"

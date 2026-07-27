@@ -62,8 +62,7 @@ ROLE_COGS = {
         "cogs.announce",
         "cogs.leaderboard",
         "cogs.auction",
-    ],
-    "gambling": [
+        # ── Gambling cogs moved here (all depend on cogs.economy) ──
         "cogs.gambling",
         "cogs.casino_games",
         "cogs.poker",
@@ -73,6 +72,13 @@ ROLE_COGS = {
         "cogs.mini_games",
         "cogs.wheel",
         "cogs.boss",
+        # ── New duel system (involves money) ──
+        "cogs.duel",
+    ],
+    "gambling": [
+        "cogs.reaction_roles",
+        "cogs.polls",
+        "cogs.afk",
     ],
     "community": [
         "cogs.pets",
