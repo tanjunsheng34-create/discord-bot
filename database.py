@@ -656,6 +656,22 @@ def _run_migrations(cursor):
     except sqlite3.OperationalError:
         pass
 
+    # MMORPG: users combat stats
+    for col, col_type in [
+        ("hp", "INTEGER DEFAULT 100"),
+        ("max_hp", "INTEGER DEFAULT 100"),
+        ("mp", "INTEGER DEFAULT 50"),
+        ("max_mp", "INTEGER DEFAULT 50"),
+        ("attack", "INTEGER DEFAULT 10"),
+        ("defense", "INTEGER DEFAULT 5"),
+        ("job_level", "INTEGER DEFAULT 1"),
+        ("job_xp", "INTEGER DEFAULT 0"),
+    ]:
+        try:
+            cursor.execute(f"ALTER TABLE users ADD COLUMN {col} {col_type}")
+        except sqlite3.OperationalError:
+            pass
+
     # role_pick
     try:
         cursor.execute("ALTER TABLE tournaments ADD COLUMN role_pick INTEGER DEFAULT 0")
@@ -741,6 +757,62 @@ def _seed_default_vc(cursor):
     )
 
 
+def _create_mmorpg_tables(cursor):
+    """Create MMORPG system tables: skills, potions, buffs."""
+    cursor.executescript("""
+        CREATE TABLE IF NOT EXISTS player_skills (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            skill_id TEXT NOT NULL,
+            level INTEGER DEFAULT 1,
+            equipped INTEGER DEFAULT 0,
+            UNIQUE(user_id, skill_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS potions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            emoji TEXT DEFAULT '🧪',
+            description TEXT,
+            price INTEGER NOT NULL,
+            effect_type TEXT NOT NULL,
+            effect_value INTEGER NOT NULL,
+            duration_minutes INTEGER DEFAULT 0,
+            stock INTEGER DEFAULT -1,
+            min_level INTEGER DEFAULT 1
+        );
+
+        CREATE TABLE IF NOT EXISTS active_buffs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            buff_type TEXT NOT NULL,
+            value INTEGER NOT NULL,
+            expires_at TEXT
+        );
+    """)
+
+
+def _seed_potions(cursor):
+    """Seed default potion templates (INSERT OR IGNORE)."""
+    potions = [
+        ("初级生命药水", "❤️", "恢复 30 HP", 50, "heal_hp", 30, 0, 1),
+        ("中级生命药水", "❤️‍🔥", "恢复 80 HP", 150, "heal_hp", 80, 0, 5),
+        ("高级生命药水", "💖", "恢复 200 HP", 400, "heal_hp", 200, 0, 10),
+        ("初级魔力药水", "💙", "恢复 20 MP", 50, "heal_mp", 20, 0, 1),
+        ("中级魔力药水", "💎", "恢复 60 MP", 150, "heal_mp", 60, 0, 5),
+        ("力量药剂", "💪", "攻击力 +15，持续 30 分钟", 200, "buff_atk", 15, 30, 3),
+        ("防御药剂", "🛡️", "防御力 +10，持续 30 分钟", 200, "buff_def", 10, 30, 3),
+        ("复活药剂", "✨", "复活并在战斗外恢复全部 HP/MP", 1000, "revive", 1, 0, 15),
+    ]
+    for p in potions:
+        cursor.execute(
+            """INSERT OR IGNORE INTO potions
+               (name, emoji, description, price, effect_type, effect_value, duration_minutes, min_level)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            p,
+        )
+
+
 def _create_performance_indexes(cursor):
     """Create performance indexes."""
     for idx_sql in [
@@ -772,8 +844,10 @@ def init_db():
     _create_season_queue_tables(cursor)
     _create_peiwans_tables(cursor)
     _create_predict_tables(cursor)
+    _create_mmorpg_tables(cursor)
     _run_migrations(cursor)
     _seed_default_vc(cursor)
+    _seed_potions(cursor)
     _create_performance_indexes(cursor)
 
     conn.commit()

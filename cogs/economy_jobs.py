@@ -937,7 +937,13 @@ class EconomyJobs(CogBase):
             embed.add_field(name="💰 余额 / Balance", value=_format_coins(bal), inline=False)
             embed.set_footer(text="每小时可打工一次 / Work once per hour")
 
-            await interaction.response.send_message(embed=embed)
+            await interaction.response.defer()
+            frames = [
+                f"💼 {uname} 正在打工...",
+                f"💪 {uname} 搬砖中...",
+                f"💰 {uname} 收到工资！",
+            ]
+            await _animate_job(interaction, frames, embed)
         except Exception as e:
             logger.error(f"[work_cmd] error: {e}", exc_info=True)
             if not interaction.response.is_done():
@@ -1015,7 +1021,14 @@ class EconomyJobs(CogBase):
                 embed.add_field(name="💰 你的余额 / Your Balance", value=_format_coins(robber_bal), inline=True)
 
             embed.set_footer(text="打劫冷却 2 小时 / Rob cooldown: 2 hours")
-            await interaction.response.send_message(embed=embed)
+            await interaction.response.defer()
+            result_text = f"成功从 {tname} 抢走 {_format_coins(stolen)}！" if success else f"失败，被罚款 {_format_coins(penalty)}！"
+            frames = [
+                f"🥷 {uname} 正在踩点...",
+                f"👀 {uname} 锁定目标 {tname}...",
+                f"💸 {uname} {result_text}",
+            ]
+            await _animate_job(interaction, frames, embed)
         except Exception as e:
             logger.error(f"[rob_cmd] error: {e}", exc_info=True)
             if not interaction.response.is_done():
@@ -1073,7 +1086,13 @@ class EconomyJobs(CogBase):
 
             embed.set_footer(text="乞讨冷却 5 分钟 / Beg cooldown: 5 min")
             _update_cd(uid, "beg")
-            await interaction.response.send_message(embed=embed)
+            await interaction.response.defer()
+            frames = [
+                f"🥺 {uname} 跪地乞讨...",
+                f"🙏 {uname} 正在等待好心人...",
+                f"💰 {'有人施舍了！' if roll < 0.60 or roll >= 0.90 else '没人回应...'}",
+            ]
+            await _animate_job(interaction, frames, embed)
         except Exception as e:
             logger.error(f"[beg_cmd] error: {e}", exc_info=True)
             if not interaction.response.is_done():
@@ -1192,7 +1211,13 @@ class EconomyJobs(CogBase):
             embed.add_field(name="💰 余额 / Balance", value=_format_coins(bal), inline=False)
             embed.set_footer(text="钓鱼冷却 3 分钟 / Fish cooldown: 3 min")
             _update_cd(uid, "fish")
-            await interaction.response.send_message(embed=embed)
+            await interaction.response.defer()
+            frames = [
+                f"🎣 {uname} 抛出鱼线...",
+                f"🐟 {uname} 等待鱼儿上钩...",
+                f"🐠 {uname} 拉杆！",
+            ]
+            await _animate_job(interaction, frames, embed)
             if caught_member:
                 await interaction.channel.send(
                     f"🐟 {caught_member.mention} 被 **{uname}** 钓鱼时钓上来了！\n"
@@ -1223,7 +1248,13 @@ class EconomyJobs(CogBase):
             uname = interaction.user.display_name
 
             embed, hit_msg = await _do_hunt(interaction.guild, uname, uid)
-            await interaction.response.send_message(embed=embed)
+            await interaction.response.defer()
+            frames = [
+                f"🏹 {uname} 进入猎场...",
+                f"🐗 {uname} 搜寻猎物中...",
+                f"🐾 {uname} 发现猎物！",
+            ]
+            await _animate_job(interaction, frames, embed)
             if hit_msg:
                 await interaction.channel.send(hit_msg)
         except Exception as e:
@@ -1250,7 +1281,13 @@ class EconomyJobs(CogBase):
                 )
             uname = interaction.user.display_name
             embed = await _do_treasure(interaction.guild, uname, uid)
-            await interaction.response.send_message(embed=embed)
+            await interaction.response.defer()
+            frames = [
+                f"🗺️ {uname} 展开藏宝图...",
+                f"⛏️ {uname} 挖掘中...",
+                f"📦 {uname} 找到了什么！",
+            ]
+            await _animate_job(interaction, frames, embed)
         except Exception as e:
             logger.error(f"[treasure_cmd] error: {e}", exc_info=True)
             if not interaction.response.is_done():
@@ -1275,7 +1312,13 @@ class EconomyJobs(CogBase):
                 )
             uname = interaction.user.display_name
             embed = await _do_busk(interaction.guild, uname, uid)
-            await interaction.response.send_message(embed=embed)
+            await interaction.response.defer()
+            frames = [
+                f"🎸 {uname} 摆好摊位...",
+                f"🎶 {uname} 卖力演奏中...",
+                f"🎩 {uname} 收取打赏！",
+            ]
+            await _animate_job(interaction, frames, embed)
         except Exception as e:
             logger.error(f"[busk_cmd] error: {e}", exc_info=True)
             if not interaction.response.is_done():
@@ -1300,7 +1343,13 @@ class EconomyJobs(CogBase):
                 )
             uname = interaction.user.display_name
             embed = await _do_stock(uname, uid)
-            await interaction.response.send_message(embed=embed)
+            await interaction.response.defer()
+            frames = [
+                f"📈 {uname} 盯盘中...",
+                f"💹 {uname} 果断出手...",
+                f"📊 {uname} 交易完成！",
+            ]
+            await _animate_job(interaction, frames, embed)
         except Exception as e:
             logger.error(f"[stock_cmd] error: {e}", exc_info=True)
             if not interaction.response.is_done():
