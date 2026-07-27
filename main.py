@@ -77,6 +77,7 @@ ROLE_COGS = {
         # ── MMORPG ──
         "cogs.mmorpg_shop",
         "cogs.mmorpg_skills",
+        "cogs.mmorpg_pvp",
     ],
     "gambling": [],
     "community": [
@@ -93,6 +94,7 @@ ROLE_COGS = {
         "cogs.queue",
         "cogs.gamelobby",
         "cogs.mmorpg_skills",
+        "cogs.mmorpg_pvp",
     ],
 }
 
