@@ -68,6 +68,7 @@ ROLE_COGS = {
         "cogs.trivia",
         "cogs.mini_games",
         "cogs.wheel",
+        "cogs.boss",
     ],
     "community": [
         "cogs.pets",
@@ -83,7 +84,6 @@ ROLE_COGS = {
         "cogs.help",
         "cogs.queue",
         "cogs.gamelobby",  # placeholder: cog file not yet created
-        "cogs.boss",
     ],
 }
 

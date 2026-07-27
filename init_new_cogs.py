@@ -130,6 +130,39 @@ def init_all_new_tables():
             )
         """)
 
+        # ── boss.py: Dungeon system ──
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS boss_dungeon_cooldowns (
+                user_id TEXT NOT NULL,
+                boss_name TEXT NOT NULL,
+                difficulty TEXT NOT NULL,
+                last_cleared_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, boss_name, difficulty)
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS boss_kill_stats (
+                boss_name TEXT NOT NULL,
+                difficulty TEXT NOT NULL,
+                kill_count INTEGER DEFAULT 0,
+                fastest_clear_seconds REAL DEFAULT 999999,
+                total_damage INTEGER DEFAULT 0,
+                first_clear_by TEXT,
+                PRIMARY KEY (boss_name, difficulty)
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS boss_player_kills (
+                user_id TEXT NOT NULL,
+                boss_name TEXT NOT NULL,
+                difficulty TEXT NOT NULL,
+                kills INTEGER DEFAULT 0,
+                top_damage INTEGER DEFAULT 0,
+                last_kill_at TEXT,
+                PRIMARY KEY (user_id, boss_name, difficulty)
+            )
+        """)
+
         conn.commit()
 
     logger.info("[InitNewCogs] All new tables created successfully.")
@@ -142,6 +175,7 @@ def init_all_new_tables():
         "clans", "clan_members",
         "marriages", "reputation", "rep_cooldowns",
         "tod_custom_questions",
+        "boss_dungeon_cooldowns", "boss_kill_stats", "boss_player_kills",
     ]
     logger.info(f"[InitNewCogs] Tables: {', '.join(tables)}")
     return True

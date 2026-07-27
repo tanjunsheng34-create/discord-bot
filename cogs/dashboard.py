@@ -7752,21 +7752,20 @@ class DashboardView(discord.ui.View):
         )
 
     async def _boss(self, interaction: discord.Interaction):
-        """🐉 Boss战 / Boss Battle"""
+        """🐉 副本Boss / Dungeon Boss"""
         await interaction.response.send_message(
-            "🐉 **Boss战 / Boss Battle**\n\n"
-            "在聊天框使用以下命令：\n"
-            "• `/gmpt-boss create` — 创建 Boss 房间\n"
-            "• `/gmpt-boss join` — 加入 Boss 战\n"
-            "• `/gmpt-boss attack` — 攻击 Boss\n"
-            "• `/gmpt-boss status` — 查看战况\n\n"
-            "4 种 Boss：金龙🐉 / 暗影领主👹 / 冰霜巨人🧊 / 地狱犬🔥\n"
-            "3 种难度：简单/普通/困难。击败 Boss 按贡献分配奖励！\n\n"
-            "Commands:\n"
-            "• `/gmpt-boss create` — Create a boss room\n"
-            "• `/gmpt-boss join` — Join the battle\n"
-            "• `/gmpt-boss attack` — Attack the boss\n"
-            "• `/gmpt-boss status` — View battle status",
+            "🏰 **组队副本 / Dungeon Boss**\n\n"
+            "命令列表 / Commands:\n"
+            "• `/gmpt-boss dungeon` — 查看副本大厅与冷却\n"
+            "• `/gmpt-boss create` — 创建副本房间\n"
+            "• `/gmpt-boss join` — 加入副本\n"
+            "• `/gmpt-boss attack` — 攻击Boss（8s CD）\n"
+            "• `/gmpt-boss status` — 查看战况\n"
+            "• `/gmpt-boss leaderboard` — Boss击杀排行榜\n"
+            "• `/gmpt-boss stats` — 个人副本统计\n\n"
+            "4 Boss：金龙🐉 | 暗影领主👹 | 冰霜巨人🧊 | 地狱犬🔥\n"
+            "3 难度：⭐简单(5min CD) | ⭐⭐普通(15min CD) | ⭐⭐⭐困难(30min CD)\n"
+            "暴怒阶段：HP<50%攻击×2！击败掉落随机物品+首杀双倍奖励！",
             ephemeral=True,
         )
 
