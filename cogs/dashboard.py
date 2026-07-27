@@ -5086,9 +5086,9 @@ class DashboardView(discord.ui.View):
             embed.set_footer(text=f"GMPT Dashboard v4.0 | {title}")
         elif cat == 5:
             embed.description = (
-                "🔧 **管理工具** — 输入 `/gmpt-admin` 打开管理面板（仅管理员）。\n"
+                "🔧 **管理工具** — 输入 `/gmpt-panel` 打开管理面板（仅管理员）。\n"
                 "点击按钮进行数据导出、发送公告、赛季管理、排行榜查看等。\n"
-                "Use `/gmpt-admin` for the admin panel (admins only).\n"
+                "Use `/gmpt-panel` for the admin panel (admins only).\n"
                 "Click buttons for data export, announcements, season management, leaderboards."
             )
             embed.set_footer(text=f"GMPT Dashboard v4.0 | {title}")
@@ -6891,7 +6891,7 @@ class DashboardView(discord.ui.View):
             return await interaction.followup.send("仅管理员可使用 / Admin only.", ephemeral=True)
         await interaction.followup.send(
             "🔒 **Admin Panel / 管理面板**\n"
-            "`/gmpt-admin-coins` — Manage coins / 管理金币\n"
+            "`/gmpt-panel-coins` — Manage coins / 管理金币\n"
             "`/gmpt-season-start` — Start season / 开启赛季\n"
             "`/gmpt-season-end` — End season / 结束赛季\n"
             "`/gmpt-mmr-reset` — Reset MMR / 重置MMR",
@@ -7808,7 +7808,7 @@ class Dashboard(CogBase):
         self.bot = bot
 
     admin_group = app_commands.Group(
-        name="gmpt-admin",
+        name="gmpt-panel",
         description="Admin management commands / 管理员命令"
     )
 
