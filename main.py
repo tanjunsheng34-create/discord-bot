@@ -37,38 +37,72 @@ intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-COGS = [
-    "cogs.actions",
-    "cogs.announce",
-    "cogs.economy",
-    "cogs.games",
-    "cogs.mini_games",
-    "cogs.casino_games",
-    "cogs.boss",
-    "cogs.tournament",
-    "cogs.lol",
-    "cogs.dashboard",
-    "cogs.voice_tracker",
-    "cogs.queue",
+# ── BOT_ROLE: load different Cog subsets per bot instance ──
+BOT_ROLE = os.getenv("BOT_ROLE", "full").strip().lower()
+
+# Common cogs loaded by ALL bots regardless of role
+COMMON_COGS = [
     "cogs.admin_backup",
     "cogs.daily",
-    "cogs.help",
-    "cogs.casino",
-    "cogs.trivia",
-    "cogs.guess_champion",
-    "cogs.predict",
-    "cogs.meme",
+    "cogs.actions",
+    "cogs.voice_tracker",
     "cogs.stats",
-    "cogs.poker",
-    "cogs.economy_jobs",
-    "cogs.gambling",
-    "cogs.shop",
-    "cogs.pets",
-    "cogs.clans",
-    "cogs.leaderboard",
-    "cogs.auction",
-    "cogs.wheel",
 ]
+
+ROLE_COGS = {
+    "economy": [
+        "cogs.economy",
+        "cogs.economy_jobs",
+        "cogs.shop",
+        "cogs.social",
+        "cogs.announce",
+        "cogs.leaderboard",
+        "cogs.auction",
+    ],
+    "gambling": [
+        "cogs.gambling",
+        "cogs.casino_games",
+        "cogs.poker",
+        "cogs.games",
+        "cogs.casino",
+        "cogs.trivia",
+        "cogs.mini_games",
+        "cogs.wheel",
+    ],
+    "community": [
+        "cogs.pets",
+        "cogs.clans",
+        "cogs.meme",
+        "cogs.predict",
+        "cogs.guess_champion",
+    ],
+    "arena": [
+        "cogs.tournament",
+        "cogs.lol",
+        "cogs.dashboard",
+        "cogs.help",
+        "cogs.queue",
+        "cogs.gamelobby",  # placeholder: cog file not yet created
+        "cogs.boss",
+    ],
+}
+
+# Full COGS list (backward compatible)
+ALL_COGS = COMMON_COGS[:]
+for role_cogs in ROLE_COGS.values():
+    for cog in role_cogs:
+        if cog not in ALL_COGS:
+            ALL_COGS.append(cog)
+
+if BOT_ROLE == "full":
+    COGS = ALL_COGS
+elif BOT_ROLE in ROLE_COGS:
+    COGS = COMMON_COGS + ROLE_COGS[BOT_ROLE]
+else:
+    logger.warning(f"Unknown BOT_ROLE={BOT_ROLE!r}, falling back to 'full'")
+    COGS = ALL_COGS
+
+logger.info(f"BOT_ROLE={BOT_ROLE} → loading {len(COGS)} cogs: {[c.split('.')[-1] for c in COGS]}")
 
 
 # =============================================================================
