@@ -8065,7 +8065,7 @@ class Dashboard(CogBase):
 
 
     @app_commands.command(
-        name="lol-vote",
+        name="gmpt-lol-vote",
         description="Manual start LoL mode vote",
     )
     @app_commands.default_permissions(administrator=True)
@@ -8075,7 +8075,7 @@ class Dashboard(CogBase):
         await interaction.followup.send("已发起投票 / Vote posted.", ephemeral=True)
 
     @app_commands.command(
-        name="lol-vote-close",
+        name="gmpt-lol-vote-close",
         description="手动结算LoL投票并创建比赛 / Manually close vote and create match",
     )
     @app_commands.default_permissions(administrator=True)

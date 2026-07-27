@@ -20,6 +20,9 @@ from config import TOKEN, BACKUP_CHANNEL_ID, BACKUP_INTERVAL, BACKUP_TABLES
 # Text XP cooldown: user_id -> last_xp_time
 _msg_xp_cooldowns: dict[str, float] = {}
 
+# Image mode toggle (set in on_ready based on font availability)
+IMAGE_MODE = True
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -222,8 +225,8 @@ def ensure_deps():
 
     # All dependencies installed
 
-# 在 bot.run() 之前调用，保存路径到 bot.ffmpeg_path
-bot.ffmpeg_path = ensure_deps()
+# 在 bot.run() 之前调用
+ensure_deps()
 
 
 # =============================================================================
@@ -410,7 +413,6 @@ async def auto_restore():
                 "INSERT OR REPLACE INTO tournaments (id, name, max_teams, team_size, status, created_by, created_at, format, max_players, rounds, tier_restriction, role_pick) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 lambda t: (t.get("id"), t.get("name"), t.get("max_teams"), t.get("team_size"), t.get("status", "open"), t.get("created_by"), t.get("created_at"), t.get("format", "swiss"), t.get("max_players", 32), t.get("rounds", 3), t.get("tier_restriction"), t.get("role_pick", 0)),
             )
-            # tournaments
 
             conn.commit()
 
@@ -418,8 +420,6 @@ async def auto_restore():
             logger.info(f"Restore complete: {summary}")
         except Exception as e:
             logger.error(f"Restore failed: {e}", exc_info=True)
-        finally:
-            conn.close()
 
 
 # =============================================================================
@@ -427,9 +427,13 @@ async def auto_restore():
 # =============================================================================
 @bot.event
 async def on_ready():
-    print("=" * 50)
-    print("GMPT Bot v3.5 已启动 - 欢迎消息使用新版四板块")
-    print("=" * 50)
+    bot_role = os.getenv("BOT_ROLE", "full")
+    if bot_role == "full":
+        print("=" * 50)
+        print("GMPT Bot v3.5 已启动 - 欢迎消息使用新版四板块")
+        print("=" * 50)
+    else:
+        print(f"[on_ready] GMPT Bot ({bot_role}) 静默启动完成")
 
     # ── 启动自检：图片生成依赖 ──
     dep_status = []
@@ -477,7 +481,7 @@ async def on_ready():
     logger.info(f"Bot online: {bot.user}")
     # ── 释放全局命令配额 + 清除 Discord 残留全局命令 ──
     # 所有 cog 的 @app_commands.command() 默认注册为全局命令，占用 100 条配额。
-    # 先将已有全局命令移至公会作用域，清空全局树，再加载 cogs.social。
+    # 先将已有全局命令移至公会作用域，清空全局树。
     for guild in bot.guilds:
         bot.tree.copy_global_to(guild=guild)
     bot.tree.clear_commands(guild=None)
@@ -489,16 +493,7 @@ async def on_ready():
     except Exception as e:
         logger.error(f"Failed to clear global commands: {e}")
 
-    # 加载 cogs.social（其命令将注册为全局，但配额已腾出）
-    try:
-        await bot.load_extension("cogs.social")
-        logger.info("Loaded: cogs.social")
-    except Exception as e:
-        logger.error(f"FAILED to load cogs.social: {e}", exc_info=True)
-
-    # 将 social 的命令也复制到公会作用域
-    for guild in bot.guilds:
-        bot.tree.copy_global_to(guild=guild)
+    # cogs.social 已通过 ROLE_COGS["economy"] 在 main() 中加载，此处不再重复加载
 
     # ── 仅在公会作用域注册命令 ──
     total = 0
@@ -526,10 +521,12 @@ async def on_ready():
 
 
 # =============================================================================
-# 欢迎消息 — on_member_join
+# 欢迎消息 — on_member_join（仅 BOT_ROLE=full 时触发）
 # =============================================================================
 @bot.event
 async def on_member_join(member: discord.Member):
+    if os.getenv("BOT_ROLE", "full") != "full":
+        return
     print(f"[on_member_join] 触发! member={member.name}, bot={member.bot}")
     if member.bot:
         return

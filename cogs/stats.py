@@ -52,7 +52,7 @@ class Stats(CogBase):
 
     # ── Command: /server-stats ──────────────────────────────────
 
-    @app_commands.command(name="server-stats", description="📊 服务器统计看板 / Server Stats Dashboard")
+    @app_commands.command(name="gmpt-server-stats", description="📊 服务器统计看板 / Server Stats Dashboard")
     async def stats_cmd(self, interaction: discord.Interaction):
         """显示服务器实时统计数据。"""
         await interaction.response.defer()

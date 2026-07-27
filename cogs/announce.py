@@ -13,7 +13,7 @@ class Announce(CogBase):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="announce", description="Send an announcement / 发送公告")
+    @app_commands.command(name="gmpt-announce", description="Send an announcement / 发送公告")
     @app_commands.describe(
         title="Announcement title / 公告标题",
         content="Announcement body / 公告正文",
