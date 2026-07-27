@@ -233,6 +233,16 @@ def init_all_new_tables():
                 p,
             )
 
+        # ── MMORPG: user_inventory extension for potions ──
+        try:
+            cur.execute("ALTER TABLE user_inventory ADD COLUMN item_name TEXT")
+        except Exception:
+            pass
+        try:
+            cur.execute("ALTER TABLE user_inventory ADD COLUMN item_type TEXT")
+        except Exception:
+            pass
+
         conn.commit()
 
     logger.info("[InitNewCogs] All new tables created successfully.")

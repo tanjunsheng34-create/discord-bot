@@ -74,6 +74,9 @@ ROLE_COGS = {
         "cogs.boss",
         # ── New duel system (involves money) ──
         "cogs.duel",
+        # ── MMORPG ──
+        "cogs.mmorpg_shop",
+        "cogs.mmorpg_skills",
     ],
     "gambling": [],
     "community": [
@@ -89,6 +92,7 @@ ROLE_COGS = {
         "cogs.help",
         "cogs.queue",
         "cogs.gamelobby",
+        "cogs.mmorpg_skills",
     ],
 }
 

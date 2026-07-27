@@ -1076,13 +1076,30 @@ class Economy(CogBase):
         uid = str(interaction.user.id)
         with get_db_ctx() as conn:
             cur = conn.cursor()
-            cur.execute("SELECT xp, level FROM users WHERE discord_id=?", (uid,))
+            cur.execute(
+                "SELECT xp, level, hp, max_hp, mp, max_mp, attack, defense, job_level, job_xp "
+                "FROM users WHERE discord_id=?",
+                (uid,),
+            )
             row = cur.fetchone()
 
-        lvl = row["level"] if row else 1
-        xp = row["xp"] if row else 0
+        if row:
+            lvl = row["level"] or 1
+            xp = row["xp"] or 0
+            hp = row["hp"] or 100
+            max_hp = row["max_hp"] or 100
+            mp = row["mp"] or 50
+            max_mp = row["max_mp"] or 50
+            atk = row["attack"] or 10
+            defense = row["defense"] or 5
+            job_level = row["job_level"] or 1
+            job_xp = row["job_xp"] or 0
+        else:
+            lvl, xp, hp, max_hp, mp, max_mp, atk, defense = 1, 0, 100, 100, 50, 50, 10, 5
+            job_level, job_xp = 1, 0
+
         xp_needed = int(lvl ** 1.5 * 100)
-        pct = min(100, xp * 100 // xp_needed)
+        pct = min(100, xp * 100 // xp_needed) if xp_needed > 0 else 100
         bar_filled = "█" * (pct // 10)
         bar_empty = "░" * (10 - len(bar_filled))
 
@@ -1090,13 +1107,64 @@ class Economy(CogBase):
             title=f"📊 {interaction.user.display_name}'s Level / 等级",
             color=discord.Color.blue(),
         )
-        embed.add_field(name="Level", value=f"**{lvl}**", inline=True)
+        embed.add_field(name="Level / 等级", value=f"**{lvl}**", inline=True)
         embed.add_field(name="XP", value=f"**{xp}** / {xp_needed}", inline=True)
         embed.add_field(
             name=f"Progress / 进度 [{bar_filled}{bar_empty}]",
             value=f"{pct}%",
             inline=False,
         )
+
+        # ── MMORPG Combat Stats ──
+        embed.add_field(name="❤️ HP", value=f"{hp} / {max_hp}", inline=True)
+        embed.add_field(name="💙 MP", value=f"{mp} / {max_mp}", inline=True)
+        embed.add_field(name="⚔️ ATK", value=str(atk), inline=True)
+        embed.add_field(name="🛡️ DEF", value=str(defense), inline=True)
+        embed.add_field(
+            name="💼 打工等级 / Job Level",
+            value=f"Lv.{job_level} ({job_xp} / {job_level * 100} XP)",
+            inline=True,
+        )
+        embed.add_field(name="\u200b", value="\u200b", inline=True)
+
+        # ── 等级解锁内容 ──
+        unlock_hints = []
+        if lvl >= 3:
+            unlock_hints.append("Lv.3 ➜ 解锁冰锥术、防御药剂")
+        if lvl >= 5:
+            unlock_hints.append("Lv.5 ➜ 解锁中级生命/魔力药水、雷霆一击、冰霜巨人副本")
+        if lvl >= 7:
+            unlock_hints.append("Lv.7 ➜ 解锁狂暴技能")
+        if lvl >= 10:
+            unlock_hints.append("Lv.10 ➜ 解锁高级生命药水、地狱犬副本")
+        if lvl >= 15:
+            unlock_hints.append("Lv.15 ➜ 解锁复活药剂")
+
+        if unlock_hints:
+            next_hints = []
+            if lvl < 3:
+                next_hints.append("🔒 Lv.3 ➜ 冰锥术、防御药剂")
+            if lvl < 5:
+                next_hints.append("🔒 Lv.5 ➜ 中级生命/魔力药水、雷霆一击、冰霜巨人副本")
+            if lvl < 7:
+                next_hints.append("🔒 Lv.7 ➜ 狂暴技能")
+            if lvl < 10:
+                next_hints.append("🔒 Lv.10 ➜ 高级生命药水、地狱犬副本")
+            if lvl < 15:
+                next_hints.append("🔒 Lv.15 ➜ 复活药剂")
+
+            embed.add_field(
+                name="✅ 已解锁内容 / Unlocked",
+                value="\n".join(unlock_hints) if unlock_hints else "暂无",
+                inline=False,
+            )
+            if next_hints:
+                embed.add_field(
+                    name="🔒 下一阶段 / Next Unlocks",
+                    value="\n".join(next_hints),
+                    inline=False,
+                )
+
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
         await interaction.response.send_message(embed=embed)
 

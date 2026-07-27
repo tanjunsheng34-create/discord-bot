@@ -99,6 +99,46 @@ async def _animate_job(interaction: discord.Interaction, frames: list[str], embe
     await msg.edit(content=None, embed=embed)
 
 
+def _add_job_xp(uid: str) -> tuple[bool, int]:
+    """Add 10-30 random job_xp after a job. Level up if job_xp >= job_level * 100.
+
+    Returns (leveled_up, new_job_level).
+    """
+    gain = random.randint(10, 30)
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT job_level, job_xp FROM users WHERE discord_id=?",
+            (uid,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return False, 1
+        job_level = row["job_level"] or 1
+        job_xp = row["job_xp"] or 0
+        job_xp += gain
+        leveled_up = False
+        while job_xp >= job_level * 100:
+            job_xp -= job_level * 100
+            job_level += 1
+            leveled_up = True
+        cur.execute(
+            "UPDATE users SET job_level=?, job_xp=? WHERE discord_id=?",
+            (job_level, job_xp, uid),
+        )
+        conn.commit()
+    return leveled_up, job_level
+
+
+async def _handle_job_xp(uid: str, interaction: discord.Interaction):
+    """Add job XP and send level-up followup message if leveled up."""
+    leveled_up, new_level = _add_job_xp(uid)
+    if leveled_up:
+        await interaction.followup.send(
+            f"🎉 打工等级提升！你现在是 Lv.{new_level} 打工达人！"
+        )
+
+
 # ════ Money Effect & Helper Functions ════
 
 def _money_effect(amount: int) -> str:
@@ -614,6 +654,7 @@ class EconomyJobsView(discord.ui.View):
                 f"💪 {uname} 搬砖中...",
                 f"💰 {uname} 收到工资！",
             ], embed)
+            await _handle_job_xp(uid, interaction)
 
         elif job == "beg":
             roll = random.random()
@@ -652,6 +693,7 @@ class EconomyJobsView(discord.ui.View):
                 f"🙏 {uname} 双手合十乞求...",
                 f"💰 {'有人施舍了！' if roll < 0.60 or roll >= 0.90 else '没人回应...'}",
             ], embed)
+            await _handle_job_xp(uid, interaction)
 
         elif job == "fish":
             roll = random.random()
@@ -751,6 +793,7 @@ class EconomyJobsView(discord.ui.View):
                 f"🐠 快出水了！",
                 f"💰 {uname} 收竿！",
             ], embed)
+            await _handle_job_xp(uid, interaction)
             if caught_member:
                 await interaction.channel.send(
                     f"🐟 {caught_member.mention} 被 **{uname}** 钓鱼时钓上来了！\n"
@@ -764,6 +807,7 @@ class EconomyJobsView(discord.ui.View):
                 f"🐗 发现猎物！",
                 f"💰 {uname} 放箭！",
             ], embed)
+            await _handle_job_xp(uid, interaction)
             if hit_msg:
                 await interaction.channel.send(hit_msg)
 
@@ -774,6 +818,7 @@ class EconomyJobsView(discord.ui.View):
                 f"⛏️ {uname} 正在挖掘...",
                 f"💎 {uname} 发现了什么！",
             ], embed)
+            await _handle_job_xp(uid, interaction)
 
         elif job == "busk":
             embed = await _do_busk(self.guild, uname, uid)
@@ -782,6 +827,7 @@ class EconomyJobsView(discord.ui.View):
                 f"🎶 {uname} 开始表演...",
                 f"👏 路人们围了过来！",
             ], embed)
+            await _handle_job_xp(uid, interaction)
 
         elif job == "stock":
             embed = await _do_stock(uname, uid)
@@ -790,6 +836,7 @@ class EconomyJobsView(discord.ui.View):
                 f"💹 {uname} 正在分析走势...",
                 f"📊 {uname} 下单买入！",
             ], embed)
+            await _handle_job_xp(uid, interaction)
 
     async def _handle_rob(self, interaction: discord.Interaction, uid: str):
         """Rob requires a target — show a select dropdown with eligible targets."""
@@ -944,6 +991,7 @@ class EconomyJobs(CogBase):
                 f"💰 {uname} 收到工资！",
             ]
             await _animate_job(interaction, frames, embed)
+            await _handle_job_xp(uid, interaction)
         except Exception as e:
             logger.error(f"[work_cmd] error: {e}", exc_info=True)
             if not interaction.response.is_done():
@@ -1021,6 +1069,7 @@ class EconomyJobs(CogBase):
                 embed.add_field(name="💰 你的余额 / Your Balance", value=_format_coins(robber_bal), inline=True)
 
             embed.set_footer(text="打劫冷却 2 小时 / Rob cooldown: 2 hours")
+            _update_cd(uid, "rob")
             await interaction.response.defer()
             result_text = f"成功从 {tname} 抢走 {_format_coins(stolen)}！" if success else f"失败，被罚款 {_format_coins(penalty)}！"
             frames = [
@@ -1029,6 +1078,7 @@ class EconomyJobs(CogBase):
                 f"💸 {uname} {result_text}",
             ]
             await _animate_job(interaction, frames, embed)
+            await _handle_job_xp(uid, interaction)
         except Exception as e:
             logger.error(f"[rob_cmd] error: {e}", exc_info=True)
             if not interaction.response.is_done():
@@ -1093,6 +1143,7 @@ class EconomyJobs(CogBase):
                 f"💰 {'有人施舍了！' if roll < 0.60 or roll >= 0.90 else '没人回应...'}",
             ]
             await _animate_job(interaction, frames, embed)
+            await _handle_job_xp(uid, interaction)
         except Exception as e:
             logger.error(f"[beg_cmd] error: {e}", exc_info=True)
             if not interaction.response.is_done():
@@ -1218,6 +1269,7 @@ class EconomyJobs(CogBase):
                 f"🐠 {uname} 拉杆！",
             ]
             await _animate_job(interaction, frames, embed)
+            await _handle_job_xp(uid, interaction)
             if caught_member:
                 await interaction.channel.send(
                     f"🐟 {caught_member.mention} 被 **{uname}** 钓鱼时钓上来了！\n"
@@ -1255,6 +1307,7 @@ class EconomyJobs(CogBase):
                 f"🐾 {uname} 发现猎物！",
             ]
             await _animate_job(interaction, frames, embed)
+            await _handle_job_xp(uid, interaction)
             if hit_msg:
                 await interaction.channel.send(hit_msg)
         except Exception as e:
@@ -1288,6 +1341,7 @@ class EconomyJobs(CogBase):
                 f"📦 {uname} 找到了什么！",
             ]
             await _animate_job(interaction, frames, embed)
+            await _handle_job_xp(uid, interaction)
         except Exception as e:
             logger.error(f"[treasure_cmd] error: {e}", exc_info=True)
             if not interaction.response.is_done():
@@ -1319,6 +1373,7 @@ class EconomyJobs(CogBase):
                 f"🎩 {uname} 收取打赏！",
             ]
             await _animate_job(interaction, frames, embed)
+            await _handle_job_xp(uid, interaction)
         except Exception as e:
             logger.error(f"[busk_cmd] error: {e}", exc_info=True)
             if not interaction.response.is_done():
@@ -1350,6 +1405,7 @@ class EconomyJobs(CogBase):
                 f"📊 {uname} 交易完成！",
             ]
             await _animate_job(interaction, frames, embed)
+            await _handle_job_xp(uid, interaction)
         except Exception as e:
             logger.error(f"[stock_cmd] error: {e}", exc_info=True)
             if not interaction.response.is_done():
