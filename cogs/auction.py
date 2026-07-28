@@ -143,6 +143,13 @@ class AuctionView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=180)
 
+    async def _safe_edit(self, interaction: discord.Interaction, **kwargs):
+        """安全编辑消息：已 defer 后用 edit_original_response，未响应用 response.edit_message。"""
+        try:
+            await interaction.response.edit_message(**kwargs)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(**kwargs)
+
     @discord.ui.button(label="🏷️ 出售 / Sell", style=discord.ButtonStyle.primary, row=0)
     async def sell_btn(self, interaction: discord.Interaction, button):
         await interaction.response.send_modal(AuctionSellModal(str(interaction.user.id)))
@@ -157,7 +164,7 @@ class AuctionView(discord.ui.View):
 
         if not rows:
             embed = discord.Embed(title="🏷️ 拍卖行 / Auction House", description="暂无活跃拍卖 / No active auctions.", color=0xE67E22)
-            return await interaction.response.edit_message(embed=embed, view=self)
+            return await self._safe_edit(interaction, embed=embed, view=self)
 
         embed = discord.Embed(title="🏷️ 拍卖行 / Auction House", color=0xE67E22)
         for r in rows:
@@ -171,7 +178,7 @@ class AuctionView(discord.ui.View):
                 inline=False,
             )
         embed.set_footer(text="点击「出价」按钮参与竞拍 / Click Bid to participate")
-        await interaction.response.edit_message(embed=embed, view=self)
+        await self._safe_edit(interaction, embed=embed, view=self)
 
     @discord.ui.button(label="💰 出价 / Bid", style=discord.ButtonStyle.success, row=0)
     async def bid_btn(self, interaction: discord.Interaction, button):
@@ -188,7 +195,7 @@ class AuctionView(discord.ui.View):
 
         if not rows:
             embed = discord.Embed(title="📦 我的拍卖 / My Auctions", description="暂无记录 / No auctions.", color=0xE67E22)
-            return await interaction.response.edit_message(embed=embed, view=self)
+            return await self._safe_edit(interaction, embed=embed, view=self)
 
         embed = discord.Embed(title="📦 我的拍卖 / My Auctions", color=0xE67E22)
         for r in rows:
@@ -198,7 +205,7 @@ class AuctionView(discord.ui.View):
                 value=f"状态 / Status: {r['status']} | 当前 / Current: 🪙 {r['current_bid']:,}",
                 inline=False,
             )
-        await interaction.response.edit_message(embed=embed, view=self)
+        await self._safe_edit(interaction, embed=embed, view=self)
 
     @discord.ui.button(label="◀ 返回 / Back", style=discord.ButtonStyle.danger, row=1)
     async def back_btn(self, interaction: discord.Interaction, button):
@@ -211,7 +218,7 @@ class AuctionView(discord.ui.View):
         view.category = 0
         view.build_page_buttons()
         embed = view._build_page_embed()
-        await interaction.response.edit_message(embed=embed, view=view)
+        await self._safe_edit(interaction, embed=embed, view=view)
 
 
 class Auction(commands.Cog):

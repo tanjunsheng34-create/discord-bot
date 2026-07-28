@@ -1,3 +1,4 @@
+
 """
 GMPT Bot — Lucky Wheel / 抽奖转盘
 """
@@ -28,22 +29,30 @@ SPIN_COST = 50
 BULK_COST = 450
 
 
+def _spin() -> tuple:
+    """Spin the wheel and return a prize (module-level so both View and Command can use it)."""
+    total_weight = sum(p[3] for p in PRIZE_POOL)
+    roll = random.randint(1, total_weight)
+    cumulative = 0
+    for prize in PRIZE_POOL:
+        cumulative += prize[3]
+        if roll <= cumulative:
+            return prize
+    return PRIZE_POOL[-1]  # fallback
+
+
 class WheelView(discord.ui.View):
     """抽奖转盘按钮面板 / Lucky wheel button panel."""
 
     def __init__(self):
         super().__init__(timeout=180)
 
-    def _spin(self) -> tuple:
-        """Spin the wheel and return a prize."""
-        total_weight = sum(p[3] for p in PRIZE_POOL)
-        roll = random.randint(1, total_weight)
-        cumulative = 0
-        for prize in PRIZE_POOL:
-            cumulative += prize[3]
-            if roll <= cumulative:
-                return prize
-        return PRIZE_POOL[-1]  # fallback
+    async def _safe_edit(self, interaction: discord.Interaction, **kwargs):
+        """安全编辑消息：已 defer 后用 edit_original_response，未响应用 response.edit_message。"""
+        try:
+            await interaction.response.edit_message(**kwargs)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(**kwargs)
 
     async def _do_spin(self, interaction: discord.Interaction, count: int):
         uid = str(interaction.user.id)
@@ -56,7 +65,7 @@ class WheelView(discord.ui.View):
             )
 
         add_coins(uid, -cost, f"Lucky wheel spin x{count}")
-        results = [self._spin() for _ in range(count)]
+        results = [_spin() for _ in range(count)]
 
         total_coins = 0
         total_tickets = 0
@@ -112,7 +121,7 @@ class WheelView(discord.ui.View):
         embed.add_field(name="💰 新余额", value=f"🪙 {new_bal:,}", inline=False)
         embed.set_footer(text=f"消耗 🪙 {cost:,} | GMPT Lucky Wheel")
 
-        await interaction.response.edit_message(embed=embed, view=self)
+        await self._safe_edit(interaction, embed=embed, view=self)
 
     @discord.ui.button(label="🎡 转一次 / Spin x1 (50💰)", style=discord.ButtonStyle.success, row=0)
     async def spin_once(self, interaction: discord.Interaction, button):
@@ -142,7 +151,7 @@ class WheelView(discord.ui.View):
         embed.description = "\n".join(lines)
         embed.add_field(name="🪙 单次价格 / Single Spin", value=f"{SPIN_COST} 金币 / coins", inline=True)
         embed.add_field(name="🎰 十连价格 / Bulk (10)", value=f"{BULK_COST} 金币 / coins (省/save 50!)", inline=True)
-        await interaction.response.edit_message(embed=embed, view=self)
+        await self._safe_edit(interaction, embed=embed, view=self)
 
     @discord.ui.button(label="◀ 返回 / Back", style=discord.ButtonStyle.danger, row=1)
     async def back_btn(self, interaction: discord.Interaction, button):
@@ -155,7 +164,7 @@ class WheelView(discord.ui.View):
         view.category = 0
         view.build_page_buttons()
         embed = view._build_page_embed()
-        await interaction.response.edit_message(embed=embed, view=view)
+        await self._safe_edit(interaction, embed=embed, view=view)
 
 
 class Wheel(commands.Cog):
@@ -173,6 +182,57 @@ class Wheel(commands.Cog):
             color=0xFFD700,
         )
         await interaction.response.send_message(embed=embed, view=view)
+
+    @app_commands.command(name="gmpt-spin", description="直接旋转转盘 N 次 / Spin the wheel N times")
+    @app_commands.describe(spin_times="旋转次数，1~10 / Number of spins (1~10)")
+    async def spin_cmd(
+        self,
+        interaction: discord.Interaction,
+        spin_times: int | None = None,
+    ):
+        """直接旋转转盘，spin_times 为 None 或非正整数时默认 1 次。"""
+        # 参数校验：None / 非正整数 / 超出范围 → 默认值
+        if spin_times is None or spin_times <= 0:
+            spin_times = 1
+        spin_times = min(spin_times, 10)  # 上限 10 次
+
+        uid = str(interaction.user.id)
+        bal = get_balance(uid)
+        cost = spin_times * SPIN_COST
+
+        if bal < cost:
+            await interaction.response.send_message(
+                f"金币不足！需要 🪙 **{cost:,}**，你只有 🪙 {bal:,} / Not enough coins! Need 🪙 {cost:,}, you have 🪙 {bal:,}.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer()
+        try:
+            add_coins(uid, -cost, f"Lucky wheel spin x{spin_times}")
+            results = [_spin() for _ in range(spin_times)]
+
+            total_coins = sum(r[2] for r in results if r[1] == "coins")
+            new_bal = get_balance(uid)
+
+            result_lines = []
+            for i, (display, ptype, value) in enumerate(results, 1):
+                result_lines.append(f"**{i}.** {display}")
+            if total_coins > 0:
+                result_lines.append(f"\n💎 总获得 / Total: 🪙 **{total_coins:,}**")
+
+            embed = discord.Embed(
+                title=f"🎡 转{spin_times}次结果 / {spin_times} Spins",
+                description="\n".join(result_lines),
+                color=0xFFD700,
+            )
+            embed.add_field(name="💰 新余额 / New Balance", value=f"🪙 {new_bal:,}", inline=False)
+            embed.set_footer(text=f"消耗 🪙 {cost:,} | GMPT Lucky Wheel")
+
+            await interaction.edit_original_response(embed=embed)
+        except Exception:
+            logger.exception("spin_cmd error")
+            await interaction.edit_original_response(content="❌ 抽奖出错，请重试 / Spin error, please retry.")
 
 
 async def setup(bot: commands.Bot):
