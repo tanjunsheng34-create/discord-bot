@@ -37,6 +37,17 @@ COOLDOWNS = {
     "treasure": 600,  # 10 min
     "busk": 240,      # 4 min
     "stock": 900,     # 15 min
+    # ── 新增 New ──
+    "miner": 1800,       # 30 min
+    "fisher": 1200,      # 20 min
+    "hunter": 2400,      # 40 min
+    "merchant": 3600,    # 60 min
+    "bounty": 5400,      # 90 min
+    "alchemist": 2700,   # 45 min
+    "blacksmith": 3000,  # 50 min
+    "enchanter": 7200,   # 120 min
+    "potion_dealer": 2100,  # 35 min
+    "adventurer": 10800, # 180 min
 }
 
 COOLDOWN_LABELS = {
@@ -48,6 +59,16 @@ COOLDOWN_LABELS = {
     "treasure": "10分钟 / 10min",
     "busk": "4分钟 / 4min",
     "stock": "15分钟 / 15min",
+    "miner": "30分钟 / 30min",
+    "fisher": "20分钟 / 20min",
+    "hunter": "40分钟 / 40min",
+    "merchant": "1小时 / 1h",
+    "bounty": "1.5小时 / 1.5h",
+    "alchemist": "45分钟 / 45min",
+    "blacksmith": "50分钟 / 50min",
+    "enchanter": "2小时 / 2h",
+    "potion_dealer": "35分钟 / 35min",
+    "adventurer": "3小时 / 3h",
 }
 
 
@@ -535,6 +556,16 @@ class EconomyJobsView(discord.ui.View):
         "treasure": "🗺️ 寻宝 Treasure",
         "busk":     "🎸 卖艺 Busk",
         "stock":    "📈 炒股 Stock",
+        "miner":    "⛏️ 矿工 Miner",
+        "fisher":   "🐟 渔夫 Fisher",
+        "hunter":   "🦌 猎人 Hunter",
+        "merchant": "🧳 商人 Merchant",
+        "bounty":   "💀 赏金猎人 Bounty",
+        "alchemist": "⚗️ 炼金术师 Alchemist",
+        "blacksmith": "🔨 铁匠 Smith",
+        "enchanter": "✨ 附魔师 Enchanter",
+        "potion_dealer": "🧪 药水商 Potions",
+        "adventurer": "🗡️ 冒险家 Adventurer",
     }
 
     JOB_EMOJIS = {
@@ -557,28 +588,24 @@ class EconomyJobsView(discord.ui.View):
     def _build_buttons(self):
         self.clear_items()
 
-        row0_jobs = ["work", "rob", "beg", "fish"]
-        row1_jobs = ["hunt", "treasure", "busk", "stock"]
+        row_jobs = [
+            ["work", "rob", "beg", "fish"],
+            ["hunt", "treasure", "busk", "stock"],
+            ["miner", "fisher", "hunter", "merchant"],
+            ["bounty", "alchemist", "blacksmith", "potion_dealer"],
+            ["enchanter", "adventurer"],
+        ]
 
-        for job in row0_jobs:
-            btn = discord.ui.Button(
-                label=self.JOB_LABELS[job],
-                style=discord.ButtonStyle.primary,
-                row=0,
-                custom_id=f"ejob_{job}",
-            )
-            btn.callback = self._make_job_callback(job)
-            self.add_item(btn)
-
-        for job in row1_jobs:
-            btn = discord.ui.Button(
-                label=self.JOB_LABELS[job],
-                style=discord.ButtonStyle.primary,
-                row=1,
-                custom_id=f"ejob_{job}",
-            )
-            btn.callback = self._make_job_callback(job)
-            self.add_item(btn)
+        for r, jobs in enumerate(row_jobs):
+            for job in jobs:
+                btn = discord.ui.Button(
+                    label=self.JOB_LABELS[job],
+                    style=discord.ButtonStyle.primary,
+                    row=r,
+                    custom_id=f"ejob_{job}",
+                )
+                btn.callback = self._make_job_callback(job)
+                self.add_item(btn)
 
         # Back button
         back_btn = discord.ui.Button(
@@ -848,6 +875,96 @@ class EconomyJobsView(discord.ui.View):
             ], embed)
             await _handle_job_xp(uid, interaction)
 
+        elif job == "miner":
+            embed = await _do_miner(self.guild, uname, uid)
+            await _animate_job(interaction, [
+                f"⛏️ {uname} 戴上安全帽进入矿洞...",
+                f"💎 {uname} 挥动十字镐...",
+                f"🪨 矿石掉落了！",
+            ], embed)
+            await _handle_job_xp(uid, interaction)
+
+        elif job == "fisher":
+            embed = await _do_fisher(self.guild, uname, uid)
+            await _animate_job(interaction, [
+                f"🎣 {uname} 撒下渔网...",
+                f"🌊 海面泛起涟漪...",
+                f"🐟 {uname} 收网！",
+            ], embed)
+            await _handle_job_xp(uid, interaction)
+
+        elif job == "hunter":
+            embed = await _do_hunter_job(self.guild, uname, uid)
+            await _animate_job(interaction, [
+                f"🦌 {uname} 进入森林...",
+                f"🏹 {uname} 拉弓瞄准...",
+                f"🐗 {uname} 猎物倒下！",
+            ], embed)
+            await _handle_job_xp(uid, interaction)
+
+        elif job == "merchant":
+            embed = await _do_merchant(self.guild, uname, uid)
+            await _animate_job(interaction, [
+                f"🧳 {uname} 打开货箱...",
+                f"💬 {uname} 与商人讨价还价...",
+                f"🤝 交易完成！",
+            ], embed)
+            await _handle_job_xp(uid, interaction)
+
+        elif job == "bounty":
+            embed = await _do_bounty(self.guild, uname, uid)
+            await _animate_job(interaction, [
+                f"📜 {uname} 撕下悬赏令...",
+                f"💀 {uname} 追踪目标...",
+                f"⚔️ {uname} 与目标交战！",
+            ], embed)
+            await _handle_job_xp(uid, interaction)
+
+        elif job == "alchemist":
+            embed = await _do_alchemist(self.guild, uname, uid)
+            await _animate_job(interaction, [
+                f"⚗️ {uname} 摆放烧瓶和试管...",
+                f"🔮 {uname} 混合药剂...",
+                f"💥 药水炼成！",
+            ], embed)
+            await _handle_job_xp(uid, interaction)
+
+        elif job == "blacksmith":
+            embed = await _do_blacksmith(self.guild, uname, uid)
+            await _animate_job(interaction, [
+                f"🔨 {uname} 点燃熔炉...",
+                f"🔥 {uname} 锻打铁锭...",
+                f"⚔️ 武器出炉！",
+            ], embed)
+            await _handle_job_xp(uid, interaction)
+
+        elif job == "enchanter":
+            embed = await _do_enchanter(self.guild, uname, uid)
+            await _animate_job(interaction, [
+                f"✨ {uname} 绘制魔法阵...",
+                f"📖 {uname} 吟唱咒语...",
+                f"💫 附魔完成！",
+            ], embed)
+            await _handle_job_xp(uid, interaction)
+
+        elif job == "potion_dealer":
+            embed = await _do_potion_dealer(self.guild, uname, uid)
+            await _animate_job(interaction, [
+                f"🧪 {uname} 摆起药水摊位...",
+                f"💬 {uname} 招揽顾客...",
+                f"🪙 卖出药水！",
+            ], embed)
+            await _handle_job_xp(uid, interaction)
+
+        elif job == "adventurer":
+            embed = await _do_adventurer(self.guild, uname, uid)
+            await _animate_job(interaction, [
+                f"🗡️ {uname} 踏上冒险之旅...",
+                f"🗺️ {uname} 探索未知领域...",
+                f"💎 {uname} 发现宝藏！",
+            ], embed)
+            await _handle_job_xp(uid, interaction)
+
     async def _handle_rob(self, interaction: discord.Interaction, uid: str):
         """Rob requires a target — show a select dropdown with eligible targets."""
         if not self.guild:
@@ -939,6 +1056,348 @@ class EconomyJobsView(discord.ui.View):
         view = discord.ui.View(timeout=60)
         view.add_item(select)
         await interaction.followup.send("🥷 选择打劫目标 / Select a target:", view=view, ephemeral=True)
+
+
+# ══════════════════════════════════════════════════════════════
+# 新增打工函数 / New Job Shared Functions
+# ══════════════════════════════════════════════════════════════
+
+async def _do_miner(guild, uname: str, uid: str):
+    """⛏️ 矿工 Miner — Lv.1, 50-150g, 30min CD, 10% fail"""
+    roll = random.random()
+    if roll < 0.10:
+        base = random.randint(10, 30)
+        add_coins(uid, base, "矿工收入 / Miner income (collapse)")
+        desc = (f"{uname} 在矿洞深处挖掘时遭遇塌方... 只捡到可怜的 🪙 **{base:,}** 金币！\n"
+                f"The mine collapsed on {uname}... Only salvaged 🪙 **{base:,}** coins!")
+        color = 0x7F8C8D
+    elif roll < 0.30:
+        base = random.randint(50, 100)
+        add_coins(uid, base, "矿工收入 / Miner income")
+        desc = (f"{uname} 挖到了几块铁矿石，卖得 🪙 **{base:,}** 金币！\n"
+                f"{uname} dug up some iron ore, sold for 🪙 **{base:,}** coins!")
+        color = 0x95A5A6
+    elif roll < 0.80:
+        base = random.randint(80, 150)
+        add_coins(uid, base, "矿工收入 / Miner income")
+        desc = (f"{uname} 在矿洞深处挖到了金矿！卖得 🪙 **{base:,}** 金币！\n"
+                f"{uname} struck gold in the mines! Sold for 🪙 **{base:,}** coins!")
+        color = 0xF1C40F
+    else:
+        base = random.randint(200, 500)
+        add_coins(uid, base, "矿工收入 / Miner income (diamond)")
+        desc = (f"💎 {uname} 挖到了一颗闪亮的钻石！！卖得 🪙 **{base:,}** 金币！！\n"
+                f"💎 {uname} found a glittering diamond!! Sold for 🪙 **{base:,}** coins!!")
+        color = 0x3498DB
+    if random.random() < 0.08:
+        penalty = int(base * 0.5)
+        add_coins(uid, -penalty, "矿洞瓦斯罚款 / Mine gas penalty")
+        desc += f"\n\n💨 瓦斯泄漏！收入减半，损失 🪙 {penalty:,} / Gas leak! Income halved, lost 🪙 {penalty:,}"
+    _update_cd(uid, "miner")
+    bal = get_balance(uid)
+    embed = discord.Embed(title=f"⛏️ {uname} 矿工 / Miner", description=desc, color=color)
+    embed.add_field(name="💰 余额 / Balance", value=_format_coins(bal), inline=False)
+    embed.set_footer(text="矿工冷却 30 分钟 / Miner cooldown: 30 min")
+    return embed
+
+
+async def _do_fisher(guild, uname: str, uid: str):
+    """🐟 渔夫 Fisher — Lv.1, 40-120g, 20min CD, 8% fail"""
+    roll = random.random()
+    if roll < 0.08:
+        base = 0
+        desc = (f"{uname} 出海捕鱼遭遇暴风雨... 空手而归！\n"
+                f"A storm caught {uname} at sea... Returned empty-handed!")
+        color = 0x7F8C8D
+    elif roll < 0.30:
+        base = random.randint(40, 70)
+        desc = (f"{uname} 捕到了一些沙丁鱼，卖得 🪙 **{base:,}** 金币！\n"
+                f"{uname} caught some sardines, sold for 🪙 **{base:,}** coins!")
+        color = 0x3498DB
+    elif roll < 0.80:
+        base = random.randint(70, 120)
+        desc = (f"🐟 {uname} 捕到了一网肥美的鲑鱼！卖得 🪙 **{base:,}** 金币！\n"
+                f"🐟 {uname} netted a haul of salmon! Sold for 🪙 **{base:,}** coins!")
+        color = 0xE67E22
+    else:
+        base = random.randint(150, 400)
+        desc = (f"🐋 {uname} 捕到了一条巨大的金枪鱼！！卖得 🪙 **{base:,}** 金币！！\n"
+                f"🐋 {uname} caught a giant tuna!! Sold for 🪙 **{base:,}** coins!!")
+        color = 0xF1C40F
+    if base > 0:
+        add_coins(uid, base, "渔夫收入 / Fisher income")
+    _update_cd(uid, "fisher")
+    bal = get_balance(uid)
+    embed = discord.Embed(title=f"🐟 {uname} 渔夫 / Fisher", description=desc, color=color)
+    embed.add_field(name="💰 余额 / Balance", value=_format_coins(bal), inline=False)
+    embed.set_footer(text="渔夫冷却 20 分钟 / Fisher cooldown: 20 min")
+    return embed
+
+
+async def _do_hunter_job(guild, uname: str, uid: str):
+    """🦌 猎人 Hunter — Lv.3, 80-200g, 40min CD, 15% fail"""
+    roll = random.random()
+    if roll < 0.15:
+        base = 0
+        desc = (f"{uname} 追踪了半天的猎物逃进了灌木丛... 一无所获！\n"
+                f"{uname} tracked prey for hours but it escaped... Nothing!")
+        color = 0x7F8C8D
+    elif roll < 0.50:
+        base = random.randint(80, 130)
+        desc = (f"🐇 {uname} 猎到了几只野兔，卖得 🪙 **{base:,}** 金币！\n"
+                f"🐇 {uname} hunted some rabbits, sold for 🪙 **{base:,}** coins!")
+        color = 0x8E44AD
+    elif roll < 0.85:
+        base = random.randint(130, 200)
+        desc = (f"🦌 {uname} 猎到了一头雄鹿！卖得 🪙 **{base:,}** 金币！\n"
+                f"🦌 {uname} hunted a stag! Sold for 🪙 **{base:,}** coins!")
+        color = 0xE74C3C
+    else:
+        base = random.randint(250, 600)
+        desc = (f"🐻 {uname} 猎到了一头巨熊！！卖得 🪙 **{base:,}** 金币！！\n"
+                f"🐻 {uname} brought down a massive bear!! Sold for 🪙 **{base:,}** coins!!")
+        color = 0xF1C40F
+    if base > 0:
+        add_coins(uid, base, "猎人收入 / Hunter income")
+    _update_cd(uid, "hunter")
+    bal = get_balance(uid)
+    embed = discord.Embed(title=f"🦌 {uname} 猎人 / Hunter", description=desc, color=color)
+    embed.add_field(name="💰 余额 / Balance", value=_format_coins(bal), inline=False)
+    embed.set_footer(text="猎人冷却 40 分钟 / Hunter cooldown: 40 min")
+    return embed
+
+
+async def _do_merchant(guild, uname: str, uid: str):
+    """🧳 商人 Merchant — Lv.5, 100-300g, 60min CD, 20% fail"""
+    roll = random.random()
+    if roll < 0.20:
+        base = random.randint(30, 80)
+        add_coins(uid, base, "商人收入 / Merchant income (loss)")
+        desc = (f"{uname} 进货时被奸商骗了... 只勉强卖得 🪙 **{base:,}** 金币！\n"
+                f"{uname} was scammed by a shady supplier... Barely made 🪙 **{base:,}** coins!")
+        color = 0x7F8C8D
+    elif roll < 0.70:
+        base = random.randint(100, 200)
+        add_coins(uid, base, "商人收入 / Merchant income")
+        desc = (f"{uname} 在一个繁忙的市场卖出了货物，赚得 🪙 **{base:,}** 金币！\n"
+                f"{uname} sold goods at a bustling market, earned 🪙 **{base:,}** coins!")
+        color = 0x2ECC71
+    elif roll < 0.95:
+        base = random.randint(200, 300)
+        add_coins(uid, base, "商人收入 / Merchant income")
+        desc = (f"{uname} 谈成了一笔大生意！赚得 🪙 **{base:,}** 金币！\n"
+                f"{uname} closed a big deal! Earned 🪙 **{base:,}** coins!")
+        color = 0xF39C12
+    else:
+        base = random.randint(400, 800)
+        add_coins(uid, base, "商人收入 / Merchant income (jackpot)")
+        desc = (f"💰 {uname} 发现了一条利润丰厚的贸易路线！！赚得 🪙 **{base:,}** 金币！！\n"
+                f"💰 {uname} discovered a lucrative trade route!! Earned 🪙 **{base:,}** coins!!")
+        color = 0xF1C40F
+    if random.random() < 0.10:
+        penalty = int(base * 0.4)
+        add_coins(uid, -penalty, "商人被劫 / Merchant robbed")
+        desc += f"\n\n🔫 途中遭遇劫匪！损失 🪙 {penalty:,} / Robbed on the road! Lost 🪙 {penalty:,}"
+    _update_cd(uid, "merchant")
+    bal = get_balance(uid)
+    embed = discord.Embed(title=f"🧳 {uname} 商人 / Merchant", description=desc, color=color)
+    embed.add_field(name="💰 余额 / Balance", value=_format_coins(bal), inline=False)
+    embed.set_footer(text="商人冷却 1 小时 / Merchant cooldown: 1 hour")
+    return embed
+
+
+async def _do_bounty(guild, uname: str, uid: str):
+    """💀 赏金猎人 Bounty Hunter — Lv.8, 200-500g, 90min CD, 30% fail"""
+    roll = random.random()
+    if roll < 0.30:
+        base = random.randint(50, 150)
+        add_coins(uid, base, "赏金收入 / Bounty income (failed)")
+        desc = (f"{uname} 追踪目标失败，目标已经逃往其他城市... 只拿到 🪙 **{base:,}** 路费！\n"
+                f"{uname} lost the target who fled... Only got 🪙 **{base:,}** travel pay!")
+        color = 0x7F8C8D
+    elif roll < 0.75:
+        base = random.randint(200, 350)
+        add_coins(uid, base, "赏金收入 / Bounty income")
+        desc = (f"💀 {uname} 成功制服了通缉犯！领取赏金 🪙 **{base:,}** 金币！\n"
+                f"💀 {uname} captured the wanted criminal! Bounty: 🪙 **{base:,}** coins!")
+        color = 0xE74C3C
+    else:
+        base = random.randint(400, 800)
+        add_coins(uid, base, "赏金收入 / Bounty income (boss)")
+        desc = (f"💀 {uname} 击杀了一个危险的头号通缉犯！！赏金 🪙 **{base:,}** 金币！！\n"
+                f"💀 {uname} took down a top wanted criminal!! Bounty: 🪙 **{base:,}** coins!!")
+        color = 0xF1C40F
+    if random.random() < 0.12:
+        penalty = random.randint(50, 150)
+        add_coins(uid, -penalty, "被通缉犯反杀罚款 / Bounty counter-attack")
+        desc += f"\n\n🗡️ 通缉犯设下埋伏反扑！重伤损失 🪙 {penalty:,} / Ambushed! Lost 🪙 {penalty:,}"
+    _update_cd(uid, "bounty")
+    bal = get_balance(uid)
+    embed = discord.Embed(title=f"💀 {uname} 赏金猎人 / Bounty Hunter", description=desc, color=color)
+    embed.add_field(name="💰 余额 / Balance", value=_format_coins(bal), inline=False)
+    embed.set_footer(text="赏金猎人冷却 1.5 小时 / Bounty cooldown: 1.5 hours")
+    return embed
+
+
+async def _do_alchemist(guild, uname: str, uid: str):
+    """⚗️ 炼金术师 Alchemist — Lv.10, 150-400g, 45min CD, 25% fail"""
+    roll = random.random()
+    if roll < 0.25:
+        base = random.randint(30, 100)
+        add_coins(uid, base, "炼金收入 / Alchemist income (fail)")
+        desc = (f"{uname} 的药剂配方出了差错，烧瓶爆炸了！只卖得 🪙 **{base:,}** 金币！\n"
+                f"{uname}'s potion formula went wrong, beaker exploded! Only 🪙 **{base:,}** coins!")
+        color = 0xE74C3C
+    elif roll < 0.75:
+        base = random.randint(150, 300)
+        add_coins(uid, base, "炼金收入 / Alchemist income")
+        desc = (f"⚗️ {uname} 成功炼制出了治疗药水，卖得 🪙 **{base:,}** 金币！\n"
+                f"⚗️ {uname} brewed healing potions, sold for 🪙 **{base:,}** coins!")
+        color = 0x9B59B6
+    else:
+        base = random.randint(350, 700)
+        add_coins(uid, base, "炼金收入 / Alchemist income (rare)")
+        desc = (f"🔮 {uname} 炼出了传说中的贤者之石！！卖得 🪙 **{base:,}** 金币！！\n"
+                f"🔮 {uname} created the legendary Philosopher's Stone!! Sold for 🪙 **{base:,}** coins!!")
+        color = 0xF1C40F
+    _update_cd(uid, "alchemist")
+    bal = get_balance(uid)
+    embed = discord.Embed(title=f"⚗️ {uname} 炼金术师 / Alchemist", description=desc, color=color)
+    embed.add_field(name="💰 余额 / Balance", value=_format_coins(bal), inline=False)
+    embed.set_footer(text="炼金术师冷却 45 分钟 / Alchemist cooldown: 45 min")
+    return embed
+
+
+async def _do_blacksmith(guild, uname: str, uid: str):
+    """🔨 铁匠 Blacksmith — Lv.7, 120-350g, 50min CD, 18% fail"""
+    roll = random.random()
+    if roll < 0.18:
+        base = random.randint(40, 100)
+        add_coins(uid, base, "铁匠收入 / Blacksmith income (fail)")
+        desc = (f"{uname} 锻造时铁砧裂了，武器报废... 只卖得 🪙 **{base:,}** 废铁价！\n"
+                f"{uname}'s anvil cracked while forging... Scrap sold for 🪙 **{base:,}**!")
+        color = 0x7F8C8D
+    elif roll < 0.70:
+        base = random.randint(120, 250)
+        add_coins(uid, base, "铁匠收入 / Blacksmith income")
+        desc = (f"🔨 {uname} 打造了一把精良长剑，卖得 🪙 **{base:,}** 金币！\n"
+                f"🔨 {uname} forged a fine longsword, sold for 🪙 **{base:,}** coins!")
+        color = 0xE67E22
+    else:
+        base = random.randint(280, 500)
+        add_coins(uid, base, "铁匠收入 / Blacksmith income (masterwork)")
+        desc = (f"⚔️ {uname} 打造了一把大师级武器！！卖得 🪙 **{base:,}** 金币！！\n"
+                f"⚔️ {uname} crafted a masterwork weapon!! Sold for 🪙 **{base:,}** coins!!")
+        color = 0xF1C40F
+    if random.random() < 0.08:
+        penalty = random.randint(30, 80)
+        add_coins(uid, -penalty, "锻造烧伤赔款 / Forge burn compensation")
+        desc += f"\n\n🔥 熔炉过热烫伤了顾客！赔偿 🪙 {penalty:,} / Forge overheated! Paid 🪙 {penalty:,}"
+    _update_cd(uid, "blacksmith")
+    bal = get_balance(uid)
+    embed = discord.Embed(title=f"🔨 {uname} 铁匠 / Blacksmith", description=desc, color=color)
+    embed.add_field(name="💰 余额 / Balance", value=_format_coins(bal), inline=False)
+    embed.set_footer(text="铁匠冷却 50 分钟 / Blacksmith cooldown: 50 min")
+    return embed
+
+
+async def _do_enchanter(guild, uname: str, uid: str):
+    """✨ 附魔师 Enchanter — Lv.12, 300-600g, 120min CD, 35% fail"""
+    roll = random.random()
+    if roll < 0.35:
+        base = random.randint(80, 200)
+        add_coins(uid, base, "附魔收入 / Enchanter income (fail)")
+        desc = (f"{uname} 念错了咒语，附魔失败了！魔法反噬，只得到 🪙 **{base:,}** 金币！\n"
+                f"{uname} mispronounced the incantation! Magical backlash, only 🪙 **{base:,}** coins!")
+        color = 0x7F8C8D
+    elif roll < 0.80:
+        base = random.randint(300, 450)
+        add_coins(uid, base, "附魔收入 / Enchanter income")
+        desc = (f"✨ {uname} 成功为武器附上了火焰附魔！赚得 🪙 **{base:,}** 金币！\n"
+                f"✨ {uname} enchanted a weapon with fire! Earned 🪙 **{base:,}** coins!")
+        color = 0x9B59B6
+    else:
+        base = random.randint(500, 900)
+        add_coins(uid, base, "附魔收入 / Enchanter income (legendary)")
+        desc = (f"💫 {uname} 施展了传说级附魔！！赚得 🪙 **{base:,}** 金币！！\n"
+                f"💫 {uname} cast a legendary enchantment!! Earned 🪙 **{base:,}** coins!!")
+        color = 0xF1C40F
+    _update_cd(uid, "enchanter")
+    bal = get_balance(uid)
+    embed = discord.Embed(title=f"✨ {uname} 附魔师 / Enchanter", description=desc, color=color)
+    embed.add_field(name="💰 余额 / Balance", value=_format_coins(bal), inline=False)
+    embed.set_footer(text="附魔师冷却 2 小时 / Enchanter cooldown: 2 hours")
+    return embed
+
+
+async def _do_potion_dealer(guild, uname: str, uid: str):
+    """🧪 药水商 Potion Dealer — Lv.6, 100-250g, 35min CD, 12% fail"""
+    roll = random.random()
+    if roll < 0.12:
+        base = random.randint(30, 70)
+        add_coins(uid, base, "药水商收入 / Potion dealer income (fail)")
+        desc = (f"{uname} 的药水被查出是假货，被罚款后只剩 🪙 **{base:,}** 金币...\n"
+                f"{uname}'s potions were exposed as counterfeit! Fined, only 🪙 **{base:,}** left...")
+        color = 0x7F8C8D
+    elif roll < 0.70:
+        base = random.randint(100, 180)
+        add_coins(uid, base, "药水商收入 / Potion dealer income")
+        desc = (f"🧪 {uname} 在集市上卖出了几瓶药水，赚得 🪙 **{base:,}** 金币！\n"
+                f"🧪 {uname} sold some potions at the market, earned 🪙 **{base:,}** coins!")
+        color = 0x2ECC71
+    else:
+        base = random.randint(200, 400)
+        add_coins(uid, base, "药水商收入 / Potion dealer income (hot)")
+        desc = (f"💊 {uname} 的自制特效药水大受欢迎！！赚得 🪙 **{base:,}** 金币！！\n"
+                f"💊 {uname}'s special brew was a hit!! Earned 🪙 **{base:,}** coins!!")
+        color = 0xF39C12
+    _update_cd(uid, "potion_dealer")
+    bal = get_balance(uid)
+    embed = discord.Embed(title=f"🧪 {uname} 药水商 / Potion Dealer", description=desc, color=color)
+    embed.add_field(name="💰 余额 / Balance", value=_format_coins(bal), inline=False)
+    embed.set_footer(text="药水商冷却 35 分钟 / Potion Dealer cooldown: 35 min")
+    return embed
+
+
+async def _do_adventurer(guild, uname: str, uid: str):
+    """🗡️ 冒险家 Adventurer — Lv.15, 500-1000g, 180min CD, 40% fail"""
+    roll = random.random()
+    if roll < 0.40:
+        base = random.randint(100, 300)
+        add_coins(uid, base, "冒险收入 / Adventurer income (fail)")
+        scenarios = [
+            "遭遇了龙卷风，装备全毁",
+            "掉进了陷阱，差点没命",
+            "迷路了三天三夜",
+            "被山贼洗劫一空",
+        ]
+        scenario = random.choice(scenarios)
+        desc = (f"{uname} 踏上冒险，但{scenario}... 只带回 🪙 **{base:,}** 金币！\n"
+                f"{uname} went on an adventure, but disaster struck... Only 🪙 **{base:,}** coins!")
+        color = 0x7F8C8D
+    elif roll < 0.80:
+        base = random.randint(500, 800)
+        add_coins(uid, base, "冒险收入 / Adventurer income")
+        desc = (f"🗡️ {uname} 探索了一座古老遗迹，发现 🪙 **{base:,}** 金币！\n"
+                f"🗡️ {uname} explored ancient ruins, found 🪙 **{base:,}** coins!")
+        color = 0xE67E22
+    else:
+        base = random.randint(900, 1500)
+        add_coins(uid, base, "冒险收入 / Adventurer income (legend)")
+        desc = (f"👑 {uname} 发现了一座失落的黄金之城！！带回 🪙 **{base:,}** 金币！！\n"
+                f"👑 {uname} discovered a lost city of gold!! Brought back 🪙 **{base:,}** coins!!")
+        color = 0xF1C40F
+    if random.random() < 0.15:
+        penalty = int(base * 0.4)
+        add_coins(uid, -penalty, "冒险队友背叛 / Party member betrayal")
+        desc += f"\n\n😈 队友背叛偷走了宝藏！损失 🪙 {penalty:,} / Betrayed! Lost 🪙 {penalty:,}"
+    _update_cd(uid, "adventurer")
+    bal = get_balance(uid)
+    embed = discord.Embed(title=f"🗡️ {uname} 冒险家 / Adventurer", description=desc, color=color)
+    embed.add_field(name="💰 余额 / Balance", value=_format_coins(bal), inline=False)
+    embed.set_footer(text="冒险家冷却 3 小时 / Adventurer cooldown: 3 hours")
+    return embed
+
 
 
 class EconomyJobs(CogBase):
@@ -1424,6 +1883,256 @@ class EconomyJobs(CogBase):
                 await interaction.followup.send("❌ 炒股命令出错，请重试 / Stock error, please retry.", ephemeral=True)
 
     # ══════════════════════════════════════════════════════════
+    # /gmpt-job miner — 矿工
+    # ══════════════════════════════════════════════════════════
+    @gmpt_job_group.command(name="miner", description="⛏️ 矿工 / Mining — dig for ore and gems! (30 min cooldown)")
+    @app_commands.checks.cooldown(1, 1800, key=lambda i: (i.guild_id, i.user.id))
+    async def miner_cmd(self, interaction: discord.Interaction):
+        """矿工."""
+        uid = str(interaction.user.id)
+        remaining = _get_cd_remaining(uid, "miner")
+        if remaining > 0:
+            return await interaction.response.send_message(
+                f"⏳ 矿工冷却中！剩余 **{_format_cd(remaining)}** / Miner cooldown! Remaining: **{_format_cd(remaining)}**",
+                ephemeral=True,
+            )
+        uname = interaction.user.display_name
+        embed = await _do_miner(interaction.guild, uname, uid)
+        await interaction.response.defer()
+        frames = [
+            f"⛏️ {uname} 戴上安全帽进入矿洞...",
+            f"💎 {uname} 挥动十字镐挖掘中...",
+            f"🪨 {uname} 收获矿石！",
+        ]
+        await _animate_job(interaction, frames, embed)
+        await _handle_job_xp(uid, interaction)
+
+    # ══════════════════════════════════════════════════════════
+    # /gmpt-job fisher — 渔夫
+    # ══════════════════════════════════════════════════════════
+    @gmpt_job_group.command(name="fisherman", description="🐟 渔夫 / Fishing — cast nets at sea! (20 min cooldown)")
+    @app_commands.checks.cooldown(1, 1200, key=lambda i: (i.guild_id, i.user.id))
+    async def fisherman_cmd(self, interaction: discord.Interaction):
+        """渔夫."""
+        uid = str(interaction.user.id)
+        remaining = _get_cd_remaining(uid, "fisher")
+        if remaining > 0:
+            return await interaction.response.send_message(
+                f"⏳ 渔夫冷却中！剩余 **{_format_cd(remaining)}** / Fisher cooldown! Remaining: **{_format_cd(remaining)}**",
+                ephemeral=True,
+            )
+        uname = interaction.user.display_name
+        embed = await _do_fisher(interaction.guild, uname, uid)
+        await interaction.response.defer()
+        frames = [
+            f"🎣 {uname} 撒下渔网...",
+            f"🌊 {uname} 等待鱼群...",
+            f"🐟 {uname} 收网！",
+        ]
+        await _animate_job(interaction, frames, embed)
+        await _handle_job_xp(uid, interaction)
+
+    # ══════════════════════════════════════════════════════════
+    # /gmpt-job hunter — 猎人
+    # ══════════════════════════════════════════════════════════
+    @gmpt_job_group.command(name="hunterjob", description="🦌 猎人 / Hunting — track and hunt prey! (40 min cooldown)")
+    @app_commands.checks.cooldown(1, 2400, key=lambda i: (i.guild_id, i.user.id))
+    async def hunter_job_cmd(self, interaction: discord.Interaction):
+        """猎人."""
+        uid = str(interaction.user.id)
+        remaining = _get_cd_remaining(uid, "hunter")
+        if remaining > 0:
+            return await interaction.response.send_message(
+                f"⏳ 猎人冷却中！剩余 **{_format_cd(remaining)}** / Hunter cooldown! Remaining: **{_format_cd(remaining)}**",
+                ephemeral=True,
+            )
+        uname = interaction.user.display_name
+        embed = await _do_hunter_job(interaction.guild, uname, uid)
+        await interaction.response.defer()
+        frames = [
+            f"🦌 {uname} 进入森林...",
+            f"🏹 {uname} 追踪猎物足迹...",
+            f"🐗 {uname} 发射！",
+        ]
+        await _animate_job(interaction, frames, embed)
+        await _handle_job_xp(uid, interaction)
+
+    # ══════════════════════════════════════════════════════════
+    # /gmpt-job merchant — 商人
+    # ══════════════════════════════════════════════════════════
+    @gmpt_job_group.command(name="merchant", description="🧳 商人 / Trading — buy low sell high! (60 min cooldown)")
+    @app_commands.checks.cooldown(1, 3600, key=lambda i: (i.guild_id, i.user.id))
+    async def merchant_cmd(self, interaction: discord.Interaction):
+        """商人."""
+        uid = str(interaction.user.id)
+        remaining = _get_cd_remaining(uid, "merchant")
+        if remaining > 0:
+            return await interaction.response.send_message(
+                f"⏳ 商人冷却中！剩余 **{_format_cd(remaining)}** / Merchant cooldown! Remaining: **{_format_cd(remaining)}**",
+                ephemeral=True,
+            )
+        uname = interaction.user.display_name
+        embed = await _do_merchant(interaction.guild, uname, uid)
+        await interaction.response.defer()
+        frames = [
+            f"🧳 {uname} 整理货物...",
+            f"💬 {uname} 讨价还价中...",
+            f"🤝 {uname} 成交！",
+        ]
+        await _animate_job(interaction, frames, embed)
+        await _handle_job_xp(uid, interaction)
+
+    # ══════════════════════════════════════════════════════════
+    # /gmpt-job bounty — 赏金猎人
+    # ══════════════════════════════════════════════════════════
+    @gmpt_job_group.command(name="bounty", description="💀 赏金猎人 / Bounty hunting — capture wanted criminals! (90 min cooldown)")
+    @app_commands.checks.cooldown(1, 5400, key=lambda i: (i.guild_id, i.user.id))
+    async def bounty_cmd(self, interaction: discord.Interaction):
+        """赏金猎人."""
+        uid = str(interaction.user.id)
+        remaining = _get_cd_remaining(uid, "bounty")
+        if remaining > 0:
+            return await interaction.response.send_message(
+                f"⏳ 赏金猎人冷却中！剩余 **{_format_cd(remaining)}** / Bounty cooldown! Remaining: **{_format_cd(remaining)}**",
+                ephemeral=True,
+            )
+        uname = interaction.user.display_name
+        embed = await _do_bounty(interaction.guild, uname, uid)
+        await interaction.response.defer()
+        frames = [
+            f"📜 {uname} 撕下悬赏令...",
+            f"💀 {uname} 追踪目标...",
+            f"⚔️ {uname} 与目标交战！",
+        ]
+        await _animate_job(interaction, frames, embed)
+        await _handle_job_xp(uid, interaction)
+
+    # ══════════════════════════════════════════════════════════
+    # /gmpt-job alchemist — 炼金术师
+    # ══════════════════════════════════════════════════════════
+    @gmpt_job_group.command(name="alchemist", description="⚗️ 炼金术师 / Alchemy — brew potions and elixirs! (45 min cooldown)")
+    @app_commands.checks.cooldown(1, 2700, key=lambda i: (i.guild_id, i.user.id))
+    async def alchemist_cmd(self, interaction: discord.Interaction):
+        """炼金术师."""
+        uid = str(interaction.user.id)
+        remaining = _get_cd_remaining(uid, "alchemist")
+        if remaining > 0:
+            return await interaction.response.send_message(
+                f"⏳ 炼金术师冷却中！剩余 **{_format_cd(remaining)}** / Alchemist cooldown! Remaining: **{_format_cd(remaining)}**",
+                ephemeral=True,
+            )
+        uname = interaction.user.display_name
+        embed = await _do_alchemist(interaction.guild, uname, uid)
+        await interaction.response.defer()
+        frames = [
+            f"⚗️ {uname} 摆放烧瓶...",
+            f"🔮 {uname} 混合药剂...",
+            f"💥 {uname} 炼成药水！",
+        ]
+        await _animate_job(interaction, frames, embed)
+        await _handle_job_xp(uid, interaction)
+
+    # ══════════════════════════════════════════════════════════
+    # /gmpt-job blacksmith — 铁匠
+    # ══════════════════════════════════════════════════════════
+    @gmpt_job_group.command(name="blacksmith", description="🔨 铁匠 / Blacksmith — forge weapons and armor! (50 min cooldown)")
+    @app_commands.checks.cooldown(1, 3000, key=lambda i: (i.guild_id, i.user.id))
+    async def blacksmith_cmd(self, interaction: discord.Interaction):
+        """铁匠."""
+        uid = str(interaction.user.id)
+        remaining = _get_cd_remaining(uid, "blacksmith")
+        if remaining > 0:
+            return await interaction.response.send_message(
+                f"⏳ 铁匠冷却中！剩余 **{_format_cd(remaining)}** / Blacksmith cooldown! Remaining: **{_format_cd(remaining)}**",
+                ephemeral=True,
+            )
+        uname = interaction.user.display_name
+        embed = await _do_blacksmith(interaction.guild, uname, uid)
+        await interaction.response.defer()
+        frames = [
+            f"🔨 {uname} 点燃熔炉...",
+            f"🔥 {uname} 锻打铁锭...",
+            f"⚔️ {uname} 武器出炉！",
+        ]
+        await _animate_job(interaction, frames, embed)
+        await _handle_job_xp(uid, interaction)
+
+    # ══════════════════════════════════════════════════════════
+    # /gmpt-job enchanter — 附魔师
+    # ══════════════════════════════════════════════════════════
+    @gmpt_job_group.command(name="enchanter", description="✨ 附魔师 / Enchanting — imbue items with magic! (120 min cooldown)")
+    @app_commands.checks.cooldown(1, 7200, key=lambda i: (i.guild_id, i.user.id))
+    async def enchanter_cmd(self, interaction: discord.Interaction):
+        """附魔师."""
+        uid = str(interaction.user.id)
+        remaining = _get_cd_remaining(uid, "enchanter")
+        if remaining > 0:
+            return await interaction.response.send_message(
+                f"⏳ 附魔师冷却中！剩余 **{_format_cd(remaining)}** / Enchanter cooldown! Remaining: **{_format_cd(remaining)}**",
+                ephemeral=True,
+            )
+        uname = interaction.user.display_name
+        embed = await _do_enchanter(interaction.guild, uname, uid)
+        await interaction.response.defer()
+        frames = [
+            f"✨ {uname} 绘制魔法阵...",
+            f"📖 {uname} 吟唱咒语...",
+            f"💫 {uname} 附魔完成！",
+        ]
+        await _animate_job(interaction, frames, embed)
+        await _handle_job_xp(uid, interaction)
+
+    # ══════════════════════════════════════════════════════════
+    # /gmpt-job potiondealer — 药水商
+    # ══════════════════════════════════════════════════════════
+    @gmpt_job_group.command(name="potiondealer", description="🧪 药水商 / Potion dealing — sell potions at the market! (35 min cooldown)")
+    @app_commands.checks.cooldown(1, 2100, key=lambda i: (i.guild_id, i.user.id))
+    async def potiondealer_cmd(self, interaction: discord.Interaction):
+        """药水商."""
+        uid = str(interaction.user.id)
+        remaining = _get_cd_remaining(uid, "potion_dealer")
+        if remaining > 0:
+            return await interaction.response.send_message(
+                f"⏳ 药水商冷却中！剩余 **{_format_cd(remaining)}** / Potion Dealer cooldown! Remaining: **{_format_cd(remaining)}**",
+                ephemeral=True,
+            )
+        uname = interaction.user.display_name
+        embed = await _do_potion_dealer(interaction.guild, uname, uid)
+        await interaction.response.defer()
+        frames = [
+            f"🧪 {uname} 摆起摊位...",
+            f"💬 {uname} 招揽顾客...",
+            f"🪙 {uname} 卖出药水！",
+        ]
+        await _animate_job(interaction, frames, embed)
+        await _handle_job_xp(uid, interaction)
+
+    # ══════════════════════════════════════════════════════════
+    # /gmpt-job adventurer — 冒险家
+    # ══════════════════════════════════════════════════════════
+    @gmpt_job_group.command(name="adventurer", description="🗡️ 冒险家 / Adventuring — explore unknown lands! (3h cooldown)")
+    @app_commands.checks.cooldown(1, 10800, key=lambda i: (i.guild_id, i.user.id))
+    async def adventurer_cmd(self, interaction: discord.Interaction):
+        """冒险家."""
+        uid = str(interaction.user.id)
+        remaining = _get_cd_remaining(uid, "adventurer")
+        if remaining > 0:
+            return await interaction.response.send_message(
+                f"⏳ 冒险家冷却中！剩余 **{_format_cd(remaining)}** / Adventurer cooldown! Remaining: **{_format_cd(remaining)}**",
+                ephemeral=True,
+            )
+        uname = interaction.user.display_name
+        embed = await _do_adventurer(interaction.guild, uname, uid)
+        await interaction.response.defer()
+        frames = [
+            f"🗡️ {uname} 背上行囊出发...",
+            f"🗺️ {uname} 探索未知领域...",
+            f"💎 {uname} 发现宝藏！",
+        ]
+        await _animate_job(interaction, frames, embed)
+        await _handle_job_xp(uid, interaction)
+
+    # ══════════════════════════════════════════════════════════
     # /gmpt-jobs — 打工按钮面板 / Job Button Panel
     # ══════════════════════════════════════════════════════════
     @app_commands.command(name="gmpt-jobs", description="💼 打工赚钱面板 / Economy jobs button panel")
@@ -1436,18 +2145,58 @@ class EconomyJobs(CogBase):
             color=0xF39C12,
         )
         embed.add_field(
-            name="可用工作 / Available Jobs",
+            name="基础 / Basic",
             value=(
-                "🏭 **打工** — 1小时 CD / 1h cooldown\n"
-                "🥷 **打劫** — 2小时 CD / 2h cooldown\n"
-                "🥺 **乞讨** — 5分钟 CD / 5min cooldown\n"
-                "🎣 **钓鱼** — 3分钟 CD / 3min cooldown\n"
-                "🏹 **狩猎** — 5分钟 CD / 5min cooldown\n"
-                "🗺️ **寻宝** — 10分钟 CD / 10min cooldown\n"
-                "🎸 **卖艺** — 4分钟 CD / 4min cooldown\n"
-                "📈 **炒股** — 15分钟 CD / 15min cooldown"
+                "🏭 **打工 Work** — 1h CD\n"
+                "🥺 **乞讨 Beg** — 5min CD\n"
+                "🎣 **钓鱼 Fish** — 3min CD"
             ),
-            inline=False,
+            inline=True,
+        )
+        embed.add_field(
+            name="采集 / Gathering",
+            value=(
+                "⛏️ **矿工 Miner** — 30min CD\n"
+                "🐟 **渔夫 Fisher** — 20min CD\n"
+                "🦌 **猎人 Hunter** — 40min CD\n"
+                "🏹 **狩猎 Hunt** — 5min CD"
+            ),
+            inline=True,
+        )
+        embed.add_field(
+            name="工匠 / Crafting",
+            value=(
+                "🔨 **铁匠 Smith** — 50min CD\n"
+                "⚗️ **炼金术师 Alchemist** — 45min CD\n"
+                "✨ **附魔师 Enchanter** — 2h CD"
+            ),
+            inline=True,
+        )
+        embed.add_field(
+            name="商业 / Commerce",
+            value=(
+                "🧳 **商人 Merchant** — 1h CD\n"
+                "🧪 **药水商 Potions** — 35min CD\n"
+                "🎸 **卖艺 Busk** — 4min CD\n"
+                "📈 **炒股 Stock** — 15min CD"
+            ),
+            inline=True,
+        )
+        embed.add_field(
+            name="冒险 / Adventure",
+            value=(
+                "🗺️ **寻宝 Treasure** — 10min CD\n"
+                "💀 **赏金猎人 Bounty** — 1.5h CD\n"
+                "🗡️ **冒险家 Adventurer** — 3h CD"
+            ),
+            inline=True,
+        )
+        embed.add_field(
+            name="危险 / Danger",
+            value=(
+                "🥷 **打劫 Rob** — 2h CD"
+            ),
+            inline=True,
         )
         embed.set_footer(text="每种工作有独立的冷却时间 | Each job has its own cooldown")
         await interaction.response.send_message(embed=embed, view=view)

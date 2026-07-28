@@ -314,12 +314,25 @@ class Gambling(CogBase):
         asyncio.create_task(view._tick_loop())
 
     # ══════════════════════════════════════════════════════════
-    # /gmpt-scratch — 刮刮乐
+    # /gmpt-gamble scratch — 刮刮乐 (group command)
     # ══════════════════════════════════════════════════════════
     @gmpt_gamble_group.command(name="scratch", description="🎰 刮刮乐 / Scratch card (50 coins)")
     @app_commands.checks.cooldown(1, 10, key=lambda i: (i.guild_id, i.user.id))
     async def scratch_cmd(self, interaction: discord.Interaction):
         """刮刮乐."""
+        await self._do_scratch(interaction)
+
+    # ══════════════════════════════════════════════════════════
+    # /gmpt-scratch — 刮刮乐 (standalone command)
+    # ══════════════════════════════════════════════════════════
+    @app_commands.command(name="gmpt-scratch", description="🎰 刮刮乐 / Scratch card (50 coins)")
+    @app_commands.checks.cooldown(1, 10, key=lambda i: (i.guild_id, i.user.id))
+    async def scratch_standalone(self, interaction: discord.Interaction):
+        """刮刮乐 standalone."""
+        await self._do_scratch(interaction)
+
+    async def _do_scratch(self, interaction: discord.Interaction):
+        """Shared scratch logic."""
         uid = str(interaction.user.id)
 
         bal = get_balance(uid)

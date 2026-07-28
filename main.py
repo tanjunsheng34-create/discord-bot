@@ -56,6 +56,9 @@ MMORPG_COGS = {
     "cogs.mmorpg_shop",
     "cogs.mmorpg_skills",
     "cogs.mmorpg_pvp",
+    "cogs.mmorpg_equipment",
+    "cogs.daily_quest",
+    "cogs.dungeon",
 }
 COMMUNITY_COGS = {
     "cogs.pets",

@@ -91,6 +91,17 @@ DEFAULT_SHOP = [
     {"name": "抽奖券 (Giveaway Ticket)", "desc": "获得一张抽奖券参与抽奖 / Get a ticket for the giveaway", "price": 500, "type": "giveaway_ticket", "emoji": "🎟️", "category": "🎭 Discord道具"},
     {"name": "插队卡 (Queue Skip)", "desc": "下次排队时直接插到最前面 / Skip to front of queue next time", "price": 600, "type": "queue_skip", "emoji": "⏩", "category": "🎭 Discord道具"},
     {"name": "自选模式 (Mode Pick)", "desc": "自选下一场比赛模式 / Pick the game mode for next match", "price": 800, "type": "mode_pick", "emoji": "🎯", "category": "🎭 Discord道具"},
+
+    # 🧪 消耗品 Consumables
+    {"name": "双倍金币卡 (Double Coin Card)", "desc": "1小时收入翻倍 / 1h double income", "price": 500, "type": "double_coin", "emoji": "🪙", "category": "🧪 消耗品 Consumables"},
+    {"name": "免死金牌 (Death Protection)", "desc": "24小时内打工失败不扣钱 / 24h job fail protection", "price": 1000, "type": "death_protect", "emoji": "🛡️", "category": "🧪 消耗品 Consumables"},
+    {"name": "幸运符 (Lucky Charm)", "desc": "下次赌博胜率+15% / Next gamble win rate +15%", "price": 300, "type": "lucky_charm", "emoji": "🍀", "category": "🧪 消耗品 Consumables"},
+    {"name": "打工加速器 (Work Accelerator)", "desc": "打工冷却减半1次 / Halves next job cooldown", "price": 200, "type": "work_accel", "emoji": "🚀", "category": "🧪 消耗品 Consumables"},
+
+    # 💎 收集品 Collectibles
+    {"name": "金条 (Gold Bar)", "desc": "收藏品，可交易 / Collectible, tradeable", "price": 5000, "type": "gold_bar", "emoji": "🟨", "category": "💎 收集品 Collectibles"},
+    {"name": "钻石 (Diamond)", "desc": "收藏品，可交易 / Collectible, tradeable", "price": 10000, "type": "diamond", "emoji": "💎", "category": "💎 收集品 Collectibles"},
+    {"name": "宝箱钥匙 (Treasure Key)", "desc": "开启宝箱获得随机物品 / Open chest for random item", "price": 800, "type": "treasure_key", "emoji": "🗝️", "category": "💎 收集品 Collectibles"},
 ]
 
 ACHIEVEMENTS = [
@@ -269,6 +280,8 @@ CATEGORY_COLORS = {
     "💰 加成道具": 0x2ECC71,
     "🎲 随机道具": 0xF1C40F,
     "🎭 Discord道具": 0x9B59B6,
+    "🧪 消耗品 Consumables": 0x1ABC9C,
+    "💎 收集品 Collectibles": 0xE91E63,
 }
 
 
@@ -314,6 +327,15 @@ ITEM_DISPLAY = {
     "giveaway_ticket":  "抽奖券 Giveaway Ticket — 增加抽奖机会 Giveaway entries",
     "queue_skip":       "插队卡 Queue Skip — 排队优先 Priority queue",
     "mode_pick":        "自选模式 Mode Pick — 下次比赛你选模式 Pick next mode",
+    # 🧪 消耗品
+    "double_coin":      "双倍金币卡 Double Coin — 1小时收入翻倍 1h double income",
+    "death_protect":    "免死金牌 Death Protect — 24h打工失败免疫 Job fail immunity",
+    "lucky_charm":      "幸运符 Lucky Charm — 赌博胜率+15% Gambling +15%",
+    "work_accel":       "打工加速器 Work Accel — 打工冷却减半 Job CD halved",
+    # 💎 收集品
+    "gold_bar":         "金条 Gold Bar — 收藏品，可交易 Collectible, tradeable",
+    "diamond":          "钻石 Diamond — 收藏品，可交易 Collectible, tradeable",
+    "treasure_key":     "宝箱钥匙 Treasure Key — 开启宝箱得随机物品 Open chest",
 }
 
 
@@ -344,6 +366,8 @@ class MainMenuView(discord.ui.View):
         ("💰 加成",    "💰 加成道具",   0),
         ("🎲 随机",    "🎲 随机道具",   1),
         ("🎭 Discord", "🎭 Discord道具", 1),
+        ("🧪 消耗品",  "🧪 消耗品 Consumables", 2),
+        ("💎 收集品",  "💎 收集品 Collectibles", 2),
     ]
 
     def __init__(self, all_items, categories, user_id, bal):
@@ -442,6 +466,8 @@ class ShopView(discord.ui.View):
                 "gamble": "双倍清零", "color_role": "自选颜色", "rename": "改名",
                 "title": "头衔", "private_vc": "语音", "broadcast": "广播",
                 "giveaway_ticket": "抽奖券", "queue_skip": "插队", "mode_pick": "自选模式",
+                "double_coin": "双倍金币", "death_protect": "免死金牌", "lucky_charm": "幸运符",
+                "work_accel": "打工加速", "gold_bar": "金条", "diamond": "钻石", "treasure_key": "宝箱钥匙",
             }
             label = label_map.get(it["item_type"], it["name"][:8])
             btn = discord.ui.Button(
