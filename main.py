@@ -382,6 +382,7 @@ async def run_bot_instance(token: str, role: str):
             logger.info(f"[{role}] Loaded: {cog}")
         except Exception as e:
             logger.error(f"[{role}] FAILED to load {cog}: {e}", exc_info=True)
+            print(f"[{role}] FAILED to load {cog}: {e}")
             continue
     await bot.start(token)
 
@@ -978,6 +979,7 @@ async def main():
             logger.info(f"Loaded: {cog}")
         except Exception as e:
             logger.error(f"FAILED to load {cog}: {e}", exc_info=True)
+            print(f"FAILED to load {cog}: {e}")
             continue
     await bot.start(TOKEN)
 

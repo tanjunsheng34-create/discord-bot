@@ -164,6 +164,7 @@ class PVPCog(CogBase):
     )
 
     def __init__(self, bot):
+        super().__init__()
         self.bot = bot
         # challenge_id → {challenger_id, defender_id, bet, status, created_at}
         self.pvp_challenges: dict[int, dict] = {}

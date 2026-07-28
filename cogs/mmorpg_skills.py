@@ -90,7 +90,8 @@ def _get_learned_skills(uid: str) -> list[str]:
 
 class Skills(CogBase):
     def __init__(self, bot):
-        super().__init__(bot)
+        super().__init__()
+        self.bot = bot
 
     # ── Autocomplete: unlearned skills ──
     async def _unlearned_autocomplete(

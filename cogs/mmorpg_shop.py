@@ -65,7 +65,8 @@ def _get_user_stats(uid: str):
 
 class PotionShop(CogBase):
     def __init__(self, bot):
-        super().__init__(bot)
+        super().__init__()
+        self.bot = bot
 
     # ── Autocomplete for potion names ──
     async def _potion_autocomplete(

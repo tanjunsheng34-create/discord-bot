@@ -159,6 +159,7 @@ class BossCog(CogBase):
     )
 
     def __init__(self, bot):
+        super().__init__()
         self.bot = bot
         # room_id = f"{channel_id}_{message_id}"
         self.rooms: dict[str, dict] = {}
