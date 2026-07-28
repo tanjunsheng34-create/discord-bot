@@ -87,6 +87,9 @@ WHISPER_CHANNEL_ID: Optional[int] = 1394296801246445708
 GAMES_CHANNEL_ID: int = 1394296801246445708
 
 
+# ── Guild ID for instant guild sync ──
+GUILD_ID = os.getenv("GUILD_ID")
+
 # Ensure database directory exists
 _db_dir = os.path.dirname(DATABASE)
 if _db_dir:

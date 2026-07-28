@@ -15,7 +15,7 @@ from discord.ext import commands
 from database import get_db, get_db_ctx, init_db, _merge_databases
 from init_new_cogs import init_all_new_tables
 from utils.logger import log_error
-from config import TOKEN, TOKENS, BOT_ROLE, BACKUP_CHANNEL_ID, BACKUP_INTERVAL, BACKUP_TABLES
+from config import TOKEN, TOKENS, BOT_ROLE, BACKUP_CHANNEL_ID, BACKUP_INTERVAL, BACKUP_TABLES, GUILD_ID
 
 # Text XP cooldown: user_id -> last_xp_time
 _msg_xp_cooldowns: dict[str, float] = {}
@@ -344,40 +344,41 @@ class GMPTBot(commands.Bot):
             return
         uid = str(message.author.id)
 
-        try:
-            from cogs.economy import update_weekly_progress
-            update_weekly_progress(uid, "send_message")
-            if message.attachments:
-                update_weekly_progress(uid, "send_attachment", len(message.attachments))
-        except Exception as e:
-            log_error("main", "on_message_weekly", e)
+        if self.bot_role == "full":
+            try:
+                from cogs.economy import update_weekly_progress
+                update_weekly_progress(uid, "send_message")
+                if message.attachments:
+                    update_weekly_progress(uid, "send_attachment", len(message.attachments))
+            except Exception as e:
+                log_error("main", "on_message_weekly", e)
 
-        # ── Text XP: +2 per message, 60s cooldown ──
-        try:
-            now = time.time()
-            last = _msg_xp_cooldowns.get(uid, 0)
-            if now - last >= 60:
-                _msg_xp_cooldowns[uid] = now
-                with get_db_ctx() as conn:
-                    cur = conn.cursor()
-                    cur.execute(
-                        "INSERT INTO users (discord_id, username) VALUES (?, ?) ON CONFLICT(discord_id) DO NOTHING",
-                        (uid, message.author.name),
-                    )
-                    cur.execute("UPDATE users SET xp = xp + 2 WHERE discord_id = ?", (uid,))
-                    cur.execute("SELECT xp, level FROM users WHERE discord_id=?", (uid,))
-                    xp_row = cur.fetchone()
-                    if xp_row:
-                        current_xp = xp_row["xp"]
-                        current_level = xp_row["level"] or 1
-                        while current_xp >= int(current_level ** 1.5 * 100):
-                            current_xp -= int(current_level ** 1.5 * 100)
-                            current_level += 1
-                        if current_level != xp_row["level"]:
-                            cur.execute("UPDATE users SET level = ?, xp = ? WHERE discord_id=?", (current_level, current_xp, uid))
-                    conn.commit()
-        except Exception as e:
-            log_error("main", "on_message_xp", e)
+            # ── Text XP: +2 per message, 60s cooldown ──
+            try:
+                now = time.time()
+                last = _msg_xp_cooldowns.get(uid, 0)
+                if now - last >= 60:
+                    _msg_xp_cooldowns[uid] = now
+                    with get_db_ctx() as conn:
+                        cur = conn.cursor()
+                        cur.execute(
+                            "INSERT INTO users (discord_id, username) VALUES (?, ?) ON CONFLICT(discord_id) DO NOTHING",
+                            (uid, message.author.name),
+                        )
+                        cur.execute("UPDATE users SET xp = xp + 2 WHERE discord_id = ?", (uid,))
+                        cur.execute("SELECT xp, level FROM users WHERE discord_id=?", (uid,))
+                        xp_row = cur.fetchone()
+                        if xp_row:
+                            current_xp = xp_row["xp"]
+                            current_level = xp_row["level"] or 1
+                            while current_xp >= int(current_level ** 1.5 * 100):
+                                current_xp -= int(current_level ** 1.5 * 100)
+                                current_level += 1
+                            if current_level != xp_row["level"]:
+                                cur.execute("UPDATE users SET level = ?, xp = ? WHERE discord_id=?", (current_level, current_xp, uid))
+                        conn.commit()
+            except Exception as e:
+                log_error("main", "on_message_xp", e)
 
     async def on_reaction_add(self, reaction, user):
         if user.bot:
@@ -459,22 +460,22 @@ async def setup_hook(self):
             except Exception as e:
                 logger.warning(f"Failed to send error message: {e}")
 
-        # ── Sync slash commands ──
-        guild_id = os.getenv("GUILD_ID")
-        if guild_id:
-            try:
-                guild = discord.Object(id=int(guild_id))
-                self.tree.copy_global_to(guild=guild)
-                synced = await self.tree.sync(guild=guild)
-                logger.info(f"Synced {len(synced)} commands to guild {guild_id}")
-            except Exception as e:
-                logger.error(f"Guild sync failed for GUILD_ID={guild_id}: {e}")
-        else:
-            try:
-                synced = await self.tree.sync()
-                logger.info(f"Synced {len(synced)} global commands")
-            except Exception as e:
-                logger.error(f"Global sync failed: {e}")
+    # ── Sync slash commands ──
+    guild_id = GUILD_ID
+    if guild_id:
+        try:
+            guild = discord.Object(id=int(guild_id))
+            self.tree.copy_global_to(guild=guild)
+            synced = await self.tree.sync(guild=guild)
+            logger.info(f"Synced {len(synced)} commands to guild {guild_id}")
+        except Exception as e:
+            logger.error(f"Guild sync failed for GUILD_ID={guild_id}: {e}")
+    else:
+        try:
+            synced = await self.tree.sync()
+            logger.info(f"Synced {len(synced)} global commands")
+        except Exception as e:
+            logger.error(f"Global sync failed: {e}")
 
 bot.setup_hook = setup_hook.__get__(bot)
 

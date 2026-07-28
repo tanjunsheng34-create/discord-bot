@@ -833,7 +833,7 @@ def init_db():
     """Initialize database schema — delegates to sub-functions by module."""
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("PRAGMA journal_mode=WAL")
+    # WAL mode already set by _ensure_wal() at module load — no need to repeat here
     cursor.execute("PRAGMA busy_timeout=5000")
 
     _create_core_tables(cursor)

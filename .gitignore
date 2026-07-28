@@ -20,3 +20,9 @@ data.db
 # 系统文件
 Thumbs.db
 Desktop.ini
+
+# 环境变量（多实例）
+.env.*
+
+# 数据库备份
+*.bak
