@@ -179,12 +179,12 @@ class Skills(CogBase):
 
         new_bal = _get_balance(uid)
         embed = discord.Embed(
-            title=f"{sdef['emoji']} 学会了 {sdef['name']}！",
+            title=f"{sdef['emoji']} Learned / 学会了: {sdef['name']}！",
             description=sdef["description"],
             color=0x2ECC71,
         )
-        embed.add_field(name="💰 余额 / Balance", value=f"🪙 {new_bal:,}", inline=True)
-        embed.add_field(name="💡 提示", value="使用 `/gmpt-skill equip` 装备技能", inline=True)
+        embed.add_field(name="Balance / 余额", value=f"🪙 {new_bal:,}", inline=True)
+        embed.add_field(name="Hint / 提示", value="Use `/gmpt-skill equip` / 使用 `/gmpt-skill equip` 装备技能", inline=True)
         embed.set_footer(text=f"Skill ID: {skill_id}")
         await interaction.response.send_message(embed=embed)
 
@@ -209,8 +209,8 @@ class Skills(CogBase):
         equipped_count = sum(1 for r in rows if r["equipped"])
 
         embed = discord.Embed(
-            title=f"📜 {interaction.user.display_name} 的技能列表 / Skills",
-            description=f"已装备: **{equipped_count}** / 4\n",
+            title=f"{interaction.user.display_name}'s Skills / 技能列表",
+            description=f"Equipped / 已装备: **{equipped_count}** / 4\n",
             color=0x8E44AD,
         )
 
@@ -220,11 +220,11 @@ class Skills(CogBase):
             emoji = sdef.get("emoji", "❓")
             name = sdef.get("name", row["skill_id"])
             desc = sdef.get("description", "")
-            equipped_str = "✅ 已装备" if row["equipped"] else "⬜ 未装备"
+            equipped_str = "Equipped" if row["equipped"] else "Unequipped"
             lines.append(f"{emoji} **{name}** ({row['skill_id']}) — Lv.{row['level']} {equipped_str}\n　{desc}")
 
-        embed.add_field(name="技能 Skills", value="\n".join(lines), inline=False)
-        embed.set_footer(text="/gmpt-skill equip <技能ID> / /gmpt-skill unequip <技能ID>")
+        embed.add_field(name="Skills / 技能", value="\n".join(lines), inline=False)
+        embed.set_footer(text="/gmpt-skill equip <SkillID> / /gmpt-skill unequip <SkillID>")
         await interaction.response.send_message(embed=embed)
 
     @skill_group.command(name="equip", description="装备技能 / Equip a skill")
@@ -277,7 +277,7 @@ class Skills(CogBase):
 
         sdef = SKILLS.get(skill_id, {})
         await interaction.response.send_message(
-            f"{sdef.get('emoji', '✅')} 已装备 **{sdef.get('name', skill_id)}**！（{equipped_count + 1}/4）"
+            f"{sdef.get('emoji', '✅')} Equipped / 已装备 **{sdef.get('name', skill_id)}**！（{equipped_count + 1}/4）"
         )
 
     @skill_group.command(name="unequip", description="卸载技能 / Unequip a skill")
@@ -318,7 +318,7 @@ class Skills(CogBase):
 
         sdef = SKILLS.get(skill_id, {})
         await interaction.response.send_message(
-            f"⬜ 已卸载 **{sdef.get('name', skill_id)}**"
+            f"Unequipped / 已卸载 **{sdef.get('name', skill_id)}**"
         )
 
 

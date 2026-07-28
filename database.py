@@ -743,6 +743,16 @@ def _run_migrations(cursor):
     except sqlite3.OperationalError:
         pass
 
+    # user_inventory expanded schema (for MMORPG potion inventory)
+    try:
+        cursor.execute("ALTER TABLE user_inventory ADD COLUMN item_name TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE user_inventory ADD COLUMN item_type TEXT DEFAULT 'item'")
+    except sqlite3.OperationalError:
+        pass
+
 
 def _seed_default_vc(cursor):
     """Seed default voice channel IDs for match auto-assign (INSERT OR IGNORE)."""

@@ -1,9 +1,10 @@
 """
-GMPT Bot — MMORPG  NPC 药水商店 / NPC Potion Shop
-/gmpt-potionshop browse  — 浏览所有药水（分页）
-/gmpt-potionshop buy     — 购买药水（autocomplete 药水名）
-/gmpt-potionshop inventory — 查看自己的药水背包
-/gmpt-potionshop use     — 使用背包中的药水
+GMPT Bot — MMORPG NPC Potion Shop / NPC 药水商店
+/gmpt-mmorpg — MMORPG Main Panel / MMORPG 主面板
+/gmpt-potionshop browse  — Browse potions by category / 按类别浏览药水
+/gmpt-potionshop buy     — Buy potion / 购买药水
+/gmpt-potionshop inventory — View potion bag / 查看药水背包
+/gmpt-potionshop use     — Use a potion / 使用药水
 """
 import asyncio
 import logging
@@ -16,7 +17,182 @@ from utils.cog_base import CogBase
 
 logger = logging.getLogger(__name__)
 
-ITEMS_PER_PAGE = 5
+# ══════════════════════════════════════════════════════════════
+# Potion Catalog — 10 potions, bilingual, grouped by category
+# ══════════════════════════════════════════════════════════════
+POTION_CATALOG = {
+    # ── Recovery / 恢复类 ──
+    "health_potion": {
+        "id": 1,
+        "name_cn": "生命药水",
+        "name_en": "Health Potion",
+        "emoji": "❤️",
+        "price": 100,
+        "min_level": 1,
+        "category": "recovery",
+        "category_cn": "恢复类",
+        "category_en": "Recovery",
+        "effect_cn": "恢复 50 HP",
+        "effect_en": "Restore 50 HP",
+        "effect_type": "heal_hp",
+        "effect_value": 50,
+        "duration": 0,
+    },
+    "greater_health_potion": {
+        "id": 2,
+        "name_cn": "大生命药水",
+        "name_en": "Greater Health Potion",
+        "emoji": "💖",
+        "price": 250,
+        "min_level": 3,
+        "category": "recovery",
+        "category_cn": "恢复类",
+        "category_en": "Recovery",
+        "effect_cn": "恢复 150 HP",
+        "effect_en": "Restore 150 HP",
+        "effect_type": "heal_hp",
+        "effect_value": 150,
+        "duration": 0,
+    },
+    "mana_potion": {
+        "id": 3,
+        "name_cn": "法力药水",
+        "name_en": "Mana Potion",
+        "emoji": "🔮",
+        "price": 80,
+        "min_level": 1,
+        "category": "recovery",
+        "category_cn": "恢复类",
+        "category_en": "Recovery",
+        "effect_cn": "恢复 30 MP",
+        "effect_en": "Restore 30 MP",
+        "effect_type": "heal_mp",
+        "effect_value": 30,
+        "duration": 0,
+    },
+    # ── Combat Buffs / 战斗增益 ──
+    "strength_potion": {
+        "id": 4,
+        "name_cn": "大力药水",
+        "name_en": "Strength Potion",
+        "emoji": "💪",
+        "price": 200,
+        "min_level": 2,
+        "category": "combat",
+        "category_cn": "战斗增益",
+        "category_en": "Combat Buffs",
+        "effect_cn": "攻击力 +30%，持续 3 回合",
+        "effect_en": "+30% ATK for 3 turns",
+        "effect_type": "buff_atk",
+        "effect_value": 30,
+        "duration": 3,
+    },
+    "defense_potion": {
+        "id": 5,
+        "name_cn": "铁壁药水",
+        "name_en": "Defense Potion",
+        "emoji": "🛡️",
+        "price": 180,
+        "min_level": 2,
+        "category": "combat",
+        "category_cn": "战斗增益",
+        "category_en": "Combat Buffs",
+        "effect_cn": "防御力 +30%，持续 3 回合",
+        "effect_en": "+30% DEF for 3 turns",
+        "effect_type": "buff_def",
+        "effect_value": 30,
+        "duration": 3,
+    },
+    "swiftness_potion": {
+        "id": 6,
+        "name_cn": "迅捷药水",
+        "name_en": "Swiftness Potion",
+        "emoji": "💨",
+        "price": 150,
+        "min_level": 3,
+        "category": "combat",
+        "category_cn": "战斗增益",
+        "category_en": "Combat Buffs",
+        "effect_cn": "速度 +50%，持续 2 回合",
+        "effect_en": "+50% SPD for 2 turns",
+        "effect_type": "buff_spd",
+        "effect_value": 50,
+        "duration": 2,
+    },
+    "critical_potion": {
+        "id": 7,
+        "name_cn": "暴击药水",
+        "name_en": "Critical Potion",
+        "emoji": "💥",
+        "price": 220,
+        "min_level": 4,
+        "category": "combat",
+        "category_cn": "战斗增益",
+        "category_en": "Combat Buffs",
+        "effect_cn": "暴击率 +25%，持续 2 回合",
+        "effect_en": "+25% Crit Rate for 2 turns",
+        "effect_type": "buff_crit",
+        "effect_value": 25,
+        "duration": 2,
+    },
+    # ── Special / 特殊 ──
+    "revival_potion": {
+        "id": 8,
+        "name_cn": "复活药水",
+        "name_en": "Revival Potion",
+        "emoji": "✨",
+        "price": 500,
+        "min_level": 5,
+        "category": "special",
+        "category_cn": "特殊",
+        "category_en": "Special",
+        "effect_cn": "战斗中被击倒时自动复活并恢复 30% HP",
+        "effect_en": "Auto-revive with 30% HP when KO'd",
+        "effect_type": "revive",
+        "effect_value": 30,
+        "duration": 0,
+    },
+    "purification_potion": {
+        "id": 9,
+        "name_cn": "净化药水",
+        "name_en": "Purification Potion",
+        "emoji": "💧",
+        "price": 120,
+        "min_level": 2,
+        "category": "special",
+        "category_cn": "特殊",
+        "category_en": "Special",
+        "effect_cn": "移除所有负面状态",
+        "effect_en": "Remove all debuffs",
+        "effect_type": "purify",
+        "effect_value": 0,
+        "duration": 0,
+    },
+    "exp_potion": {
+        "id": 10,
+        "name_cn": "经验药水",
+        "name_en": "EXP Potion",
+        "emoji": "⭐",
+        "price": 300,
+        "min_level": 3,
+        "category": "special",
+        "category_cn": "特殊",
+        "category_en": "Special",
+        "effect_cn": "战斗经验 +50%，持续 5 分钟",
+        "effect_en": "+50% EXP for 5 minutes",
+        "effect_type": "buff_exp",
+        "effect_value": 50,
+        "duration": 5,
+    },
+}
+
+# Category display order
+CATEGORY_ORDER = ["recovery", "combat", "special"]
+CATEGORY_EMOJI = {
+    "recovery": "❤️",
+    "combat": "⚔️",
+    "special": "✨",
+}
 
 
 def _get_balance(uid: str) -> int:
@@ -63,44 +239,44 @@ def _get_user_stats(uid: str):
     return {"hp": 100, "max_hp": 100, "mp": 50, "max_mp": 50, "attack": 10, "defense": 5, "level": 1}
 
 
+# ══════════════════════════════════════════════════════════════
+# PotionShop Cog
+# ══════════════════════════════════════════════════════════════
 class PotionShop(CogBase):
     def __init__(self, bot):
         super().__init__()
         self.bot = bot
 
-    # ── Autocomplete for potion names ──
+    # ── Autocomplete for potion keys ──
     async def _potion_autocomplete(
         self, interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT name FROM potions ORDER BY min_level")
-            rows = cur.fetchall()
-        names = [r["name"] for r in rows]
-        if current:
-            names = [n for n in names if current.lower() in n.lower()]
-        return [app_commands.Choice(name=n, value=n) for n in names[:25]]
+        choices = []
+        for key, p in POTION_CATALOG.items():
+            display = f"{p['emoji']} {p['name_cn']} / {p['name_en']}"
+            if not current or current.lower() in display.lower():
+                choices.append(app_commands.Choice(name=display, value=key))
+        return choices[:25]
 
     # ══════════════════════════════════════════════════════════
-    # /gmpt-mmorpg — MMORPG 主面板
+    # /gmpt-mmorpg — MMORPG Main Panel / MMORPG 主面板
     # ══════════════════════════════════════════════════════════
-    @app_commands.command(name="gmpt-mmorpg", description="🗡️ MMORPG 主面板 / MMORPG Main Panel")
+    @app_commands.command(name="gmpt-mmorpg", description="MMORPG Main Panel / MMORPG 主面板")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def mmorpg_panel(self, interaction: discord.Interaction):
-        """MMORPG 主面板：商店 / 技能 / PVP / Boss 四大入口."""
         uid = str(interaction.user.id)
         stats = _get_user_stats(uid)
         bal = _get_balance(uid)
 
         embed = discord.Embed(
-            title="🗡️ MMORPG 主面板 / MMORPG Main Panel",
+            title="MMORPG Main Panel / MMORPG 主面板",
             description=(
-                f"欢迎来到 GMPT MMORPG 世界！\nWelcome to the GMPT MMORPG world!\n\n"
-                f"❤️ HP: **{stats['hp']}/{stats['max_hp']}**　"
+                f"Welcome to GMPT MMORPG World / 欢迎来到 GMPT MMORPG 世界！\n\n"
+                f"❤️ HP: **{stats['hp']}/{stats['max_hp']}**  "
                 f"🔮 MP: **{stats['mp']}/{stats['max_mp']}**\n"
-                f"⚔️ ATK: **{stats['attack']}**　🛡️ DEF: **{stats['defense']}**　"
-                f"⭐ Lv.**{stats['level']}**　🪙 **{bal:,}**\n\n"
-                f"点击下方按钮查看各系统 / Click a button below:"
+                f"⚔️ ATK: **{stats['attack']}**  🛡️ DEF: **{stats['defense']}**  "
+                f"⭐ Lv.**{stats['level']}**  🪙 **{bal:,}**\n\n"
+                f"Click a button below / 点击下方按钮："
             ),
             color=0x9B59B6,
         )
@@ -112,92 +288,63 @@ class PotionShop(CogBase):
     # ══════════════════════════════════════════════════════════
     potionshop_group = app_commands.Group(
         name="gmpt-potionshop",
-        description="NPC 药水商店 / NPC Potion Shop",
+        description="NPC Potion Shop / NPC 药水商店",
     )
 
-    @potionshop_group.command(name="browse", description="浏览所有药水 / Browse all potions")
+    @potionshop_group.command(name="browse", description="Browse potions by category / 按类别浏览药水")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def browse_cmd(self, interaction: discord.Interaction):
-        """列出所有 potions 表药水，带按钮翻页."""
         uid = str(interaction.user.id)
         user_level = _get_user_level(uid)
-
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT * FROM potions ORDER BY min_level, price")
-            potions = [dict(r) for r in cur.fetchall()]
-
-        if not potions:
-            return await interaction.response.send_message("商店暂无药水 / No potions available.", ephemeral=True)
-
-        view = PotionBrowseView(potions, user_level, uid)
-        embed = view.build_embed(0)
+        view = PotionBrowseView(POTION_CATALOG, user_level, uid)
+        embed = view.build_embed("recovery")
         await interaction.response.send_message(embed=embed, view=view)
 
-    @potionshop_group.command(name="buy", description="购买药水 / Buy a potion")
-    @app_commands.describe(name="药水名称 / Potion name", quantity="购买数量 / Quantity (default 1)")
-    @app_commands.autocomplete(name=_potion_autocomplete)
+    @potionshop_group.command(name="buy", description="Buy a potion / 购买药水")
+    @app_commands.describe(
+        potion_key="Potion name / 药水名称",
+        quantity="Quantity / 数量 (default 1)"
+    )
+    @app_commands.autocomplete(potion_key=_potion_autocomplete)
     @app_commands.checks.cooldown(1, 2.0, key=lambda i: (i.guild_id, i.user.id))
-    async def buy_cmd(self, interaction: discord.Interaction, name: str, quantity: int = 1):
-        """购买药水."""
+    async def buy_cmd(self, interaction: discord.Interaction, potion_key: str, quantity: int = 1):
         uid = str(interaction.user.id)
-        if quantity < 1:
-            return await interaction.response.send_message("数量必须大于0 / Quantity must be > 0.", ephemeral=True)
 
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT * FROM potions WHERE name = ?", (name,))
-            potion = cur.fetchone()
-
-        if not potion:
+        if potion_key not in POTION_CATALOG:
             return await interaction.response.send_message(
-                f"药水 '{name}' 不存在 / Potion not found.", ephemeral=True
+                "Potion not found / 药水不存在", ephemeral=True
+            )
+        if quantity < 1:
+            return await interaction.response.send_message(
+                "Quantity must be > 0 / 数量必须大于0", ephemeral=True
             )
 
-        potion = dict(potion)
+        p = POTION_CATALOG[potion_key]
         user_level = _get_user_level(uid)
 
-        if user_level < potion["min_level"]:
+        if user_level < p["min_level"]:
             return await interaction.response.send_message(
-                f"等级不足！需要 Lv.{potion['min_level']}，你当前 Lv.{user_level}\n"
-                f"Level too low! Requires Lv.{potion['min_level']}, you are Lv.{user_level}",
+                f"Level too low / 等级不足！Requires Lv.{p['min_level']}, you are Lv.{user_level}",
                 ephemeral=True,
             )
 
-        total_cost = potion["price"] * quantity
+        total_cost = p["price"] * quantity
         bal = _get_balance(uid)
 
         if bal < total_cost:
             return await interaction.response.send_message(
-                f"余额不足！需要 🪙 {total_cost:,}，你只有 🪙 {bal:,}\n"
-                f"Insufficient balance! Need 🪙 {total_cost:,}, you have 🪙 {bal:,}",
+                f"Insufficient balance / 余额不足！Need 🪙 {total_cost:,}, you have 🪙 {bal:,}",
                 ephemeral=True,
             )
 
-        # Check stock
-        if potion["stock"] != -1 and potion["stock"] < quantity:
-            return await interaction.response.send_message(
-                f"库存不足！仅有 {potion['stock']} 个 / Insufficient stock! Only {potion['stock']} left.",
-                ephemeral=True,
-            )
+        _add_coins(uid, -total_cost, f"Bought {p['name_en']} x{quantity} / 购买 {p['name_cn']} x{quantity}")
 
-        # Deduct coins
-        _add_coins(uid, -total_cost, f"购买药水 {name} x{quantity} / Bought potion {name} x{quantity}")
-
-        # Decrease stock if not unlimited
-        if potion["stock"] != -1:
-            with get_db_ctx() as conn:
-                cur = conn.cursor()
-                cur.execute("UPDATE potions SET stock = stock - ? WHERE id = ?", (quantity, potion["id"]))
-                conn.commit()
-
-        # Add to user_inventory
+        # Add to inventory
         with get_db_ctx() as conn:
             cur = conn.cursor()
-            # Check if user already has this potion in inventory
             cur.execute(
-                "SELECT id, quantity FROM user_inventory WHERE user_id = ? AND item_id = 0 AND item_name = ? AND item_type = 'potion'",
-                (uid, name),
+                "SELECT id, quantity FROM user_inventory WHERE user_id = ? AND item_name = ? AND item_type = 'potion'",
+                (uid, potion_key),
             )
             existing = cur.fetchone()
             if existing:
@@ -207,25 +354,27 @@ class PotionShop(CogBase):
                 )
             else:
                 cur.execute(
-                    "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) VALUES (?, 0, ?, ?, 'potion')",
-                    (uid, name, quantity),
+                    "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) VALUES (?, ?, ?, ?, 'potion')",
+                    (uid, p["id"], potion_key, quantity),
                 )
             conn.commit()
 
         new_bal = _get_balance(uid)
         embed = discord.Embed(
-            title=f"{potion['emoji']} 购买成功 / Purchase Complete",
-            description=f"购买了 **{name}** x{quantity}，花费 🪙 **{total_cost:,}**",
+            title=f"Purchase Complete / 购买成功",
+            description=(
+                f"{p['emoji']} **{p['name_cn']} / {p['name_en']}** x{quantity}\n"
+                f"Cost / 花费: 🪙 **{total_cost:,}**"
+            ),
             color=0x2ECC71,
         )
-        embed.add_field(name="💰 余额 / Balance", value=f"🪙 {new_bal:,}", inline=True)
-        embed.add_field(name="🧪 效果 / Effect", value=potion["description"], inline=False)
+        embed.add_field(name="Balance / 余额", value=f"🪙 {new_bal:,}", inline=True)
+        embed.add_field(name="Effect / 效果", value=f"{p['effect_cn']}\n{p['effect_en']}", inline=False)
         await interaction.response.send_message(embed=embed)
 
-    @potionshop_group.command(name="inventory", description="查看药水背包 / View potion inventory")
+    @potionshop_group.command(name="inventory", description="View potion bag / 查看药水背包")
     @app_commands.checks.cooldown(1, 2.0, key=lambda i: (i.guild_id, i.user.id))
     async def inventory_cmd(self, interaction: discord.Interaction):
-        """查看自己的药水背包."""
         uid = str(interaction.user.id)
 
         with get_db_ctx() as conn:
@@ -238,87 +387,68 @@ class PotionShop(CogBase):
 
         if not rows:
             return await interaction.response.send_message(
-                "药水背包是空的！去 `/gmpt-potionshop browse` 买一些吧。\n"
-                "Your potion bag is empty! Visit `/gmpt-potionshop browse` to buy some.",
+                "Your potion bag is empty / 药水背包是空的！Use `/gmpt-potionshop browse` to buy some.",
                 ephemeral=True,
             )
 
-        # Get effect info from potions table
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT name, emoji, description, effect_type FROM potions")
-            potion_map = {r["name"]: dict(r) for r in cur.fetchall()}
-
         lines = []
         for row in rows:
-            p = potion_map.get(row["item_name"], {})
+            p = POTION_CATALOG.get(row["item_name"], {})
             emoji = p.get("emoji", "🧪")
-            desc = p.get("description", "")
-            lines.append(f"{emoji} **{row['item_name']}** x{row['quantity']} — {desc}")
+            cn = p.get("name_cn", row["item_name"])
+            en = p.get("name_en", row["item_name"])
+            eff = p.get("effect_cn", "")
+            lines.append(f"{emoji} **{cn} / {en}** x{row['quantity']} — {eff}")
 
         embed = discord.Embed(
-            title=f"🎒 {interaction.user.display_name} 的药水背包 / Potion Bag",
-            description="\n".join(lines) if lines else "空空如也 / Empty",
+            title=f"Potion Bag / 药水背包 — {interaction.user.display_name}",
+            description="\n".join(lines) if lines else "Empty / 空空如也",
             color=0x9B59B6,
         )
-        embed.set_footer(text="使用 /gmpt-potionshop use <药水名> 来喝药水")
+        embed.set_footer(text="Use /gmpt-potionshop use <potion> to drink / 使用 /gmpt-potionshop use <药水名> 来喝")
         await interaction.response.send_message(embed=embed)
 
-    @potionshop_group.command(name="use", description="使用药水 / Use a potion from your bag")
-    @app_commands.describe(name="药水名称 / Potion name")
-    @app_commands.autocomplete(name=_potion_autocomplete)
+    @potionshop_group.command(name="use", description="Use a potion from your bag / 使用背包中药水")
+    @app_commands.describe(potion_key="Potion name / 药水名称")
+    @app_commands.autocomplete(potion_key=_potion_autocomplete)
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
-    async def use_cmd(self, interaction: discord.Interaction, name: str):
-        """使用背包中的药水."""
+    async def use_cmd(self, interaction: discord.Interaction, potion_key: str):
         uid = str(interaction.user.id)
 
-        # Check if user has this potion in inventory
+        if potion_key not in POTION_CATALOG:
+            return await interaction.response.send_message(
+                "Potion not found / 药水不存在", ephemeral=True
+            )
+
+        p = POTION_CATALOG[potion_key]
+
+        # Check inventory
         with get_db_ctx() as conn:
             cur = conn.cursor()
             cur.execute(
-                "SELECT id, quantity FROM user_inventory WHERE user_id = ? AND item_id = 0 AND item_name = ? AND item_type = 'potion'",
-                (uid, name),
+                "SELECT id, quantity FROM user_inventory WHERE user_id = ? AND item_name = ? AND item_type = 'potion'",
+                (uid, potion_key),
             )
             inv_row = cur.fetchone()
 
         if not inv_row or inv_row["quantity"] <= 0:
             return await interaction.response.send_message(
-                f"背包中没有 **{name}**！\nYou don't have **{name}** in your bag.",
+                f"You don't have **{p['name_cn']}** in your bag / 背包中没有此药水！",
                 ephemeral=True,
             )
 
-        # Get potion template
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT * FROM potions WHERE name = ?", (name,))
-            potion = cur.fetchone()
-
-        if not potion:
-            return await interaction.response.send_message(
-                f"药水模板 '{name}' 不存在 / Potion template not found.", ephemeral=True
-            )
-
-        potion = dict(potion)
-        effect_type = potion["effect_type"]
-        effect_value = potion["effect_value"]
-        duration = potion["duration_minutes"]
-
-        # Check level requirement
         user_level = _get_user_level(uid)
-        if user_level < potion["min_level"]:
+        if user_level < p["min_level"]:
             return await interaction.response.send_message(
-                f"等级不足！需要 Lv.{potion['min_level']} 才能使用此药水。",
+                f"Level too low / 等级不足！Requires Lv.{p['min_level']}, you are Lv.{user_level}",
                 ephemeral=True,
             )
 
-        # Consume 1 from inventory
+        # Consume 1
         if inv_row["quantity"] > 1:
             with get_db_ctx() as conn:
                 cur = conn.cursor()
-                cur.execute(
-                    "UPDATE user_inventory SET quantity = quantity - 1 WHERE id = ?",
-                    (inv_row["id"],),
-                )
+                cur.execute("UPDATE user_inventory SET quantity = quantity - 1 WHERE id = ?", (inv_row["id"],))
                 conn.commit()
         else:
             with get_db_ctx() as conn:
@@ -327,6 +457,9 @@ class PotionShop(CogBase):
                 conn.commit()
 
         # Apply effect
+        effect_type = p["effect_type"]
+        effect_value = p["effect_value"]
+
         if effect_type == "heal_hp":
             stats = _get_user_stats(uid)
             cur_hp = stats["hp"]
@@ -338,8 +471,11 @@ class PotionShop(CogBase):
                 cur.execute("UPDATE users SET hp = ? WHERE discord_id = ?", (new_hp, uid))
                 conn.commit()
             embed = discord.Embed(
-                title=f"{potion['emoji']} 使用 {name}",
-                description=f"恢复了 **{healed}** HP！（{cur_hp} → {new_hp} / {max_hp}）",
+                title=f"{p['emoji']} {p['name_cn']} / {p['name_en']}",
+                description=(
+                    f"Restored **{healed}** HP / 恢复了 **{healed}** HP！\n"
+                    f"{cur_hp} → {new_hp} / {max_hp}"
+                ),
                 color=0xE74C3C,
             )
 
@@ -354,61 +490,60 @@ class PotionShop(CogBase):
                 cur.execute("UPDATE users SET mp = ? WHERE discord_id = ?", (new_mp, uid))
                 conn.commit()
             embed = discord.Embed(
-                title=f"{potion['emoji']} 使用 {name}",
-                description=f"恢复了 **{healed}** MP！（{cur_mp} → {new_mp} / {max_mp}）",
+                title=f"{p['emoji']} {p['name_cn']} / {p['name_en']}",
+                description=(
+                    f"Restored **{healed}** MP / 恢复了 **{healed}** MP！\n"
+                    f"{cur_mp} → {new_mp} / {max_mp}"
+                ),
                 color=0x3498DB,
             )
 
-        elif effect_type == "buff_atk":
-            expires = datetime.datetime.now() + datetime.timedelta(minutes=duration)
+        elif effect_type in ("buff_atk", "buff_def", "buff_spd", "buff_crit", "buff_exp"):
+            expires = datetime.datetime.now() + datetime.timedelta(minutes=p["duration"])
+            buff_type_map = {
+                "buff_atk": "atk_up",
+                "buff_def": "def_up",
+                "buff_spd": "spd_up",
+                "buff_crit": "crit_up",
+                "buff_exp": "exp_up",
+            }
+            buff_type = buff_type_map.get(effect_type, effect_type)
             with get_db_ctx() as conn:
                 cur = conn.cursor()
                 cur.execute(
-                    "INSERT INTO active_buffs (user_id, buff_type, value, expires_at) VALUES (?, 'atk_up', ?, ?)",
-                    (uid, effect_value, expires.isoformat()),
+                    "INSERT INTO active_buffs (user_id, buff_type, value, expires_at) VALUES (?, ?, ?, ?)",
+                    (uid, buff_type, effect_value, expires.isoformat()),
                 )
                 conn.commit()
             embed = discord.Embed(
-                title=f"{potion['emoji']} 使用 {name}",
-                description=f"攻击力 **+{effect_value}**，持续 **{duration}** 分钟！\nATK +{effect_value} for {duration} minutes!",
+                title=f"{p['emoji']} {p['name_cn']} / {p['name_en']}",
+                description=(
+                    f"{p['effect_cn']}\n{p['effect_en']}\n\n"
+                    f"Duration / 持续: **{p['duration']}** turns/minutes"
+                ),
                 color=0xE67E22,
-            )
-
-        elif effect_type == "buff_def":
-            expires = datetime.datetime.now() + datetime.timedelta(minutes=duration)
-            with get_db_ctx() as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    "INSERT INTO active_buffs (user_id, buff_type, value, expires_at) VALUES (?, 'def_up', ?, ?)",
-                    (uid, effect_value, expires.isoformat()),
-                )
-                conn.commit()
-            embed = discord.Embed(
-                title=f"{potion['emoji']} 使用 {name}",
-                description=f"防御力 **+{effect_value}**，持续 **{duration}** 分钟！\nDEF +{effect_value} for {duration} minutes!",
-                color=0x1ABC9C,
             )
 
         elif effect_type == "revive":
             stats = _get_user_stats(uid)
-            cur_hp = stats["hp"]
-            if cur_hp > 0:
-                # Refund — can't use revive while alive
+            if stats["hp"] > 0:
+                # Refund — can't use while alive
                 with get_db_ctx() as conn:
                     cur = conn.cursor()
                     cur.execute(
-                        "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) VALUES (?, 0, ?, 1, 'potion')",
-                        (uid, name),
+                        "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) VALUES (?, ?, ?, 1, 'potion')",
+                        (uid, p["id"], potion_key),
                     )
                     conn.commit()
                 return await interaction.response.send_message(
-                    "你还活着！复活药剂只能在 HP=0 时使用。\nYou're still alive! Revive potion can only be used when HP=0.",
+                    "You're still alive! Revival potion only usable when HP=0.\n"
+                    "你还活着！复活药水只能在 HP=0 时使用。",
                     ephemeral=True,
                 )
 
             max_hp = stats["max_hp"]
             max_mp = stats["max_mp"]
-            restore_hp = max(1, int(max_hp * 0.5))
+            restore_hp = max(1, int(max_hp * effect_value / 100))
             with get_db_ctx() as conn:
                 cur = conn.cursor()
                 cur.execute(
@@ -417,128 +552,210 @@ class PotionShop(CogBase):
                 )
                 conn.commit()
             embed = discord.Embed(
-                title=f"{potion['emoji']} 使用 {name}",
-                description=f"✨ 复活成功！HP 恢复到 **{restore_hp}** / {max_hp}，MP 全满！\nRevived! HP restored to {restore_hp}/{max_hp}, MP fully restored!",
+                title=f"{p['emoji']} {p['name_cn']} / {p['name_en']}",
+                description=(
+                    f"Revived! HP restored to **{restore_hp}**/{max_hp}, MP fully restored!\n"
+                    f"复活成功！HP 恢复到 **{restore_hp}**/{max_hp}，MP 全满！"
+                ),
                 color=0xF1C40F,
+            )
+
+        elif effect_type == "purify":
+            # Clear all active debuffs
+            with get_db_ctx() as conn:
+                cur = conn.cursor()
+                cur.execute("DELETE FROM active_buffs WHERE user_id = ? AND buff_type LIKE '%down%'", (uid,))
+                debuffs_cleared = cur.rowcount
+                conn.commit()
+            embed = discord.Embed(
+                title=f"{p['emoji']} {p['name_cn']} / {p['name_en']}",
+                description=(
+                    f"All debuffs removed / 所有负面状态已移除！\n"
+                    f"Cleared {debuffs_cleared} debuff(s)"
+                ),
+                color=0x1ABC9C,
             )
 
         else:
             return await interaction.response.send_message(
-                f"未知药水类型: {effect_type}", ephemeral=True
+                f"Unknown potion type / 未知药水类型: {effect_type}", ephemeral=True
             )
 
-        embed.set_footer(text=f"背包中剩余: 查看 /gmpt-potionshop inventory")
+        embed.set_footer(text="Check bag with /gmpt-potionshop inventory / 查看背包: /gmpt-potionshop inventory")
         await interaction.response.send_message(embed=embed)
 
+    # ══════════════════════════════════════════════════════════
+    # PVP potion autocomplete helper (used by mmorpg_pvp.py)
+    # ══════════════════════════════════════════════════════════
+    async def pvp_potion_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        uid = str(interaction.user.id)
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT item_name FROM user_inventory WHERE user_id = ? AND item_type = 'potion' AND quantity > 0",
+                (uid,),
+            )
+            rows = cur.fetchall()
+        choices = []
+        for r in rows:
+            p = POTION_CATALOG.get(r["item_name"], {})
+            display = f"{p.get('emoji', '🧪')} {p.get('name_cn', r['item_name'])} / {p.get('name_en', r['item_name'])}"
+            if not current or current.lower() in display.lower():
+                choices.append(app_commands.Choice(name=display, value=r["item_name"]))
+        return choices[:25]
 
+
+# ══════════════════════════════════════════════════════════════
+# MMORPG Main Panel View / MMORPG 主面板
+# ══════════════════════════════════════════════════════════════
 class MMORPGMainView(discord.ui.View):
-    """MMORPG 主面板按钮：商店 / 技能 / PVP / Boss."""
-
     def __init__(self, user_id: str):
         super().__init__(timeout=180)
         self.user_id = user_id
 
     async def _interaction_check(self, interaction: discord.Interaction) -> bool:
         if str(interaction.user.id) != self.user_id:
-            await interaction.response.send_message("这不是你的面板 / Not your panel.", ephemeral=True)
+            await interaction.response.send_message(
+                "Not your panel / 这不是你的面板", ephemeral=True
+            )
             return False
         return True
 
     def _build_sub_embed(self, title: str, color: int, desc: str) -> discord.Embed:
         embed = discord.Embed(title=title, color=color)
         embed.description = desc
-        embed.set_footer(text="使用方向键或 /gmpt-mmorpg 回到主面板")
+        embed.set_footer(text="Use /gmpt-mmorpg to return to main panel / 使用 /gmpt-mmorpg 回到主面板")
         return embed
 
-    @discord.ui.button(label="🧪 药水商店", style=discord.ButtonStyle.primary, row=0)
+    # Row 0: Potion Shop, Skills, PVP, Boss
+    @discord.ui.button(label="Potion Shop / 药水商店", style=discord.ButtonStyle.primary, row=0, emoji="🧪")
     async def shop_btn(self, interaction: discord.Interaction, button):
         desc = (
-            "**NPC 药水商店 / Potion Shop**\n\n"
-            "🛒 `/gmpt-potionshop browse` — 浏览所有药水\n"
-            "💰 `/gmpt-potionshop buy <药水名> [数量]` — 购买药水\n"
-            "🎒 `/gmpt-potionshop inventory` — 查看背包\n"
-            "🧪 `/gmpt-potionshop use <药水名>` — 使用药水\n\n"
-            "药水种类：治疗/回蓝/攻击Buff/防御Buff/复活"
+            "**NPC Potion Shop / NPC 药水商店**\n\n"
+            "🛒 `/gmpt-potionshop browse` — Browse all potions / 浏览所有药水\n"
+            "💰 `/gmpt-potionshop buy <potion> [qty]` — Buy potion / 购买药水\n"
+            "🎒 `/gmpt-potionshop inventory` — View your bag / 查看背包\n"
+            "🧪 `/gmpt-potionshop use <potion>` — Drink a potion / 使用药水\n\n"
+            "Categories / 类别: Recovery / Combat Buffs / Special"
         )
         try:
             await interaction.response.edit_message(
-                embed=self._build_sub_embed("🧪 药水商店 / Potion Shop", 0x3498DB, desc), view=self
+                embed=self._build_sub_embed("Potion Shop / 药水商店", 0x3498DB, desc), view=self
             )
         except discord.InteractionResponded:
             await interaction.edit_original_response(
-                embed=self._build_sub_embed("🧪 药水商店 / Potion Shop", 0x3498DB, desc), view=self
+                embed=self._build_sub_embed("Potion Shop / 药水商店", 0x3498DB, desc), view=self
             )
 
-    @discord.ui.button(label="⚔️ 技能", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Skills / 技能", style=discord.ButtonStyle.primary, row=0, emoji="⚔️")
     async def skills_btn(self, interaction: discord.Interaction, button):
         desc = (
-            "**技能系统 / Skill System**\n\n"
-            "📚 `!learn <技能名>` — 学习技能\n"
-            "📋 `!skills list` — 查看可学技能\n"
-            "✅ `!equip <技能名>` — 装备技能\n"
-            "❌ `!unequip <技能名>` — 卸下技能\n\n"
-            "技能可在 PVP 和 Boss 战中使用！"
+            "**Skill System / 技能系统**\n\n"
+            "📚 `/gmpt-skill learn` — Learn a skill / 学习技能\n"
+            "📋 `/gmpt-skill list` — List learned skills / 查看已学技能\n"
+            "✅ `/gmpt-skill equip` — Equip skill / 装备技能\n"
+            "❌ `/gmpt-skill unequip` — Unequip skill / 卸下技能\n\n"
+            "Skills can be used in PVP and Boss battles!"
         )
         try:
             await interaction.response.edit_message(
-                embed=self._build_sub_embed("⚔️ 技能系统 / Skills", 0xE67E22, desc), view=self
+                embed=self._build_sub_embed("Skill System / 技能系统", 0xE67E22, desc), view=self
             )
         except discord.InteractionResponded:
             await interaction.edit_original_response(
-                embed=self._build_sub_embed("⚔️ 技能系统 / Skills", 0xE67E22, desc), view=self
+                embed=self._build_sub_embed("Skill System / 技能系统", 0xE67E22, desc), view=self
             )
 
-    @discord.ui.button(label="🏆 PVP 对战", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="PVP Arena / PVP 对战", style=discord.ButtonStyle.primary, row=0, emoji="🏆")
     async def pvp_btn(self, interaction: discord.Interaction, button):
         desc = (
-            "**PVP 对战系统 / PVP Arena**\n\n"
-            "⚔️ `!pvp_accept` — 接受挑战\n"
-            "🚫 `!pvp_decline` — 拒绝挑战\n"
-            "👊 `/gmpt-duel challenge` — 发起对决\n\n"
-            "使用技能和药水在战斗中获得优势！"
+            "**PVP Arena / PVP 对战系统**\n\n"
+            "⚔️ `/gmpt-pvp challenge` — Challenge a player / 发起挑战\n"
+            "✅ `/gmpt-pvp accept` — Accept challenge / 接受挑战\n"
+            "🚫 `/gmpt-pvp decline` — Decline challenge / 拒绝挑战\n\n"
+            "Use skills and potions to win!"
         )
         try:
             await interaction.response.edit_message(
-                embed=self._build_sub_embed("🏆 PVP 对战 / PVP Arena", 0xE74C3C, desc), view=self
+                embed=self._build_sub_embed("PVP Arena / PVP 对战", 0xE74C3C, desc), view=self
             )
         except discord.InteractionResponded:
             await interaction.edit_original_response(
-                embed=self._build_sub_embed("🏆 PVP 对战 / PVP Arena", 0xE74C3C, desc), view=self
+                embed=self._build_sub_embed("PVP Arena / PVP 对战", 0xE74C3C, desc), view=self
             )
 
-    @discord.ui.button(label="🐉 Boss 战", style=discord.ButtonStyle.danger, row=0)
+    @discord.ui.button(label="Boss Raid / Boss 战", style=discord.ButtonStyle.danger, row=0, emoji="🐉")
     async def boss_btn(self, interaction: discord.Interaction, button):
         desc = (
-            "**Boss 战系统 / Boss Battle**\n\n"
-            "👥 `!boss_invite` — 邀请组队\n"
-            "🚫 `!boss_kick` — 踢出成员\n"
-            "⚔️ `!boss_attack` — 攻击 Boss\n"
-            "🧪 `!boss_use_potion` — 使用药水\n\n"
-            "组队挑战强大的 Boss 平分奖励！"
+            "**Boss Raid / Boss 团战**\n\n"
+            "🏰 `/gmpt-boss dungeon` — View all bosses / 查看所有副本\n"
+            "⚔️ `/gmpt-boss create` — Create a raid room / 创建Boss房间\n"
+            "👥 `/gmpt-boss join` — Join a raid / 加入房间\n"
+            "💥 `/gmpt-boss attack` — Attack the boss / 攻击Boss\n\n"
+            "Team up to defeat powerful bosses!"
         )
         try:
             await interaction.response.edit_message(
-                embed=self._build_sub_embed("🐉 Boss 战 / Boss Battle", 0xC0392B, desc), view=self
+                embed=self._build_sub_embed("Boss Raid / Boss 团战", 0xC0392B, desc), view=self
             )
         except discord.InteractionResponded:
             await interaction.edit_original_response(
-                embed=self._build_sub_embed("🐉 Boss 战 / Boss Battle", 0xC0392B, desc), view=self
+                embed=self._build_sub_embed("Boss Raid / Boss 团战", 0xC0392B, desc), view=self
             )
 
-    @discord.ui.button(label="🏠 主面板", style=discord.ButtonStyle.secondary, row=1)
+    # Row 1: Dungeon (placeholder), Equipment (placeholder), Daily Quest (placeholder), Back
+    @discord.ui.button(label="Dungeon / 地下城", style=discord.ButtonStyle.secondary, row=1, emoji="🏰", disabled=True)
+    async def dungeon_btn(self, interaction: discord.Interaction, button):
+        desc = "**Dungeon / 地下城** — 开发中 In Development"
+        try:
+            await interaction.response.edit_message(
+                embed=self._build_sub_embed("Dungeon / 地下城", 0x7F8C8D, desc), view=self
+            )
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(
+                embed=self._build_sub_embed("Dungeon / 地下城", 0x7F8C8D, desc), view=self
+            )
+
+    @discord.ui.button(label="Equipment / 装备", style=discord.ButtonStyle.secondary, row=1, emoji="🗡️", disabled=True)
+    async def equipment_btn(self, interaction: discord.Interaction, button):
+        desc = "**Equipment / 装备系统** — 开发中 In Development"
+        try:
+            await interaction.response.edit_message(
+                embed=self._build_sub_embed("Equipment / 装备系统", 0x7F8C8D, desc), view=self
+            )
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(
+                embed=self._build_sub_embed("Equipment / 装备系统", 0x7F8C8D, desc), view=self
+            )
+
+    @discord.ui.button(label="Daily Quest / 每日任务", style=discord.ButtonStyle.secondary, row=1, emoji="📋", disabled=True)
+    async def daily_quest_btn(self, interaction: discord.Interaction, button):
+        desc = "**Daily Quest / 每日任务** — 开发中 In Development"
+        try:
+            await interaction.response.edit_message(
+                embed=self._build_sub_embed("Daily Quest / 每日任务", 0x7F8C8D, desc), view=self
+            )
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(
+                embed=self._build_sub_embed("Daily Quest / 每日任务", 0x7F8C8D, desc), view=self
+            )
+
+    @discord.ui.button(label="Main Panel / 主面板", style=discord.ButtonStyle.success, row=1, emoji="🏠")
     async def back_btn(self, interaction: discord.Interaction, button):
         uid = str(interaction.user.id)
         stats = _get_user_stats(uid)
         bal = _get_balance(uid)
         embed = discord.Embed(
-            title="🗡️ MMORPG 主面板 / MMORPG Main Panel",
+            title="MMORPG Main Panel / MMORPG 主面板",
             description=(
-                f"欢迎来到 GMPT MMORPG 世界！\nWelcome to the GMPT MMORPG world!\n\n"
-                f"❤️ HP: **{stats['hp']}/{stats['max_hp']}**　"
+                f"Welcome to GMPT MMORPG World / 欢迎来到 GMPT MMORPG 世界！\n\n"
+                f"❤️ HP: **{stats['hp']}/{stats['max_hp']}**  "
                 f"🔮 MP: **{stats['mp']}/{stats['max_mp']}**\n"
-                f"⚔️ ATK: **{stats['attack']}**　🛡️ DEF: **{stats['defense']}**　"
-                f"⭐ Lv.**{stats['level']}**　🪙 **{bal:,}**\n\n"
-                f"点击下方按钮查看各系统 / Click a button below:"
+                f"⚔️ ATK: **{stats['attack']}**  🛡️ DEF: **{stats['defense']}**  "
+                f"⭐ Lv.**{stats['level']}**  🪙 **{bal:,}**\n\n"
+                f"Click a button below / 点击下方按钮："
             ),
             color=0x9B59B6,
         )
@@ -548,72 +765,85 @@ class MMORPGMainView(discord.ui.View):
             await interaction.edit_original_response(embed=embed, view=self)
 
 
+# ══════════════════════════════════════════════════════════════
+# Potion Browse View — Categories with tabs
+# ══════════════════════════════════════════════════════════════
 class PotionBrowseView(discord.ui.View):
-    """分页浏览药水."""
-
-    def __init__(self, potions: list[dict], user_level: int, user_id: str):
-        super().__init__(timeout=120)
+    def __init__(self, potions: dict, user_level: int, user_id: str):
+        super().__init__(timeout=180)
         self.potions = potions
         self.user_level = user_level
         self.user_id = user_id
-        self.page = 0
-        self.total_pages = max(1, (len(potions) + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE)
-        self._update_buttons()
+        self.active_category = "recovery"
+        self._update_category_buttons()
 
-    def build_embed(self, page: int) -> discord.Embed:
-        start = page * ITEMS_PER_PAGE
-        end = start + ITEMS_PER_PAGE
-        page_items = self.potions[start:end]
+    def _update_category_buttons(self):
+        for child in self.children:
+            if hasattr(child, "custom_id") and child.custom_id:
+                if child.custom_id == f"cat_{self.active_category}":
+                    child.style = discord.ButtonStyle.primary
+                    child.disabled = True
+                else:
+                    child.style = discord.ButtonStyle.secondary
+                    child.disabled = False
+
+    def build_embed(self, category: str) -> discord.Embed:
+        cat_potions = [
+            (k, p) for k, p in self.potions.items() if p["category"] == category
+        ]
 
         embed = discord.Embed(
-            title="🧪 NPC 药水商店 / Potion Shop",
-            description=f"你的等级: **Lv.{self.user_level}**\n",
+            title="NPC Potion Shop / NPC 药水商店",
+            description=f"Your Level / 你的等级: **Lv.{self.user_level}**",
             color=0x9B59B6,
         )
 
+        category_headers = {
+            "recovery": "Recovery / 恢复类",
+            "combat": "Combat Buffs / 战斗增益",
+            "special": "Special / 特殊",
+        }
+
         lines = []
-        for p in page_items:
+        for key, p in cat_potions:
             locked = "🔒" if self.user_level < p["min_level"] else ""
-            stock_str = "∞" if p["stock"] == -1 else str(p["stock"])
+            cn = p["name_cn"]
+            en = p["name_en"]
             lines.append(
-                f"{p['emoji']} **{p['name']}** {locked}\n"
-                f"　{p['description']} | 🪙 {p['price']:,} | 库存: {stock_str}\n"
-                f"　等级要求: Lv.{p['min_level']}"
+                f"{p['emoji']} **{cn} / {en}** {locked}\n"
+                f"　{p['effect_cn']}\n"
+                f"　{p['effect_en']} | 🪙 {p['price']:,} | Lv.{p['min_level']}+"
             )
 
         embed.add_field(
-            name=f"药水列表 (第 {page + 1}/{self.total_pages} 页)",
-            value="\n".join(lines) if lines else "暂无药水",
+            name=category_headers.get(category, category),
+            value="\n\n".join(lines) if lines else "No potions / 暂无药水",
             inline=False,
         )
-        embed.set_footer(text="使用 /gmpt-potionshop buy <药水名> <数量> 购买")
+        embed.set_footer(text="Buy: /gmpt-potionshop buy <potion> <qty> / 购买: /gmpt-potionshop buy <药水名> <数量>")
         return embed
 
-    def _update_buttons(self):
-        self.prev_btn.disabled = self.page == 0
-        self.next_btn.disabled = self.page >= self.total_pages - 1
-
-    @discord.ui.button(label="◀ 上一页", style=discord.ButtonStyle.secondary)
-    async def prev_btn(self, interaction: discord.Interaction, button):
+    async def _switch_category(self, interaction: discord.Interaction, category: str):
         if str(interaction.user.id) != self.user_id:
-            return await interaction.response.send_message("这不是你的页面 / Not your page.", ephemeral=True)
-        self.page -= 1
-        self._update_buttons()
+            return await interaction.response.send_message("Not your page / 不是你的页面", ephemeral=True)
+        self.active_category = category
+        self._update_category_buttons()
         try:
-            await interaction.response.edit_message(embed=self.build_embed(self.page), view=self)
+            await interaction.response.edit_message(embed=self.build_embed(category), view=self)
         except discord.InteractionResponded:
-            await interaction.edit_original_response(embed=self.build_embed(self.page), view=self)
+            await interaction.edit_original_response(embed=self.build_embed(category), view=self)
 
-    @discord.ui.button(label="下一页 ▶", style=discord.ButtonStyle.secondary)
-    async def next_btn(self, interaction: discord.Interaction, button):
-        if str(interaction.user.id) != self.user_id:
-            return await interaction.response.send_message("这不是你的页面 / Not your page.", ephemeral=True)
-        self.page += 1
-        self._update_buttons()
-        try:
-            await interaction.response.edit_message(embed=self.build_embed(self.page), view=self)
-        except discord.InteractionResponded:
-            await interaction.edit_original_response(embed=self.build_embed(self.page), view=self)
+    @discord.ui.button(label="Recovery / 恢复类", custom_id="cat_recovery", style=discord.ButtonStyle.primary, row=0, emoji="❤️")
+    async def cat_recovery(self, interaction: discord.Interaction, button):
+        await self._switch_category(interaction, "recovery")
+
+    @discord.ui.button(label="Combat Buffs / 战斗增益", custom_id="cat_combat", style=discord.ButtonStyle.secondary, row=0, emoji="⚔️")
+    async def cat_combat(self, interaction: discord.Interaction, button):
+        await self._switch_category(interaction, "combat")
+
+    @discord.ui.button(label="Special / 特殊", custom_id="cat_special", style=discord.ButtonStyle.secondary, row=0, emoji="✨")
+    async def cat_special(self, interaction: discord.Interaction, button):
+        await self._switch_category(interaction, "special")
 
     async def on_timeout(self):
         for child in self.children:

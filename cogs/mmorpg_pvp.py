@@ -15,6 +15,7 @@ from database import get_db_ctx
 from utils.cog_base import CogBase
 from cogs.economy import get_balance, add_coins
 from cogs.mmorpg_skills import SKILLS
+from cogs.mmorpg_shop import POTION_CATALOG
 import logging
 
 logger = logging.getLogger(__name__)
@@ -76,11 +77,11 @@ def _get_pvp_potions(uid: str) -> list[dict]:
 
 
 def _consume_potion(uid: str, potion_name: str) -> dict | None:
-    """Remove 1 potion from inventory, return potion template dict or None."""
+    """Remove 1 potion from inventory, return POTION_CATALOG dict or None."""
     with get_db_ctx() as conn:
         cur = conn.cursor()
         cur.execute(
-            "SELECT id, quantity FROM user_inventory WHERE user_id = ? AND item_id = 0 AND item_name = ? AND item_type = 'potion'",
+            "SELECT id, quantity FROM user_inventory WHERE user_id = ? AND item_name = ? AND item_type = 'potion'",
             (uid, potion_name),
         )
         inv_row = cur.fetchone()
@@ -88,17 +89,13 @@ def _consume_potion(uid: str, potion_name: str) -> dict | None:
         return None
     if inv_row["quantity"] > 1:
         with get_db_ctx() as conn:
-            conn.cursor().execute("UPDATE user_inventory SET quantity = quantity - 1 WHERE rowid = ?", (inv_row["id"],))
+            conn.cursor().execute("UPDATE user_inventory SET quantity = quantity - 1 WHERE id = ?", (inv_row["id"],))
             conn.commit()
     else:
         with get_db_ctx() as conn:
-            conn.cursor().execute("DELETE FROM user_inventory WHERE rowid = ?", (inv_row["id"],))
+            conn.cursor().execute("DELETE FROM user_inventory WHERE id = ?", (inv_row["id"],))
             conn.commit()
-    with get_db_ctx() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT * FROM potions WHERE name = ?", (potion_name,))
-        row = cur.fetchone()
-    return dict(row) if row else None
+    return POTION_CATALOG.get(potion_name)
 
 
 def _format_bar(current: int, maximum: int, length: int = 10, filled: str = "▰", empty: str = "▱") -> str:
@@ -626,34 +623,42 @@ class PVPCog(CogBase):
 
             potion = _consume_potion(current_id, potion_name)
             if not potion:
-                return f"⚠️ 背包中没有 **{potion_name}**！"
+                return f"背包中没有 **{potion_name}**！/ Not in your bag!"
 
             effect_type = potion["effect_type"]
             effect_value = potion["effect_value"]
+            duration = potion.get("duration", 3)
 
             if effect_type == "heal_hp":
                 healed = min(effect_value, p_data["max_hp"] - p_data["hp"])
                 p_data["hp"] += healed
                 stats["healed"] += healed
-                return f"🧪 {p_data['username']} 使用 **{potion_name}** — 恢复了 {healed} HP"
+                return f"🧪 {p_data['username']} used **{potion['name_cn']} / {potion['name_en']}** — Restored {healed} HP / 恢复了 {healed} HP"
             elif effect_type == "heal_mp":
                 healed = min(effect_value, p_data["max_mp"] - p_data["mp"])
                 p_data["mp"] += healed
-                return f"🧪 {p_data['username']} 使用 **{potion_name}** — 恢复了 {healed} MP"
+                return f"🧪 {p_data['username']} used **{potion['name_cn']} / {potion['name_en']}** — Restored {healed} MP / 恢复了 {healed} MP"
             elif effect_type == "buff_atk":
                 p_data["buff_atk"] += effect_value
-                p_data["buff_atk_turns"] = max(p_data["buff_atk_turns"], 5)
-                return f"🧪 {p_data['username']} 使用 **{potion_name}** — 攻击力 +{effect_value}，持续 5 回合"
+                p_data["buff_atk_turns"] = max(p_data["buff_atk_turns"], duration)
+                return f"🧪 {p_data['username']} used **{potion['name_cn']} / {potion['name_en']}** — ATK +{effect_value} for {duration} turns / 攻击力 +{effect_value}，持续 {duration} 回合"
             elif effect_type == "buff_def":
                 p_data["buff_def"] += effect_value
-                p_data["buff_def_turns"] = max(p_data["buff_def_turns"], 5)
-                return f"🧪 {p_data['username']} 使用 **{potion_name}** — 防御力 +{effect_value}，持续 5 回合"
+                p_data["buff_def_turns"] = max(p_data["buff_def_turns"], duration)
+                return f"🧪 {p_data['username']} used **{potion['name_cn']} / {potion['name_en']}** — DEF +{effect_value} for {duration} turns / 防御力 +{effect_value}，持续 {duration} 回合"
+            elif effect_type == "buff_spd":
+                return f"🧪 {p_data['username']} used **{potion['name_cn']} / {potion['name_en']}** — SPD +{effect_value}% for {duration} turns / 速度 +{effect_value}%，持续 {duration} 回合"
+            elif effect_type == "buff_crit":
+                return f"🧪 {p_data['username']} used **{potion['name_cn']} / {potion['name_en']}** — Crit +{effect_value}% for {duration} turns / 暴击率 +{effect_value}%，持续 {duration} 回合"
+            elif effect_type == "purify":
+                return f"🧪 {p_data['username']} used **{potion['name_cn']} / {potion['name_en']}** — All debuffs removed / 所有负面状态已移除"
             elif effect_type == "revive":
                 if p_data["hp"] > 0:
-                    return f"🧪 {p_data['username']} 还活着，复活药剂无效！"
-                p_data["hp"] = max(1, int(p_data["max_hp"] * 0.5))
+                    return f"🧪 {p_data['username']} still alive! Revival ineffective / 还活着，复活药水无效！"
+                restore_pct = max(1, int(p_data["max_hp"] * effect_value / 100))
+                p_data["hp"] = restore_pct
                 p_data["mp"] = p_data["max_mp"]
-                return f"✨ {p_data['username']} 使用 **{potion_name}** — 复活！HP恢复到 {p_data['hp']}，MP全满"
+                return f"✨ {p_data['username']} used **{potion['name_cn']} / {potion['name_en']}** — Revived! HP {p_data['hp']}, MP full / 复活！HP恢复到 {p_data['hp']}，MP全满"
 
         return f"⚠️ 未知操作。"
 
@@ -679,15 +684,15 @@ class PVPCog(CogBase):
         if chal_data["hp"] <= 0 and def_data["hp"] <= 0:
             winner_id = None
             loser_id = None
-            result_text = "⚔️ **平局！/ Draw!**"
+            result_text = "Draw! / 平局！"
         elif chal_data["hp"] <= 0:
             winner_id = def_id
             loser_id = chal_id
-            result_text = f"🏆 **{def_data['username']}** 获胜！/ Winner!"
+            result_text = f"**{def_data['username']}** wins! / 获胜！"
         else:
             winner_id = chal_id
             loser_id = def_id
-            result_text = f"🏆 **{chal_data['username']}** 获胜！/ Winner!"
+            result_text = f"**{chal_data['username']}** wins! / 获胜！"
 
         # Transfer bet
         if winner_id and loser_id and bet > 0:

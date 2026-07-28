@@ -22,6 +22,7 @@ from database import get_db_ctx
 from utils.cog_base import CogBase
 from cogs.economy import get_balance, add_coins
 from cogs.mmorpg_skills import SKILLS
+from cogs.mmorpg_shop import POTION_CATALOG
 import logging
 
 logger = logging.getLogger(__name__)
@@ -195,10 +196,17 @@ class BossCog(CogBase):
                 (uid,),
             )
             rows = cur.fetchall()
-        names = [r["item_name"] for r in rows]
-        if current:
-            names = [n for n in names if current.lower() in n.lower()]
-        return [app_commands.Choice(name=n, value=n) for n in names[:25]]
+        choices = []
+        for r in rows:
+            key = r["item_name"]
+            p = POTION_CATALOG.get(key)
+            if p:
+                display = f"{p['emoji']} {p['name_cn']} / {p['name_en']}"
+            else:
+                display = key
+            if not current or current.lower() in display.lower():
+                choices.append(app_commands.Choice(name=display, value=key))
+        return choices[:25]
 
     # ══════════════════════════════════════════════════════════
     # /gmpt-boss dungeon
@@ -211,8 +219,8 @@ class BossCog(CogBase):
     async def boss_dungeon(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
         embed = discord.Embed(
-            title="🏰 副本大厅 / Dungeon Hall",
-            description="选择 Boss 发起挑战！所有冷却按难度独立计算",
+            title="Dungeon Hall / 副本大厅",
+            description="Choose a boss to challenge! Cooldowns are per difficulty.\n选择 Boss 发起挑战！所有冷却按难度独立计算。",
             color=0x9B59B6,
         )
         for boss_name, boss in BOSS_TYPES.items():
@@ -220,18 +228,18 @@ class BossCog(CogBase):
             for diff, diff_cfg in DIFFICULTY.items():
                 remaining = self._get_cooldown_remaining(uid, boss_name, diff)
                 if remaining <= 0:
-                    status = "✅ 可挑战 / Ready"
+                    status = "Ready / 可挑战"
                 else:
                     m, s = divmod(remaining, 60)
-                    status = f"⏳ {m}分{s}秒 / Cooling down"
+                    status = f"Cooldown / 冷却: {m}m{s}s"
                 lines.append(f"{diff_cfg['stars']} {diff}: {status}")
-            lines.append(f"掉落: {', '.join(f'{name}({val}₲)' for _, name, val in boss['loot_table'][:2])}")
+            lines.append(f"Loot / 掉落: {', '.join(f'{name}({val}₲)' for _, name, val in boss['loot_table'][:2])}")
             embed.add_field(
                 name=f"{boss['emoji']} {boss_name}",
                 value="\n".join(lines),
                 inline=True,
             )
-        embed.set_footer(text="使用 /gmpt-boss create <Boss> <难度> 创建副本")
+        embed.set_footer(text="Use /gmpt-boss create <Boss> <Difficulty> / 使用 /gmpt-boss create <Boss> <难度> 创建副本")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     # ══════════════════════════════════════════════════════════
@@ -252,7 +260,7 @@ class BossCog(CogBase):
         boss_type: str = None,
         difficulty: str = None,
     ):
-        embed = discord.Embed(title="🏆 Boss排行榜 / Boss Leaderboard", color=0xF1C40F)
+        embed = discord.Embed(title="Boss Leaderboard / Boss排行榜", color=0xF1C40F)
         with get_db_ctx() as conn:
             cur = conn.cursor()
             if boss_type:
@@ -269,13 +277,13 @@ class BossCog(CogBase):
                 rows = cur.fetchall()
                 embed.title += f" — {boss_type}" + (f" ({difficulty})" if difficulty else "")
                 if not rows:
-                    embed.description = "暂无击杀记录 / No kills yet."
+                    embed.description = "No kills yet / 暂无击杀记录"
                 else:
                     lines = []
                     for i, row in enumerate(rows, 1):
                         uid, bname, diff, kills, top_dmg, _ = row
                         medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, f"#{i}")
-                        lines.append(f"{medal} <@{uid}> — {kills}杀 {diff} | 最高{top_dmg}伤害")
+                        lines.append(f"{medal} <@{uid}> — {kills} kills {diff} | Top DMG: {top_dmg}")
                     embed.description = "\n".join(lines)
             else:
                 cur.execute("""
@@ -284,13 +292,13 @@ class BossCog(CogBase):
                 """)
                 rows = cur.fetchall()
                 if not rows:
-                    embed.description = "暂无击杀记录 / No kills yet."
+                    embed.description = "No kills yet / 暂无击杀记录"
                 else:
                     for bname, diff, kills, fastest, first_clearer in rows:
                         fastest_str = f"{fastest:.0f}s" if fastest else "-"
                         embed.add_field(
                             name=f"{bname} {DIFFICULTY.get(diff, {}).get('stars', '')} {diff}",
-                            value=f"击杀: {kills} | 最快: {fastest_str} | 首杀: <@{first_clearer}>",
+                            value=f"Kills: {kills} | Fastest: {fastest_str} | First Clear: <@{first_clearer}>",
                             inline=True,
                         )
         await interaction.response.send_message(embed=embed)
@@ -306,7 +314,7 @@ class BossCog(CogBase):
     async def boss_stats(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
         embed = discord.Embed(
-            title=f"📊 {interaction.user.display_name} 的副本统计 / Dungeon Stats",
+            title=f"Dungeon Stats / 副本统计 — {interaction.user.display_name}",
             color=0x3498DB,
         )
         with get_db_ctx() as conn:
@@ -318,14 +326,14 @@ class BossCog(CogBase):
             """, (uid,))
             rows = cur.fetchall()
         if not rows:
-            embed.description = "尚未击杀任何Boss / No boss kills yet."
+            embed.description = "No boss kills yet / 尚未击杀任何Boss"
         else:
             total_kills = sum(r[2] for r in rows)
-            embed.description = f"总计击杀: **{total_kills}**"
+            embed.description = f"Total Kills / 总计击杀: **{total_kills}**"
             for boss_name, diff, kills, top_dmg, _ in rows:
                 embed.add_field(
                     name=f"{BOSS_TYPES.get(boss_name, {}).get('emoji', '')} {boss_name} ({diff})",
-                    value=f"击杀: {kills} | 最高伤害: {top_dmg}",
+                    value=f"Kills: {kills} | Top DMG: {top_dmg}",
                     inline=True,
                 )
         await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -427,8 +435,9 @@ class BossCog(CogBase):
 
         embed = self._build_room_embed(room)
         await interaction.response.send_message(
-            f"{boss['emoji']} **{interaction.user.display_name}** 创建了 Boss 团战房间！\n"
-            f"60秒内 `/gmpt-boss join` 加入 | 队长可使用 `/gmpt-boss invite` 邀请成员",
+            f"{boss['emoji']} **{interaction.user.display_name}** created a Boss raid / 创建了 Boss 团战房间！\n"
+            f"Use `/gmpt-boss join` within 60s / 60秒内 `/gmpt-boss join` 加入 | "
+            f"Host can `/gmpt-boss invite` / 队长可使用 `/gmpt-boss invite` 邀请成员",
             embed=embed,
         )
 
@@ -448,9 +457,10 @@ class BossCog(CogBase):
         room["start_time"] = time.time()
         alive = sum(1 for p in room["players"].values() if p["hp"] > 0)
         await channel.send(
-            f"⚔️ **副本开始！/ Dungeon begins!**\n"
-            f"玩家数: {len(room['players'])} | 存活: {alive}\n"
-            f"使用 `/gmpt-boss attack` 攻击！使用 `/gmpt-boss use-potion` 喝药水！"
+            f"Dungeon begins! / 副本开始！\n"
+            f"Players: {len(room['players'])} | Alive: {alive}\n"
+            f"Use `/gmpt-boss attack` to attack / 使用 `/gmpt-boss attack` 攻击！"
+            f"Use `/gmpt-boss use-potion` for potions / 使用 `/gmpt-boss use-potion` 喝药水！"
         )
 
     # ══════════════════════════════════════════════════════════
@@ -503,7 +513,7 @@ class BossCog(CogBase):
 
         embed = self._build_room_embed(room)
         await interaction.response.send_message(
-            f"✅ **{interaction.user.display_name}** 加入了副本！/ Joined!",
+            f"**{interaction.user.display_name}** joined the raid! / 加入了副本！",
             embed=embed,
         )
 
@@ -536,10 +546,10 @@ class BossCog(CogBase):
 
         try:
             invite_embed = discord.Embed(
-                title=f"{room['boss']['emoji']} Boss 团战邀请！",
-                description=f"**{interaction.user.display_name}** 邀请你加入副本！\n"
-                           f"Boss: **{room['boss']['name']}** | 难度: **{room['difficulty']}**\n"
-                           f"前往 {interaction.channel.mention} 使用 `/gmpt-boss join` 加入！",
+                title=f"{room['boss']['emoji']} Boss Raid Invite / Boss 团战邀请！",
+                description=f"**{interaction.user.display_name}** invites you to a raid / 邀请你加入副本！\n"
+                           f"Boss: **{room['boss']['name']}** | Difficulty / 难度: **{room['difficulty']}**\n"
+                           f"Go to {interaction.channel.mention} and use `/gmpt-boss join` to join!",
                 color=room["diff_color"],
             )
             await member.send(embed=invite_embed)
@@ -547,7 +557,7 @@ class BossCog(CogBase):
             pass
 
         await interaction.response.send_message(
-            f"📨 已向 {member.mention} 发送邀请！\nInvitation sent to {member.display_name}!"
+            f"Invitation sent to {member.mention} / 已向 {member.display_name} 发送邀请！"
         )
 
     # ══════════════════════════════════════════════════════════
@@ -654,7 +664,7 @@ class BossCog(CogBase):
         if player["frozen"]:
             player["frozen"] = False
             lines = [
-                f"❄️ **{player['username']}** 被冻结，跳过本回合！/ Frozen! Turn skipped.",
+                f"Frozen! Turn skipped / 被冻结，跳过本回合！— {player['username']}",
             ]
             # Boss still counter-attacks
             boss_log = self._boss_aoe_attack(room)
@@ -757,8 +767,8 @@ class BossCog(CogBase):
         if room["phase"] == 2:
             phase_lines = [
                 "",
-                f"⚡ **Boss 进入第二阶段！变得更强了！** （攻击力 x1.5）",
-                f"Boss HP 已回复至 {room['boss_max_hp']}！",
+                f"Phase 2! Boss gets stronger! (ATK x1.5) / Boss 进入第二阶段！变得更强了！（攻击力 x1.5）",
+                f"Boss HP restored to {room['boss_max_hp']} / Boss HP 已回复至 {room['boss_max_hp']}！",
             ]
             # Reset boss HP to max on phase 2 entry
             if room["boss_hp"] > 0 and room.get("_phase2_announced") != room_id:
@@ -771,18 +781,18 @@ class BossCog(CogBase):
         # HP bar
         lines.append(f"Boss HP: {_format_bar(room['boss_hp'], room['boss_max_hp'])}")
         if room["phase"] == 2:
-            lines.append(f"⚠️ 阶段: **Phase 2** | 回合: {room['turn']}")
+            lines.append(f"Phase: **Phase 2** | Turn: {room['turn']}")
 
         # ═══ Check boss death ═══
         if room["boss_hp"] <= 0:
             room["status"] = "finished"
             duration_sec = time.time() - room["start_time"]
             lines.append("")
-            lines.append(f"🎉 **{room['boss']['name']} 被击败！/ Defeated!** ({duration_sec:.0f}s)")
+            lines.append(f"**{room['boss']['name']}** defeated! / 被击败！({duration_sec:.0f}s)")
 
             # Distribute rewards
             reward_lines = self._distribute_rewards(room, duration_sec)
-            lines.append("\n**💰 奖励分配 / Rewards:**")
+            lines.append("\n**Rewards / 奖励分配:**")
             lines.extend(reward_lines)
 
         await interaction.response.send_message("\n".join(lines))
@@ -829,7 +839,7 @@ class BossCog(CogBase):
         mvp_name = players[mvp_uid]["username"]
         mvp_extra = int(reward_pool * 0.1)
 
-        lines = [f"🏆 MVP: **{mvp_name}** ({players[mvp_uid]['damage_dealt']} 伤害) — 额外 +{mvp_extra}₲"]
+        lines = [f"🏆 MVP: **{mvp_name}** ({players[mvp_uid]['damage_dealt']} DMG) — Bonus / 额外 +{mvp_extra}₲"]
 
         for pid, pdata in players.items():
             if total_dmg <= 0:
@@ -840,7 +850,7 @@ class BossCog(CogBase):
             # Daily first kill bonus
             if self._get_daily_first_kill(pid):
                 share = int(share * 2)
-                first_bonus = " (首杀双倍！)"
+                first_bonus = " (First Kill x2! / 首杀双倍！)"
             else:
                 first_bonus = ""
 
@@ -857,18 +867,18 @@ class BossCog(CogBase):
             mvp_str = ""
             if pid == mvp_uid:
                 mvp_bonus = mvp_extra
-                mvp_str = f" + 🏆 MVP额外+{mvp_extra}₲"
+                mvp_str = f" + 🏆 MVP Bonus / MVP额外+{mvp_extra}₲"
 
             total_earn = share + loot_total + mvp_bonus
             if total_earn > 0:
-                add_coins(pid, total_earn, f"Boss副本奖励: {room['boss']['name']} {room['difficulty']}")
+                add_coins(pid, total_earn, f"Boss Raid Reward / Boss副本奖励: {room['boss']['name']} {room['difficulty']}")
 
             # Record kill
             self._set_cooldown(pid, room["boss"]["name"], room["difficulty"])
             self._record_kill(room["boss"]["name"], room["difficulty"], pid, pdata["damage_dealt"], duration_sec)
 
             lines.append(
-                f"- **{pdata['username']}**: {pdata['damage_dealt']}伤害 → 🪙 +{total_earn}{first_bonus}{loot_text}{mvp_str}"
+                f"- **{pdata['username']}**: {pdata['damage_dealt']} DMG → +{total_earn}₲{first_bonus}{loot_text}{mvp_str}"
             )
 
         return lines
@@ -903,25 +913,20 @@ class BossCog(CogBase):
         with get_db_ctx() as conn:
             cur = conn.cursor()
             cur.execute(
-                "SELECT rowid as id, quantity FROM user_inventory WHERE user_id = ? AND item_id = 0 AND item_name = ? AND item_type = 'potion'",
+                "SELECT id, quantity FROM user_inventory WHERE user_id = ? AND item_name = ? AND item_type = 'potion'",
                 (uid, name),
             )
             inv_row = cur.fetchone()
 
         if not inv_row or inv_row["quantity"] <= 0:
             return await interaction.response.send_message(
-                f"背包中没有 **{name}**！", ephemeral=True)
+                f"背包中没有 **{name}**！/ Not in your bag!", ephemeral=True)
 
-        # Get potion template
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT * FROM potions WHERE name = ?", (name,))
-            potion = cur.fetchone()
-
+        # Get potion from catalog
+        potion = POTION_CATALOG.get(name)
         if not potion:
-            return await interaction.response.send_message(f"药水 '{name}' 不存在", ephemeral=True)
+            return await interaction.response.send_message(f"药水 '{name}' 不存在 / Not found", ephemeral=True)
 
-        potion = dict(potion)
         effect_type = potion["effect_type"]
         effect_value = potion["effect_value"]
 
@@ -942,36 +947,47 @@ class BossCog(CogBase):
         if effect_type == "heal_hp":
             healed = min(effect_value, player["max_hp"] - player["hp"])
             player["hp"] += healed
-            result_text = f"恢复了 **{healed}** HP！（{player['hp']}/{player['max_hp']}）"
+            result_text = f"Restored **{healed}** HP / 恢复了 **{healed}** HP！（{player['hp']}/{player['max_hp']}）"
         elif effect_type == "heal_mp":
             healed = min(effect_value, player["max_mp"] - player["mp"])
             player["mp"] += healed
-            result_text = f"恢复了 **{healed}** MP！（{player['mp']}/{player['max_mp']}）"
+            result_text = f"Restored **{healed}** MP / 恢复了 **{healed}** MP！（{player['mp']}/{player['max_mp']}）"
         elif effect_type == "buff_atk":
             player["buff_atk"] += effect_value
-            player["buff_atk_turns"] = max(player["buff_atk_turns"], 5)
-            result_text = f"攻击力 **+{effect_value}**，持续 5 回合！"
+            player["buff_atk_turns"] = max(player["buff_atk_turns"], potion.get("duration", 3))
+            result_text = f"ATK **+{effect_value}** for {potion.get('duration', 3)} turns / 攻击力 **+{effect_value}**，持续 {potion.get('duration', 3)} 回合！"
         elif effect_type == "buff_def":
             player["buff_def"] += effect_value
-            player["buff_def_turns"] = max(player["buff_def_turns"], 5)
-            result_text = f"防御力 **+{effect_value}**，持续 5 回合！"
+            player["buff_def_turns"] = max(player["buff_def_turns"], potion.get("duration", 3))
+            result_text = f"DEF **+{effect_value}** for {potion.get('duration', 3)} turns / 防御力 **+{effect_value}**，持续 {potion.get('duration', 3)} 回合！"
+        elif effect_type == "buff_spd":
+            result_text = f"SPD **+{effect_value}%** for {potion.get('duration', 2)} turns / 速度 **+{effect_value}%**，持续 {potion.get('duration', 2)} 回合！"
+        elif effect_type == "buff_crit":
+            result_text = f"Crit Rate **+{effect_value}%** for {potion.get('duration', 2)} turns / 暴击率 **+{effect_value}%**，持续 {potion.get('duration', 2)} 回合！"
+        elif effect_type == "buff_exp":
+            result_text = f"EXP **+{effect_value}%** for {potion.get('duration', 5)} min / 经验 **+{effect_value}%**，持续 {potion.get('duration', 5)} 分钟！"
+        elif effect_type == "purify":
+            result_text = f"All debuffs removed / 所有负面状态已移除！"
         elif effect_type == "revive":
             if player["hp"] > 0:
                 # Refund
                 with get_db_ctx() as conn:
                     cur = conn.cursor()
                     cur.execute(
-                        "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) VALUES (?, 0, ?, 1, 'potion')",
-                        (uid, name),
+                        "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) VALUES (?, ?, ?, 1, 'potion')",
+                        (uid, potion["id"], name),
                     )
                     conn.commit()
-                return await interaction.response.send_message("你还活着！复活药剂只能在 HP=0 时使用。", ephemeral=True)
-            player["hp"] = max(1, int(player["max_hp"] * 0.5))
+                return await interaction.response.send_message(
+                    "你还活着！复活药水只能在 HP=0 时使用。/ You're still alive! Revival potion only usable when HP=0.",
+                    ephemeral=True)
+            restore_pct = max(1, int(player["max_hp"] * effect_value / 100))
+            player["hp"] = restore_pct
             player["mp"] = player["max_mp"]
-            result_text = f"✨ 复活！HP 恢复到 {player['hp']}/{player['max_hp']}，MP 全满！"
+            result_text = f"Revived! HP restored to {player['hp']}/{player['max_hp']}, MP full! / 复活！HP 恢复到 {player['hp']}/{player['max_hp']}，MP 全满！"
 
         embed = discord.Embed(
-            title=f"{potion['emoji']} {player['username']} 使用了 {name}",
+            title=f"{potion['emoji']} {player['username']} used {potion['name_cn']} / {potion['name_en']}",
             description=result_text,
             color=0x2ECC71,
         )
@@ -1010,16 +1026,16 @@ class BossCog(CogBase):
         boss_name = boss["name"]
         phase = room["phase"]
 
-        title = f"{emoji} {boss_name} 团战 / Raid"
+        title = f"{emoji} {boss_name} Raid / 团战"
         if defeated:
-            title = f"{emoji} {boss_name} — 已击败！/ Defeated!"
+            title = f"{emoji} {boss_name} — Defeated! / 已击败！"
         elif phase == 2:
-            title = f"{emoji} {boss_name} — ⚡ Phase 2 暴怒阶段！"
+            title = f"{emoji} {boss_name} — Phase 2 Rage! / 暴怒阶段！"
 
         embed = discord.Embed(title=title, color=room["diff_color"])
-        embed.add_field(name="难度 / Difficulty", value=room["diff_label"], inline=True)
-        embed.add_field(name="回合 / Turn", value=str(room["turn"]), inline=True)
-        embed.add_field(name="阶段 / Phase", value=f"{'⚡ ' if phase == 2 else ''}Phase {phase}", inline=True)
+        embed.add_field(name="Difficulty / 难度", value=room["diff_label"], inline=True)
+        embed.add_field(name="Turn / 回合", value=str(room["turn"]), inline=True)
+        embed.add_field(name="Phase / 阶段", value=f"{'Rage ' if phase == 2 else ''}Phase {phase}", inline=True)
 
         # Boss HP bar
         embed.add_field(
@@ -1030,18 +1046,18 @@ class BossCog(CogBase):
 
         # Boss skills
         embed.add_field(
-            name="技能 / Skills",
+            name="Skills / 技能",
             value=" | ".join(boss["skills"]),
             inline=True,
         )
         if phase == 2:
             embed.add_field(
-                name="⚠️ 暴怒技能",
+                name="Rage Skill / 暴怒技能",
                 value=boss["rage_skill"],
                 inline=False,
             )
 
-        embed.add_field(name="攻击力 / ATK", value=str(room["boss_atk"]), inline=True)
+        embed.add_field(name="ATK / 攻击力", value=str(room["boss_atk"]), inline=True)
 
         # Player list with HP/MP bars and buffs
         player_lines = []
@@ -1056,27 +1072,27 @@ class BossCog(CogBase):
             if p["buff_def"] > 0:
                 buffs.append(f"DEF+{p['buff_def']}({p['buff_def_turns']}T)")
             if p["frozen"]:
-                buffs.append("❄️冻结")
+                buffs.append("Frozen/冻结")
             if p["dot_dmg"] > 0:
-                buffs.append(f"☠️毒({p['dot_turns']}T)")
+                buffs.append(f"Poison/毒({p['dot_turns']}T)")
 
             buff_str = f" [{', '.join(buffs)}]" if buffs else ""
             line = (
                 f"{alive_mark} **{p['username']}**\n"
                 f"　HP: {hp_bar}\n"
                 f"　MP: {mp_bar}\n"
-                f"　伤害: {p['damage_dealt']}{buff_str}"
+                f"　DMG: {p['damage_dealt']}{buff_str}"
             )
             player_lines.append(line)
 
         embed.add_field(
-            name=f"玩家 / Players ({len(room['players'])})",
-            value="\n".join(player_lines) if player_lines else "等待加入 / Waiting...",
+            name=f"Players / 玩家 ({len(room['players'])})",
+            value="\n".join(player_lines) if player_lines else "Waiting to join / 等待加入...",
             inline=False,
         )
 
-        status_text = {"waiting": "⏳ 等待开始", "fighting": "⚔️ 战斗中", "finished": "🏁 已结束"}
-        embed.set_footer(text=f"状态: {status_text.get(room['status'], room['status'])} | /gmpt-boss attack 攻击")
+        status_text = {"waiting": "Waiting / 等待开始", "fighting": "Fighting / 战斗中", "finished": "Finished / 已结束"}
+        embed.set_footer(text=f"Status / 状态: {status_text.get(room['status'], room['status'])} | /gmpt-boss attack to fight / 攻击")
         return embed
 
     # ══════════════════════════════════════════════════════════

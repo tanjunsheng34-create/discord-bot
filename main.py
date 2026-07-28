@@ -43,13 +43,11 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ── BOT_ROLE: 从 config 导入（兼容环境变量 BOT_ROLE 或 TOKENS 字典） ──
 
-# Common cogs loaded by ALL bots regardless of role
+# Common cogs loaded by ALL bots regardless of role (events/background only, NO slash commands)
 COMMON_COGS = [
-    "cogs.admin_backup",
-    "cogs.daily",
-    "cogs.actions",
     "cogs.voice_tracker",
     "cogs.stats",
+    "cogs.admin_backup",
     "cogs.dashboard",
 ]
 
@@ -75,6 +73,8 @@ ARENA_COGS = {
     "cogs.help",
 }
 FULL_ONLY_COGS = {
+    "cogs.actions",
+    "cogs.daily",
     "cogs.economy",
     "cogs.economy_jobs",
     "cogs.shop",
