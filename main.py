@@ -86,13 +86,13 @@ ROLE_COGS = {
         "cogs.meme",
         "cogs.predict",
         "cogs.guess_champion",
+        "cogs.polls",
     ],
     "arena": [
         "cogs.tournament",
         "cogs.lol",
         "cogs.help",
         "cogs.queue",
-        "cogs.gamelobby",
         "cogs.mmorpg_skills",
         "cogs.mmorpg_pvp",
     ],
@@ -265,7 +265,9 @@ class GMPTBot(commands.Bot):
 
         logger.info(f"Bot online: {self.user} (role={bot_role})")
 
-        # ── Per-guild sync ──
+        # ── Per-guild sync（仅 full 实例） ──
+        if bot_role != "full":
+            return
         total = 0
         for guild in self.guilds:
             self.tree.copy_global_to(guild=guild)
@@ -802,19 +804,21 @@ async def on_ready():
     # Restore data from Discord backup channel (if configured)
     await auto_restore()
     logger.info(f"Bot online: {bot.user}")
-    # ── Per-guild sync：copy global commands → sync to each guild ──
-    # 不调用 clear_commands(guild=None)，避免清空本地命令树导致 sync 0 条。
-    # sync 的覆盖行为会自动替换旧命令，无需手动清除。
-    total = 0
-    for guild in bot.guilds:
-        bot.tree.copy_global_to(guild=guild)
-        try:
-            synced = await bot.tree.sync(guild=guild)
-            logger.info(f"Synced {len(synced)} commands to {guild.name} ({guild.id})")
-            total += len(synced)
-        except Exception as e:
-            logger.error(f"Guild sync error for {guild.name}: {e}")
-    logger.info(f"Total synced: {total} commands across {len(bot.guilds)} guilds")
+    # ── Per-guild sync：copy global commands → sync to each guild（仅 full 实例） ──
+    bot_role = os.getenv("BOT_ROLE", "full")
+    if bot_role != "full":
+        logger.info(f"Single-instance {bot_role} skipped on_ready sync (only full role syncs)")
+    else:
+        total = 0
+        for guild in bot.guilds:
+            bot.tree.copy_global_to(guild=guild)
+            try:
+                synced = await bot.tree.sync(guild=guild)
+                logger.info(f"Synced {len(synced)} commands to {guild.name} ({guild.id})")
+                total += len(synced)
+            except Exception as e:
+                logger.error(f"Guild sync error for {guild.name}: {e}")
+        logger.info(f"Total synced: {total} commands across {len(bot.guilds)} guilds")
 
     # 启动自检：向欢迎频道发一条上线消息，验证频道存在 + 发消息权限
     try:

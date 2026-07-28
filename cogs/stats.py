@@ -23,6 +23,8 @@ class Stats(CogBase):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
+        if getattr(self.bot, "bot_role", "full") != "full":
+            return
         if message.author.bot:
             return
         if not message.guild:
@@ -37,6 +39,8 @@ class Stats(CogBase):
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
+        if getattr(self.bot, "bot_role", "full") != "full":
+            return
         gid = member.guild.id
         self._check_day_reset()
         self.join_count[gid] = self.join_count.get(gid, 0) + 1

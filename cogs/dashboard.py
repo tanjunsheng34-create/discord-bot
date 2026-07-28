@@ -4945,6 +4945,7 @@ class DashboardView(discord.ui.View):
                 ("🎰 博彩中心 / Gambling", "gambling"),
                 ("🕊️ 树洞 / Whisper", "game_whisper"),
                 ("🐉 Boss战 / Boss Battle", "boss"),
+                ("🗡️ MMORPG / MMORPG", "mmorpg_panel"),
             ]
             self._build_grid(btns, rows_of=5)
 
@@ -7785,6 +7786,14 @@ class DashboardView(discord.ui.View):
             ephemeral=True,
         )
 
+    async def _mmorpg_panel(self, interaction: discord.Interaction):
+        """🗡️ MMORPG 系统入口."""
+        await interaction.response.send_message(
+            "🗡️ **MMORPG 系统** 请在聊天框使用 `/gmpt-mmorpg` 打开 MMORPG 主面板。\n"
+            "Use `/gmpt-mmorpg` in chat to open the MMORPG panel.",
+            ephemeral=True,
+        )
+
     async def _lottery(self, interaction: discord.Interaction):
         embed = discord.Embed(title="🎰 彩票系统 / Lottery", description="选择一个操作 / Choose an action:", color=0xF39C12)
         view = LotteryPanelView()
@@ -7835,6 +7844,8 @@ class Dashboard(CogBase):
 
     @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member):
+        if getattr(self.bot, "bot_role", "full") != "full":
+            return
         log_channel = member.guild.get_channel(MEMBER_LEAVE_LOG_CHANNEL_ID)
         if log_channel:
             embed = discord.Embed(

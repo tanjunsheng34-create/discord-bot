@@ -82,6 +82,32 @@ class PotionShop(CogBase):
         return [app_commands.Choice(name=n, value=n) for n in names[:25]]
 
     # ══════════════════════════════════════════════════════════
+    # /gmpt-mmorpg — MMORPG 主面板
+    # ══════════════════════════════════════════════════════════
+    @app_commands.command(name="gmpt-mmorpg", description="🗡️ MMORPG 主面板 / MMORPG Main Panel")
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
+    async def mmorpg_panel(self, interaction: discord.Interaction):
+        """MMORPG 主面板：商店 / 技能 / PVP / Boss 四大入口."""
+        uid = str(interaction.user.id)
+        stats = _get_user_stats(uid)
+        bal = _get_balance(uid)
+
+        embed = discord.Embed(
+            title="🗡️ MMORPG 主面板 / MMORPG Main Panel",
+            description=(
+                f"欢迎来到 GMPT MMORPG 世界！\nWelcome to the GMPT MMORPG world!\n\n"
+                f"❤️ HP: **{stats['hp']}/{stats['max_hp']}**　"
+                f"🔮 MP: **{stats['mp']}/{stats['max_mp']}**\n"
+                f"⚔️ ATK: **{stats['attack']}**　🛡️ DEF: **{stats['defense']}**　"
+                f"⭐ Lv.**{stats['level']}**　🪙 **{bal:,}**\n\n"
+                f"点击下方按钮查看各系统 / Click a button below:"
+            ),
+            color=0x9B59B6,
+        )
+        view = MMORPGMainView(uid)
+        await interaction.response.send_message(embed=embed, view=view)
+
+    # ══════════════════════════════════════════════════════════
     # /gmpt-potionshop group
     # ══════════════════════════════════════════════════════════
     potionshop_group = app_commands.Group(
@@ -403,6 +429,100 @@ class PotionShop(CogBase):
 
         embed.set_footer(text=f"背包中剩余: 查看 /gmpt-potionshop inventory")
         await interaction.response.send_message(embed=embed)
+
+
+class MMORPGMainView(discord.ui.View):
+    """MMORPG 主面板按钮：商店 / 技能 / PVP / Boss."""
+
+    def __init__(self, user_id: str):
+        super().__init__(timeout=180)
+        self.user_id = user_id
+
+    async def _interaction_check(self, interaction: discord.Interaction) -> bool:
+        if str(interaction.user.id) != self.user_id:
+            await interaction.response.send_message("这不是你的面板 / Not your panel.", ephemeral=True)
+            return False
+        return True
+
+    def _build_sub_embed(self, title: str, color: int, desc: str) -> discord.Embed:
+        embed = discord.Embed(title=title, color=color)
+        embed.description = desc
+        embed.set_footer(text="使用方向键或 /gmpt-mmorpg 回到主面板")
+        return embed
+
+    @discord.ui.button(label="🧪 药水商店", style=discord.ButtonStyle.primary, row=0)
+    async def shop_btn(self, interaction: discord.Interaction, button):
+        desc = (
+            "**NPC 药水商店 / Potion Shop**\n\n"
+            "🛒 `/gmpt-potionshop browse` — 浏览所有药水\n"
+            "💰 `/gmpt-potionshop buy <药水名> [数量]` — 购买药水\n"
+            "🎒 `/gmpt-potionshop inventory` — 查看背包\n"
+            "🧪 `/gmpt-potionshop use <药水名>` — 使用药水\n\n"
+            "药水种类：治疗/回蓝/攻击Buff/防御Buff/复活"
+        )
+        await interaction.response.edit_message(
+            embed=self._build_sub_embed("🧪 药水商店 / Potion Shop", 0x3498DB, desc), view=self
+        )
+
+    @discord.ui.button(label="⚔️ 技能", style=discord.ButtonStyle.primary, row=0)
+    async def skills_btn(self, interaction: discord.Interaction, button):
+        desc = (
+            "**技能系统 / Skill System**\n\n"
+            "📚 `!learn <技能名>` — 学习技能\n"
+            "📋 `!skills list` — 查看可学技能\n"
+            "✅ `!equip <技能名>` — 装备技能\n"
+            "❌ `!unequip <技能名>` — 卸下技能\n\n"
+            "技能可在 PVP 和 Boss 战中使用！"
+        )
+        await interaction.response.edit_message(
+            embed=self._build_sub_embed("⚔️ 技能系统 / Skills", 0xE67E22, desc), view=self
+        )
+
+    @discord.ui.button(label="🏆 PVP 对战", style=discord.ButtonStyle.primary, row=0)
+    async def pvp_btn(self, interaction: discord.Interaction, button):
+        desc = (
+            "**PVP 对战系统 / PVP Arena**\n\n"
+            "⚔️ `!pvp_accept` — 接受挑战\n"
+            "🚫 `!pvp_decline` — 拒绝挑战\n"
+            "👊 `/gmpt-duel challenge` — 发起对决\n\n"
+            "使用技能和药水在战斗中获得优势！"
+        )
+        await interaction.response.edit_message(
+            embed=self._build_sub_embed("🏆 PVP 对战 / PVP Arena", 0xE74C3C, desc), view=self
+        )
+
+    @discord.ui.button(label="🐉 Boss 战", style=discord.ButtonStyle.danger, row=0)
+    async def boss_btn(self, interaction: discord.Interaction, button):
+        desc = (
+            "**Boss 战系统 / Boss Battle**\n\n"
+            "👥 `!boss_invite` — 邀请组队\n"
+            "🚫 `!boss_kick` — 踢出成员\n"
+            "⚔️ `!boss_attack` — 攻击 Boss\n"
+            "🧪 `!boss_use_potion` — 使用药水\n\n"
+            "组队挑战强大的 Boss 平分奖励！"
+        )
+        await interaction.response.edit_message(
+            embed=self._build_sub_embed("🐉 Boss 战 / Boss Battle", 0xC0392B, desc), view=self
+        )
+
+    @discord.ui.button(label="🏠 主面板", style=discord.ButtonStyle.secondary, row=1)
+    async def back_btn(self, interaction: discord.Interaction, button):
+        uid = str(interaction.user.id)
+        stats = _get_user_stats(uid)
+        bal = _get_balance(uid)
+        embed = discord.Embed(
+            title="🗡️ MMORPG 主面板 / MMORPG Main Panel",
+            description=(
+                f"欢迎来到 GMPT MMORPG 世界！\nWelcome to the GMPT MMORPG world!\n\n"
+                f"❤️ HP: **{stats['hp']}/{stats['max_hp']}**　"
+                f"🔮 MP: **{stats['mp']}/{stats['max_mp']}**\n"
+                f"⚔️ ATK: **{stats['attack']}**　🛡️ DEF: **{stats['defense']}**　"
+                f"⭐ Lv.**{stats['level']}**　🪙 **{bal:,}**\n\n"
+                f"点击下方按钮查看各系统 / Click a button below:"
+            ),
+            color=0x9B59B6,
+        )
+        await interaction.response.edit_message(embed=embed, view=self)
 
 
 class PotionBrowseView(discord.ui.View):

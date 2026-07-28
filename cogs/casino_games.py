@@ -495,7 +495,6 @@ class HorseRaceView(discord.ui.View):
                     embed.color = 0x2ECC71
                     embed.add_field(name="结果 / Result", value=f"🎉 你的马赢了! / Your horse wins! 🪙 +{payout:,}", inline=False)
                 else:
-                    add_coins(uid, -self.bet, f"赛马输 / Horse race loss (bet on 马{chosen_idx+1}, winner 马{winner+1})")
                     embed.color = 0xE74C3C
                     embed.add_field(name="结果 / Result", value=f"😢 马{winner+1} ({HORSE_EMOJIS[winner]}) 赢了 / 马{winner+1} wins! 🪙 -{self.bet:,}", inline=False)
                 bal = get_balance(uid)

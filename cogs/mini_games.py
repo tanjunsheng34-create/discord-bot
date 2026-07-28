@@ -398,6 +398,8 @@ class MiniGames(CogBase):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
+        if getattr(self.bot, "bot_role", "full") != "full":
+            return
         if message.author.bot:
             return
 

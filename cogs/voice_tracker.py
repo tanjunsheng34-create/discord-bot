@@ -41,6 +41,8 @@ class VoiceTracker(CogBase):
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
         """Track voice channel join/leave and accumulate time."""
+        if getattr(self.bot, "bot_role", "full") != "full":
+            return
         uid = str(member.id)
 
         # User joined a voice channel

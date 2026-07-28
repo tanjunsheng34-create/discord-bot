@@ -387,7 +387,10 @@ class CrashView(discord.ui.View):
                         f"赢利 / Profit: 🪙 **{profit:,}**",
             color=0x2ECC71,
         )
-        await interaction.response.edit_message(embed=embed, view=self)
+        try:
+            await interaction.response.edit_message(embed=embed, view=self)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=embed, view=self)
 
     async def _tick_loop(self):
         while not self.crashed and not self.cashed_out:
@@ -522,7 +525,10 @@ class ScratchView(discord.ui.View):
 
                 for child in self.children:
                     child.disabled = True
-                await interaction.response.edit_message(embed=embed, view=self)
+                try:
+                    await interaction.response.edit_message(embed=embed, view=self)
+                except discord.InteractionResponded:
+                    await interaction.edit_original_response(embed=embed, view=self)
             else:
                 await interaction.response.defer()
 

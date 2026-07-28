@@ -100,6 +100,8 @@ class Daily(CogBase):
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
         """Track daily voice minutes per-user for reward eligibility."""
+        if getattr(self.bot, "bot_role", "full") != "full":
+            return
         if member.bot:
             return
 
