@@ -189,6 +189,24 @@ class GMPTBot(commands.Bot):
                 except Exception as e:
                     logger.warning(f"Failed to send error message: {e}")
 
+        # ── Sync slash commands ──
+        # 优先用 GUILD_ID 环境变量做即时 guild sync，否则用 global sync（最多 1 小时延迟）
+        guild_id = os.getenv("GUILD_ID")
+        if guild_id:
+            try:
+                guild = discord.Object(id=int(guild_id))
+                self.tree.copy_global_to(guild=guild)
+                synced = await self.tree.sync(guild=guild)
+                logger.info(f"[{self.bot_role}] Synced {len(synced)} commands to guild {guild_id}")
+            except Exception as e:
+                logger.error(f"[{self.bot_role}] Guild sync failed for GUILD_ID={guild_id}: {e}")
+        else:
+            try:
+                synced = await self.tree.sync()
+                logger.info(f"[{self.bot_role}] Synced {len(synced)} global commands")
+            except Exception as e:
+                logger.error(f"[{self.bot_role}] Global sync failed: {e}")
+
     async def on_ready(self):
         bot_role = self.bot_role
         if bot_role == "full":
@@ -440,6 +458,23 @@ async def setup_hook(self):
                     )
             except Exception as e:
                 logger.warning(f"Failed to send error message: {e}")
+
+        # ── Sync slash commands ──
+        guild_id = os.getenv("GUILD_ID")
+        if guild_id:
+            try:
+                guild = discord.Object(id=int(guild_id))
+                self.tree.copy_global_to(guild=guild)
+                synced = await self.tree.sync(guild=guild)
+                logger.info(f"Synced {len(synced)} commands to guild {guild_id}")
+            except Exception as e:
+                logger.error(f"Guild sync failed for GUILD_ID={guild_id}: {e}")
+        else:
+            try:
+                synced = await self.tree.sync()
+                logger.info(f"Synced {len(synced)} global commands")
+            except Exception as e:
+                logger.error(f"Global sync failed: {e}")
 
 bot.setup_hook = setup_hook.__get__(bot)
 
