@@ -1,15 +1,15 @@
 """
 GMPT Bot — MMORPG Boss 多人团战系统 / Multiplayer Boss Raid
-/gmpt-boss create     — 创建Boss房间
-/gmpt-boss join       — 加入房间
-/gmpt-boss attack     — 攻击Boss（可选技能）
-/gmpt-boss use-potion — 战斗中使用药水
-/gmpt-boss invite     — 邀请成员
-/gmpt-boss kick       — 踢出成员
-/gmpt-boss status     — 查看战况
-/gmpt-boss dungeon    — 副本列表
-/gmpt-boss leaderboard— 排行榜
-/gmpt-boss stats      — 个人统计
+/gmpt-boss create     — 创建Boss房间 / Create boss room
+/gmpt-boss join       — 加入房间 / Join room
+/gmpt-boss attack     — 攻击Boss（可选技能）/ Attack boss (optional skill)
+/gmpt-boss use-potion — 战斗中使用药水 / Use potion in battle
+/gmpt-boss invite     — 邀请成员 / Invite members
+/gmpt-boss kick       — 踢出成员 / Kick member
+/gmpt-boss status     — 查看战况 / View status
+/gmpt-boss dungeon    — 副本列表 / Dungeon list
+/gmpt-boss leaderboard— 排行榜 / Leaderboard
+/gmpt-boss stats      — 个人统计 / Personal stats
 """
 import asyncio
 import random
@@ -20,12 +20,20 @@ from discord import app_commands
 from discord.ext import commands
 from database import get_db_ctx
 from utils.cog_base import CogBase
+from utils.animations import progress_bar, battle_animation, boss_entrance_animation
 from cogs.economy import get_balance, add_coins
 from cogs.mmorpg_skills import SKILLS
 from cogs.mmorpg_shop import POTION_CATALOG
 import logging
 
 logger = logging.getLogger(__name__)
+
+# ══════════════════════════════════════════════════════════════
+# Module‑level room storage — shared across all Bot instances
+# so Bot 1 (full) and Bot 2 (mmorpg) see each other's rooms.
+# ══════════════════════════════════════════════════════════════
+_boss_rooms: dict[str, dict] = {}
+_boss_rooms_lock = asyncio.Lock()
 
 # ══════════════════════════════════════════════════════════════
 # Boss / Dungeon definitions
@@ -144,7 +152,7 @@ def _get_equipped_skills(uid: str) -> list[dict]:
     return result
 
 
-def _format_bar(current: int, maximum: int, length: int = 10, filled: str = "▰", empty: str = "▱") -> str:
+def _format_bar(current: int, maximum: int, length: int = 10, filled: str = "█", empty: str = "░") -> str:
     ratio = max(0, min(1, current / max(1, maximum)))
     f = int(ratio * length)
     e = length - f
@@ -162,9 +170,8 @@ class BossCog(CogBase):
     def __init__(self, bot):
         super().__init__()
         self.bot = bot
-        # room_id = f"{channel_id}_{message_id}"
-        self.rooms: dict[str, dict] = {}
-        self.boss_lock = asyncio.Lock()
+        # Rooms are stored at module‑level (_boss_rooms) so that
+        # Bot 1 (full) and Bot 2 (mmorpg) share the same data source.
 
     # ══════════════════════════════════════════════════════════
     # Autocomplete: equipped skills for attack command
@@ -360,7 +367,7 @@ class BossCog(CogBase):
         uid = str(interaction.user.id)
 
         # Check existing room in channel
-        for rid, room in self.rooms.items():
+        for rid, room in _boss_rooms.items():
             if room.get("channel_id") == chid and room.get("status") in ("waiting", "fighting"):
                 return await interaction.response.send_message(
                     "本频道已有进行中的 Boss 战！/ Boss battle already in progress!", ephemeral=True)
@@ -431,13 +438,21 @@ class BossCog(CogBase):
             "username": interaction.user.display_name,
         }
 
-        self.rooms[room_id] = room
+        _boss_rooms[room_id] = room
+
+        # 🎬 Boss entrance animation
+        await interaction.response.defer()
+        await boss_entrance_animation(
+            interaction, boss_type, boss["emoji"],
+            diff["label"], 1,
+        )
+        await asyncio.sleep(0.5)
 
         embed = self._build_room_embed(room)
-        await interaction.response.send_message(
-            f"{boss['emoji']} **{interaction.user.display_name}** created a Boss raid / 创建了 Boss 团战房间！\n"
-            f"Use `/gmpt-boss join` within 60s / 60秒内 `/gmpt-boss join` 加入 | "
-            f"Host can `/gmpt-boss invite` / 队长可使用 `/gmpt-boss invite` 邀请成员",
+        await interaction.edit_original_response(
+            content=f"{boss['emoji']} **{interaction.user.display_name}** created a Boss raid / 创建了 Boss 团战房间！\n"
+                    f"Use `/gmpt-boss join` within 60s / 60秒内 `/gmpt-boss join` 加入 | "
+                    f"Host can `/gmpt-boss invite` / 队长可使用 `/gmpt-boss invite` 邀请成员",
             embed=embed,
         )
 
@@ -446,7 +461,7 @@ class BossCog(CogBase):
 
     async def _boss_start_timer(self, room_id: str, channel):
         await asyncio.sleep(60)
-        room = self.rooms.get(room_id)
+        room = _boss_rooms.get(room_id)
         if not room or room["status"] != "waiting":
             return
         if len(room["players"]) < 1:
@@ -764,9 +779,9 @@ class BossCog(CogBase):
             lines.append(dot_log)
 
         # Phase 2 announcement
+        phase_lines = []
         if room["phase"] == 2:
             phase_lines = [
-                "",
                 f"Phase 2! Boss gets stronger! (ATK x1.5) / Boss 进入第二阶段！变得更强了！（攻击力 x1.5）",
                 f"Boss HP restored to {room['boss_max_hp']} / Boss HP 已回复至 {room['boss_max_hp']}！",
             ]
@@ -774,28 +789,51 @@ class BossCog(CogBase):
             if room["boss_hp"] > 0 and room.get("_phase2_announced") != room_id:
                 room["boss_hp"] = room["boss_max_hp"]
                 room["_phase2_announced"] = room_id
-                lines.extend(phase_lines)
-
-        lines.append(boss_log)
-
-        # HP bar
-        lines.append(f"Boss HP: {_format_bar(room['boss_hp'], room['boss_max_hp'])}")
-        if room["phase"] == 2:
-            lines.append(f"Phase: **Phase 2** | Turn: {room['turn']}")
 
         # ═══ Check boss death ═══
+        reward_lines = []
         if room["boss_hp"] <= 0:
             room["status"] = "finished"
             duration_sec = time.time() - room["start_time"]
-            lines.append("")
-            lines.append(f"**{room['boss']['name']}** defeated! / 被击败！({duration_sec:.0f}s)")
-
-            # Distribute rewards
             reward_lines = self._distribute_rewards(room, duration_sec)
-            lines.append("\n**Rewards / 奖励分配:**")
-            lines.extend(reward_lines)
 
-        await interaction.response.send_message("\n".join(lines))
+        # 🎬 Battle animation (3-frame swing)
+        await interaction.response.defer()
+        is_crit = "暴击" in dmg_text or "Critical" in dmg_text
+        is_skill_hit = use_skill and dmg > 0
+        if is_skill_hit and skill_def:
+            anim_base = f"{skill_def['emoji']} {player['username']} {skill_def['name']}"
+        else:
+            anim_base = f"⚔️ {player['username']} 攻击中"
+        for i in range(1, 4):
+            dots = "." * i
+            anim_embed = discord.Embed(description=f"## {anim_base}{dots}", color=0xFF6600)
+            await interaction.edit_original_response(embed=anim_embed)
+            await asyncio.sleep(0.5)
+
+        # Build final result
+        result_lines = [dmg_text]
+        if dot_log:
+            result_lines.append(dot_log)
+        for pl in phase_lines:
+            result_lines.append(pl)
+        result_lines.append(boss_log)
+        result_lines.append(f"Boss HP: {_format_bar(room['boss_hp'], room['boss_max_hp'])}")
+        if room["phase"] == 2:
+            result_lines.append(f"Phase: **Phase 2** | Turn: {room['turn']}")
+
+        if room["boss_hp"] <= 0:
+            duration_sec = time.time() - room["start_time"]
+            result_lines.append("")
+            result_lines.append(f"**{room['boss']['name']}** defeated! / 被击败！({duration_sec:.0f}s)")
+            result_lines.append("\n**Rewards / 奖励分配:**")
+            result_lines.extend(reward_lines)
+
+        result_embed = discord.Embed(
+            description="\n".join(result_lines),
+            color=0xFF0000 if is_crit else 0x5865F2,
+        )
+        await interaction.edit_original_response(content=None, embed=result_embed)
 
         if room["status"] == "finished":
             embed = self._build_room_embed(room, defeated=True)
@@ -1015,7 +1053,7 @@ class BossCog(CogBase):
     # ══════════════════════════════════════════════════════════
 
     def _find_room_by_channel(self, chid: str) -> dict | None:
-        for rid, room in self.rooms.items():
+        for rid, room in _boss_rooms.items():
             if room.get("channel_id") == chid and room.get("status") in ("waiting", "fighting"):
                 return room
         return None
@@ -1040,7 +1078,7 @@ class BossCog(CogBase):
         # Boss HP bar
         embed.add_field(
             name="Boss HP",
-            value=f"```{_format_bar(room['boss_hp'], room['boss_max_hp'], 15)}```",
+            value=f"```{progress_bar(room['boss_hp'], room['boss_max_hp'], 15)}```\n{room['boss_hp']}/{room['boss_max_hp']}",
             inline=False,
         )
 

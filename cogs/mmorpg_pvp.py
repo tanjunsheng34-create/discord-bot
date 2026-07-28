@@ -13,6 +13,7 @@ from discord import app_commands
 from discord.ext import commands
 from database import get_db_ctx
 from utils.cog_base import CogBase
+from utils.animations import progress_bar, pvp_vs_animation
 from cogs.economy import get_balance, add_coins
 from cogs.mmorpg_skills import SKILLS
 from cogs.mmorpg_shop import POTION_CATALOG
@@ -98,7 +99,7 @@ def _consume_potion(uid: str, potion_name: str) -> dict | None:
     return POTION_CATALOG.get(potion_name)
 
 
-def _format_bar(current: int, maximum: int, length: int = 10, filled: str = "▰", empty: str = "▱") -> str:
+def _format_bar(current: int, maximum: int, length: int = 10, filled: str = "█", empty: str = "░") -> str:
     ratio = max(0, min(1, current / max(1, maximum)))
     f = int(ratio * length)
     return filled * f + empty * (length - f) + f" {current}/{maximum}"
@@ -197,19 +198,19 @@ class PVPCog(CogBase):
             return await interaction.response.send_message("不能挑战机器人！/ Can't challenge bots!", ephemeral=True)
 
         if bet < 0 or bet > 10000:
-            return await interaction.response.send_message("赌注范围为 0-10000₲！", ephemeral=True)
+            return await interaction.response.send_message("Bet range: 0-10000₲ / 赌注范围: 0-10000₲！", ephemeral=True)
 
         # Check challenger balance
         chal_bal = get_balance(challenger_id)
         if chal_bal < bet:
             return await interaction.response.send_message(
-                f"余额不足！需要 {bet}₲，当前 {chal_bal}₲", ephemeral=True)
+                f"Insufficient balance! Need {bet}₲, have {chal_bal}₲ / 余额不足！需要 {bet}₲，当前 {chal_bal}₲", ephemeral=True)
 
         # Check defender balance
         def_bal = get_balance(defender_id)
         if def_bal < bet:
             return await interaction.response.send_message(
-                f"{opponent.display_name} 余额不足 {bet}₲！", ephemeral=True)
+                f"{opponent.display_name} doesn't have {bet}₲! / {opponent.display_name} 余额不足 {bet}₲！", ephemeral=True)
 
         # Check if either player is already in an active challenge
         for cid, ch in self.pvp_challenges.items():
@@ -236,17 +237,18 @@ class PVPCog(CogBase):
         }
 
         embed = discord.Embed(
-            title="⚔️ PVP 挑战！",
+            title="PVP Challenge! / PVP 挑战！",
             description=(
+                f"**{interaction.user.mention}** challenged **{opponent.mention}**!\n"
                 f"**{interaction.user.mention}** 向 **{opponent.mention}** 发起了挑战！\n\n"
-                f"💰 赌注: **{bet}₲**\n"
-                f"⏰ {CHALLENGE_TIMEOUT}秒内回复\n\n"
-                f"对手输入 `/gmpt-pvp accept {cid}` 接受\n"
-                f"或 `/gmpt-pvp decline {cid}` 拒绝"
+                f"💰 Bet / 赌注: **{bet}₲**\n"
+                f"⏰ Reply within / {CHALLENGE_TIMEOUT}秒内回复\n\n"
+                f"Use / Type `/gmpt-pvp accept {cid}` to accept / 接受\n"
+                f"or / 或 `/gmpt-pvp decline {cid}` to decline / 拒绝"
             ),
             color=0xE74C3C,
         )
-        embed.set_footer(text=f"挑战ID: {cid}")
+        embed.set_footer(text=f"Challenge ID / 挑战ID: {cid}")
         await interaction.response.send_message(embed=embed)
 
         # Auto-cancel after timeout
@@ -257,7 +259,7 @@ class PVPCog(CogBase):
         ch = self.pvp_challenges.get(cid)
         if ch and ch["status"] == "waiting":
             ch["status"] = "expired"
-            await channel.send(f"⏰ 挑战 #{cid} 已过期 / Challenge expired.")
+            await channel.send(f"⏰ Challenge #{cid} expired / 挑战 #{cid} 已过期")
 
     # ══════════════════════════════════════════════════════════
     # /gmpt-pvp accept
@@ -273,22 +275,22 @@ class PVPCog(CogBase):
 
         ch = self.pvp_challenges.get(challenge_id)
         if not ch:
-            return await interaction.response.send_message("挑战ID无效！/ Invalid challenge ID.", ephemeral=True)
+            return await interaction.response.send_message("Invalid challenge ID / 挑战ID无效！", ephemeral=True)
         if ch["status"] != "waiting":
-            return await interaction.response.send_message("挑战已过期或被取消。/ Challenge expired.", ephemeral=True)
+            return await interaction.response.send_message("Challenge expired or cancelled / 挑战已过期或被取消", ephemeral=True)
         if uid != ch["defender_id"]:
-            return await interaction.response.send_message("你不是被挑战者！/ You are not the defender!", ephemeral=True)
+            return await interaction.response.send_message("You are not the defender! / 你不是被挑战者！", ephemeral=True)
 
         # Check balance again
         def_bal = get_balance(uid)
         if def_bal < ch["bet"]:
             return await interaction.response.send_message(
-                f"余额不足！需要 {ch['bet']}₲，当前 {def_bal}₲", ephemeral=True)
+                f"Insufficient balance! Need {ch['bet']}₲, have {def_bal}₲ / 余额不足！", ephemeral=True)
 
         chal_bal = get_balance(ch["challenger_id"])
         if chal_bal < ch["bet"]:
             ch["status"] = "expired"
-            return await interaction.response.send_message("挑战者余额不足，挑战已取消。", ephemeral=True)
+            return await interaction.response.send_message("Challenger has insufficient funds, challenge cancelled / 挑战者余额不足", ephemeral=True)
 
         ch["status"] = "accepted"
 
@@ -348,8 +350,16 @@ class PVPCog(CogBase):
         }
         self.pvp_rooms[room_id] = room
 
-        await interaction.response.send_message(
-            f"⚔️ **{ch['defender_name']}** 接受了挑战！战斗开始！"
+        # 🎬 PVP VS + Countdown animation
+        await interaction.response.defer()
+        await pvp_vs_animation(interaction, ch["challenger_name"], ch["defender_name"], ch["bet"])
+        await asyncio.sleep(0.5)
+
+        # Edit to show "battle begins" with the first turn embed
+        embed = self._build_pvp_embed(room, "challenger_id", 0)
+        await interaction.edit_original_response(
+            content=f"⚔️ **{ch['defender_name']}** accepted! / **{ch['challenger_name']}** VS **{ch['defender_name']}** — Fight!",
+            embed=embed,
         )
 
         # Start battle loop
@@ -369,15 +379,15 @@ class PVPCog(CogBase):
 
         ch = self.pvp_challenges.get(challenge_id)
         if not ch:
-            return await interaction.response.send_message("挑战ID无效！/ Invalid challenge ID.", ephemeral=True)
+            return await interaction.response.send_message("Invalid challenge ID / 挑战ID无效！", ephemeral=True)
         if ch["status"] != "waiting":
-            return await interaction.response.send_message("挑战已过期或被取消。/ Challenge expired.", ephemeral=True)
+            return await interaction.response.send_message("Challenge expired or cancelled / 挑战已过期或被取消", ephemeral=True)
         if uid != ch["defender_id"]:
-            return await interaction.response.send_message("你不是被挑战者！/ You are not the defender!", ephemeral=True)
+            return await interaction.response.send_message("You are not the defender! / 你不是被挑战者！", ephemeral=True)
 
         ch["status"] = "declined"
         await interaction.response.send_message(
-            f"🏳️ **{ch['defender_name']}** 拒绝了挑战！/ Challenge declined."
+            f"🏳️ **{ch['defender_name']}** declined the challenge! / 拒绝了挑战！"
         )
 
     # ══════════════════════════════════════════════════════════
@@ -410,7 +420,7 @@ class PVPCog(CogBase):
             # Tick dot on opponent before current player acts
             dot_log = ""
             if o_data["dot_dmg"] > 0 and o_data["dot_turns"] > 0:
-                dot_log = f"☠️ {o_data['username']} 受到 {o_data['dot_dmg']} 毒伤！"
+                dot_log = f"☠️ {o_data['username']} poisoned, {o_data['dot_dmg']} damage! / 受到 {o_data['dot_dmg']} 毒伤！"
                 o_data["hp"] = max(0, o_data["hp"] - o_data["dot_dmg"])
                 o_data["dot_turns"] -= 1
                 if o_data["dot_turns"] <= 0:
@@ -430,9 +440,9 @@ class PVPCog(CogBase):
             # Build Select options
             options = [
                 discord.SelectOption(
-                    label="⚔️ 普通攻击",
+                    label="Attack / 普通攻击",
                     value="attack",
-                    description="基础攻击 / Basic attack",
+                    description="Basic attack / 基础攻击",
                 )
             ]
 
@@ -450,15 +460,15 @@ class PVPCog(CogBase):
             potions = _get_pvp_potions(current_id)
             for pot in potions:
                 options.append(discord.SelectOption(
-                    label=f"🧪 {pot['item_name']}",
+                    label=f"{pot['item_name']}",
                     value=f"potion:{pot['item_name']}",
-                    description=f"剩余 {pot['quantity']}个 / {pot['quantity']} left",
+                    description=f"x{pot['quantity']} left / 剩余{pot['quantity']}个",
                 ))
 
             options.append(discord.SelectOption(
-                label="🏳️ 投降",
+                label="Surrender / 投降",
                 value="surrender",
-                description="认输 / Forfeit",
+                description="Forfeit / 认输",
             ))
 
             # Build embed
@@ -482,7 +492,7 @@ class PVPCog(CogBase):
                 await asyncio.wait_for(event.wait(), timeout=TURN_TIMEOUT)
             except asyncio.TimeoutError:
                 result = {"action": "attack"}
-                await channel.send(f"⏰ {p_data['username']} 超时，自动普通攻击！")
+                await channel.send(f"⏰ {p_data['username']} timed out, auto attack! / 超时，自动普攻")
             else:
                 result = view.result or {"action": "attack"}
 
@@ -495,6 +505,23 @@ class PVPCog(CogBase):
             # Process the action
             action = result.get("action", "attack")
             result_msg = self._process_pvp_action(room, current_id, opponent_id, action, result)
+
+            # ⚡ Quick attack animation on the room message
+            if action in ("attack", "skill"):
+                p_data = room["players"][current_id]
+                anim_frames = [
+                    f"⚔️ {p_data['username']} attacking...",
+                    f"⚔️ {p_data['username']} attacking..",
+                    f"⚔️ {p_data['username']} attacking...",
+                ]
+                if room["msg"]:
+                    for frame in anim_frames:
+                        anim_embed = discord.Embed(description=f"## {frame}", color=0xFF6600)
+                        try:
+                            await room["msg"].edit(embed=anim_embed)
+                        except (discord.NotFound, discord.HTTPException):
+                            pass
+                        await asyncio.sleep(0.3)
 
             await channel.send(result_msg)
 
@@ -522,24 +549,27 @@ class PVPCog(CogBase):
         stats = room["stats"].get(current_id, {"total_dmg": 0, "skills_used": 0, "healed": 0})
 
         if action == "surrender":
-            return f"🏳️ **{p_data['username']}** 投降了！/ Surrendered!"
+            return f"🏳️ **{p_data['username']}** surrendered! / 投降了！"
 
         elif action == "attack":
             base_atk = p_data["atk"] + p_data["buff_atk"]
             dmg = base_atk + random.randint(1, 10)
             if random.random() < 0.1:
                 dmg = int(dmg * 2)
-                crit = "暴击！"
+                crit = "💥 CRIT! / 暴击！"
             else:
                 crit = ""
             o_data["hp"] = max(0, o_data["hp"] - dmg)
             stats["total_dmg"] += dmg
-            return f"⚔️ **{p_data['username']}** 普通攻击 {crit}— **{dmg}** 伤害 → {o_data['username']} ({o_data['hp']}/{o_data['max_hp']})"
+            return (
+                f"⚔️ **{p_data['username']}** attack / 攻击 {crit}— "
+                f"**{dmg}** DMG → {o_data['username']} ({o_data['hp']}/{o_data['max_hp']} HP)"
+            )
 
         elif action == "skill":
             skill_id = result.get("skill_id")
             if not skill_id or skill_id not in SKILLS:
-                return f"⚠️ 技能无效，自动普通攻击。"
+                return "⚠️ Invalid skill, auto basic attack / 技能无效，自动普通攻击"
             skill_def = SKILLS[skill_id]
 
             # Check MP
@@ -548,7 +578,7 @@ class PVPCog(CogBase):
                 dmg = p_data["atk"] + random.randint(1, 10)
                 o_data["hp"] = max(0, o_data["hp"] - dmg)
                 stats["total_dmg"] += dmg
-                return f"⚡ MP不足！自动普通攻击 — **{dmg}** 伤害"
+                return f"⚡ Not enough MP! Auto attack — **{dmg}** DMG / MP 不足，自动普攻"
 
             p_data["mp"] -= skill_def["mp_cost"]
             stats["skills_used"] += 1
@@ -557,27 +587,27 @@ class PVPCog(CogBase):
                 dmg = 35
                 o_data["hp"] = max(0, o_data["hp"] - dmg)
                 stats["total_dmg"] += dmg
-                return f"🔥 **火球术！** — {dmg} 伤害 → {o_data['username']} ({o_data['hp']}/{o_data['max_hp']})"
+                return f"🔥 Fireball / 火球术！— {dmg} DMG → {o_data['username']} ({o_data['hp']}/{o_data['max_hp']} HP)"
 
             elif skill_id == "ice_shard":
                 dmg = 25
                 o_data["hp"] = max(0, o_data["hp"] - dmg)
                 stats["total_dmg"] += dmg
-                msg = f"❄️ **冰锥术！** — {dmg} 伤害 → {o_data['username']} ({o_data['hp']}/{o_data['max_hp']})"
+                msg = f"❄️ Ice Shard / 冰锥术！— {dmg} DMG → {o_data['username']} ({o_data['hp']}/{o_data['max_hp']} HP)"
                 if random.random() < 0.3:
                     o_data["frozen"] = True
-                    msg += " | 🧊 对手被冻结！跳过下一回合"
+                    msg += " | 🧊 Frozen! Skip next turn / 冻结！跳过下回合"
                 return msg
 
             elif skill_id == "thunder":
                 dmg = 50
                 o_data["hp"] = max(0, o_data["hp"] - dmg)
                 stats["total_dmg"] += dmg
-                msg = f"⚡ **雷霆一击！** — {dmg} 伤害 → {o_data['username']} ({o_data['hp']}/{o_data['max_hp']})"
+                msg = f"⚡ Thunder Strike / 雷霆一击！— {dmg} DMG → {o_data['username']} ({o_data['hp']}/{o_data['max_hp']} HP)"
                 if random.random() < 0.1:
                     self_dmg = int(dmg * 0.3)
                     p_data["hp"] = max(0, p_data["hp"] - self_dmg)
-                    msg += f" | ⚡ 反噬！自己受到 {self_dmg} 伤害"
+                    msg += f" | ⚡ Backlash! {self_dmg} self-damage / 反噬！自伤 {self_dmg}"
                 return msg
 
             elif skill_id == "heal":
@@ -585,41 +615,45 @@ class PVPCog(CogBase):
                 healed = min(heal_val, p_data["max_hp"] - p_data["hp"])
                 p_data["hp"] += healed
                 stats["healed"] += healed
-                return f"💚 **治愈术！** 恢复了 {healed} HP → ({p_data['hp']}/{p_data['max_hp']})"
+                return f"💚 Heal / 治愈术！Restored {healed} HP → ({p_data['hp']}/{p_data['max_hp']} HP)"
 
             elif skill_id == "berserk":
                 p_data["buff_atk"] += 20
                 p_data["buff_atk_turns"] = 3
-                return f"😡 **狂暴！** 攻击力 +20，持续 3 回合"
+                return f"😡 Berserk / 狂暴！ATK +20 for 3 turns / 攻击力+20，持续3回合"
 
             elif skill_id == "shield":
                 p_data["buff_def"] += 15
                 p_data["buff_def_turns"] = 3
-                return f"🛡️ **圣盾术！** 防御力 +15，持续 3 回合"
+                return f"🛡️ Shield / 圣盾术！DEF +15 for 3 turns / 防御力+15，持续3回合"
 
             elif skill_id == "poison":
                 o_data["dot_dmg"] = skill_def.get("dot", 10)
                 o_data["dot_turns"] = skill_def.get("dot_duration", 3)
-                return f"☠️ **毒雾！** {o_data['username']} 中毒，每回合扣 {o_data['dot_dmg']} HP，持续 {o_data['dot_turns']} 回合"
+                return (
+                    f"☠️ Poison / 毒雾！{o_data['username']} poisoned, "
+                    f"-{o_data['dot_dmg']} HP/turn for {o_data['dot_turns']} turns / "
+                    f"中毒，每回合扣{o_data['dot_dmg']}HP，持续{o_data['dot_turns']}回合"
+                )
 
             elif skill_id == "steal":
                 stolen = int(get_balance(opponent_id) * 0.1)
                 if stolen > 0:
                     add_coins(opponent_id, -stolen, f"PVP: 被 {p_data['username']} 偷窃")
                     add_coins(current_id, stolen, f"PVP: 偷窃 {o_data['username']}")
-                    return f"💰 **偷窃！** 从 {o_data['username']} 偷了 {stolen}₲！"
-                return f"💰 **偷窃！** 但 {o_data['username']} 钱包空空如也..."
+                    return f"💰 Steal / 偷窃！Stole {stolen}₲ from {o_data['username']}！/ 从 {o_data['username']} 偷了 {stolen}₲！"
+                return f"💰 Steal / 偷窃！{o_data['username']} has empty wallet... / 钱包空空"
 
             else:
                 dmg = skill_def.get("damage", 20)
                 o_data["hp"] = max(0, o_data["hp"] - dmg)
                 stats["total_dmg"] += dmg
-                return f"{skill_def['emoji']} **{skill_def['name']}！** — {dmg} 伤害"
+                return f"{skill_def['emoji']} **{skill_def['name']}** — {dmg} DMG / 伤害"
 
         elif action == "potion":
             potion_name = result.get("potion_name")
             if not potion_name:
-                return f"⚠️ 无效药水。"
+                return "⚠️ Invalid potion / 无效药水"
 
             potion = _consume_potion(current_id, potion_name)
             if not potion:
@@ -660,7 +694,7 @@ class PVPCog(CogBase):
                 p_data["mp"] = p_data["max_mp"]
                 return f"✨ {p_data['username']} used **{potion['name_cn']} / {potion['name_en']}** — Revived! HP {p_data['hp']}, MP full / 复活！HP恢复到 {p_data['hp']}，MP全满"
 
-        return f"⚠️ 未知操作。"
+        return "⚠️ Unknown action / 未知操作"
 
     def _tick_buffs(self, p_data: dict):
         if p_data["buff_atk_turns"] > 0:
@@ -701,7 +735,7 @@ class PVPCog(CogBase):
 
         # Build result embed
         embed = discord.Embed(
-            title="⚔️ PVP 战斗结束！/ Battle Over!",
+            title="PVP Battle Over! / PVP 战斗结束！",
             description=result_text,
             color=0xF1C40F if winner_id else 0x95A5A6,
         )
@@ -709,8 +743,8 @@ class PVPCog(CogBase):
         # Winner prize
         if winner_id and bet > 0:
             embed.add_field(
-                name="💰 奖金 / Prize",
-                value=f"**{room['players'][winner_id]['username']}** 赢得了 **{bet}₲**！",
+                name="Prize / 奖金",
+                value=f"**{room['players'][winner_id]['username']}** won / 赢得了 **{bet}₲**！",
                 inline=False,
             )
 
@@ -718,14 +752,14 @@ class PVPCog(CogBase):
         stats_text = ""
         for pid, pdata in room["players"].items():
             s = room["stats"].get(pid, {"total_dmg": 0, "skills_used": 0, "healed": 0})
-            hp_bar = _format_bar(pdata["hp"], pdata["max_hp"], 10)
+            hp_bar = progress_bar(pdata["hp"], pdata["max_hp"], 10)
             stats_text += (
                 f"**{pdata['username']}**\n"
-                f"HP: {hp_bar}\n"
-                f"伤害: {s['total_dmg']} | 技能: {s['skills_used']} | 治疗: {s['healed']}\n\n"
+                f"❤️ HP: {hp_bar}\n"
+                f"🗡️ DMG: {s['total_dmg']} | ⚡ Skills: {s['skills_used']} | 💚 Heal: {s['healed']}\n\n"
             )
-        embed.add_field(name="📊 战斗统计 / Stats", value=stats_text, inline=False)
-        embed.set_footer(text=f"赌注: {bet}₲ | PVP Arena")
+        embed.add_field(name="Battle Stats / 战斗统计", value=stats_text, inline=False)
+        embed.set_footer(text=f"Bet / 赌注: {bet}₲ | PVP Arena / PVP 竞技场")
 
         try:
             await room["msg"].edit(embed=embed, view=None)
@@ -747,18 +781,18 @@ class PVPCog(CogBase):
         def_data = room["players"][def_id]
 
         embed = discord.Embed(
-            title="⚔️ PVP 对战 / Arena Battle",
+            title="PVP Arena / PVP 竞技场",
             color=0xE74C3C,
         )
 
         # Who's turn
         current_id = room[current_key]
         current_name = room["players"][current_id]["username"]
-        embed.description = f"⏳ **{current_name}** 的回合 | 回合 #{turn_count} | 💰 赌注 {room['bet']}₲"
+        embed.description = f"⏳ {current_name} 的回合 / Turn #{turn_count} | 💰 Bet / 赌注 {room['bet']}₲"
 
         for pid, pdata in [(chal_id, chal_data), (def_id, def_data)]:
-            hp_bar = _format_bar(pdata["hp"], pdata["max_hp"])
-            mp_bar = _format_bar(pdata["mp"], pdata["max_mp"], 6)
+            hp_bar = progress_bar(pdata["hp"], pdata["max_hp"])
+            mp_bar = progress_bar(pdata["mp"], pdata["max_mp"], 6)
 
             buffs = []
             if pdata["buff_atk"] > 0:
@@ -766,15 +800,15 @@ class PVPCog(CogBase):
             if pdata["buff_def"] > 0:
                 buffs.append(f"DEF+{pdata['buff_def']}")
             if pdata["frozen"]:
-                buffs.append("❄️冻结")
+                buffs.append("Frozen/冻结")
             if pdata["dot_dmg"] > 0:
-                buffs.append(f"☠️毒({pdata['dot_turns']}T)")
+                buffs.append(f"Poison/毒({pdata['dot_turns']}T)")
             buff_str = f" [{', '.join(buffs)}]" if buffs else ""
 
             value = (
-                f"HP: {hp_bar}\n"
-                f"MP: {mp_bar}\n"
-                f"ATK: {pdata['atk']} | DEF: {pdata['def']}{buff_str}"
+                f"❤️ HP: {hp_bar}\n"
+                f"💙 MP: {mp_bar}\n"
+                f"🗡️ ATK: {pdata['atk']} | 🛡️ DEF: {pdata['def']}{buff_str}"
             )
 
             turn_marker = "⚡ " if pid == current_id else ""
