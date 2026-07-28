@@ -12,10 +12,10 @@ import datetime
 import sqlite3
 import discord
 from discord.ext import commands
-from database import get_db, get_db_ctx, init_db
+from database import get_db, get_db_ctx, init_db, _merge_databases
 from init_new_cogs import init_all_new_tables
 from utils.logger import log_error
-from config import TOKEN, BACKUP_CHANNEL_ID, BACKUP_INTERVAL, BACKUP_TABLES
+from config import TOKEN, TOKENS, BOT_ROLE, BACKUP_CHANNEL_ID, BACKUP_INTERVAL, BACKUP_TABLES
 
 # Text XP cooldown: user_id -> last_xp_time
 _msg_xp_cooldowns: dict[str, float] = {}
@@ -31,8 +31,9 @@ logger = logging.getLogger(__name__)
 # Suppress noisy discord library logs
 logging.getLogger("discord").setLevel(logging.WARNING)
 
-if TOKEN is None:
-    logger.critical("请在 .env 文件中设置 DISCORD_TOKEN")
+# Single-instance mode: require TOKEN
+if BOT_ROLE and not TOKEN and not any(TOKENS.values()):
+    logger.critical("请在 .env 文件中设置 DISCORD_TOKEN 或 TOKEN_* 环境变量")
     exit(1)
 
 intents = discord.Intents.default()
@@ -40,8 +41,7 @@ intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ── BOT_ROLE: load different Cog subsets per bot instance ──
-BOT_ROLE = os.getenv("BOT_ROLE", "full").strip().lower()
+# ── BOT_ROLE: 从 config 导入（兼容环境变量 BOT_ROLE 或 TOKENS 字典） ──
 
 # Common cogs loaded by ALL bots regardless of role
 COMMON_COGS = [
@@ -117,7 +117,277 @@ logger.info(f"BOT_ROLE={BOT_ROLE} → loading {len(COGS)} cogs: {[c.split('.')[-
 
 
 # =============================================================================
-# Global app command error handler
+# GMPTBot class — 支持多实例同容器运行，共享 data.db
+# =============================================================================
+def get_cogs_for_role(role: str) -> list[str]:
+    """根据角色返回要加载的 Cog 列表，与模块级 COGS 逻辑一致。"""
+    role = role.strip().lower()
+    if role == "full":
+        return ALL_COGS
+    if role in ROLE_COGS:
+        return COMMON_COGS + ROLE_COGS[role]
+    logger.warning(f"Unknown role={role!r}, falling back to 'full'")
+    return ALL_COGS
+
+
+class GMPTBot(commands.Bot):
+    """支持 role 属性的 Bot 子类，用于多实例部署。"""
+
+    def __init__(self, role: str = "full"):
+        intents = discord.Intents.default()
+        intents.message_content = True
+        intents.members = True
+        super().__init__(command_prefix="!", intents=intents)
+        self.bot_role = role
+        self.IMAGE_MODE = True
+
+    async def setup_hook(self) -> None:
+        """Register global app command error handler."""
+        @self.tree.error
+        async def on_app_command_error(
+            interaction: discord.Interaction,
+            error: discord.app_commands.AppCommandError,
+        ):
+            if interaction.command is not None and getattr(interaction.command, "_has_error_handler", False):
+                if hasattr(error, "handled"):
+                    return
+                raise error
+
+            if isinstance(error, discord.app_commands.CommandOnCooldown):
+                await interaction.response.send_message(
+                    f"冷却中，请在 {error.retry_after:.0f} 秒后重试 / "
+                    f"On cooldown, retry after {error.retry_after:.0f}s",
+                    ephemeral=True,
+                )
+            elif isinstance(error, discord.app_commands.MissingPermissions):
+                await interaction.response.send_message(
+                    "你没有使用此命令的权限 / You don't have permission.",
+                    ephemeral=True,
+                )
+            elif isinstance(error, discord.app_commands.BotMissingPermissions):
+                await interaction.response.send_message(
+                    "机器人缺少必要权限 / Bot missing required permissions.",
+                    ephemeral=True,
+                )
+            else:
+                logger.error(
+                    f"Unhandled command error in /{interaction.command.qualified_name if interaction.command else 'unknown'}: "
+                    f"{error}",
+                    exc_info=True,
+                )
+                try:
+                    if interaction.response.is_done():
+                        await interaction.followup.send(
+                            "命令执行时发生意外错误，请稍后再试 / An unexpected error occurred, please try again later.",
+                            ephemeral=True,
+                        )
+                    else:
+                        await interaction.response.send_message(
+                            "命令执行时发生意外错误，请稍后再试 / An unexpected error occurred, please try again later.",
+                            ephemeral=True,
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to send error message: {e}")
+
+    async def on_ready(self):
+        bot_role = self.bot_role
+        if bot_role == "full":
+            print("=" * 50)
+            print("GMPT Bot v3.5 已启动 — 欢迎消息使用新版四板块")
+            print("=" * 50)
+        else:
+            print(f"[on_ready] GMPT Bot ({bot_role}) 静默启动完成")
+
+        # ── 启动自检：图片生成依赖 ──
+        dep_status = []
+        try:
+            from PIL import Image, ImageFont, ImageDraw
+            dep_status.append("✅ Pillow OK")
+        except Exception:
+            dep_status.append("❌ Pillow 缺失 → Actions/Meme 将无法生成图片")
+        try:
+            import imageio
+            dep_status.append("✅ imageio OK")
+        except Exception:
+            dep_status.append("❌ imageio 缺失 → Meme 将使用文字模式")
+        font_ok = False
+        for fp in [
+            r"C:\Windows\Fonts\seguiemj.ttf",
+            r"C:\Windows\Fonts\segoeui.ttf",
+            r"C:\Windows\Fonts\msyh.ttc",
+        ]:
+            if os.path.exists(fp):
+                font_ok = True
+                break
+        dep_status.append("✅ 字体 OK" if font_ok else "❌ 字体缺失 → 图片文字可能乱码")
+        print(" | ".join(dep_status))
+
+        if not font_ok:
+            self.IMAGE_MODE = False
+            print("🔴 字体缺失 → 所有图片功能使用纯文字模式")
+
+        # DB init + VACUUM（仅第一个实例执行，避免重复 VACUUM）
+        _once_db_init_lock: bool = getattr(GMPTBot, "_db_initialized", False)
+        if not _once_db_init_lock:
+            GMPTBot._db_initialized = True
+            init_db()
+            init_all_new_tables()
+            try:
+                with get_db_ctx() as conn:
+                    conn.execute("PRAGMA optimize")
+                    conn.execute("VACUUM")
+                logger.info("Database VACUUM completed")
+            except Exception as e:
+                logger.warning(f"Database VACUUM failed (non-critical): {e}")
+            # Auto-restore（也仅执行一次）
+            await auto_restore()
+
+        logger.info(f"Bot online: {self.user} (role={bot_role})")
+
+        # ── Per-guild sync ──
+        total = 0
+        for guild in self.guilds:
+            self.tree.copy_global_to(guild=guild)
+            try:
+                synced = await self.tree.sync(guild=guild)
+                logger.info(f"Synced {len(synced)} commands to {guild.name} ({guild.id})")
+                total += len(synced)
+            except Exception as e:
+                logger.error(f"Guild sync error for {guild.name}: {e}")
+        logger.info(f"Total synced: {total} commands across {len(self.guilds)} guilds")
+
+        # 欢迎频道自检
+        try:
+            for guild in self.guilds:
+                ch = guild.get_channel(1398991787523313675)
+                if ch and ch.permissions_for(guild.me).send_messages:
+                    print(f"[on_ready] 欢迎频道自检 OK: {guild.name} / {ch.name}")
+                elif ch:
+                    print(f"[on_ready] 欢迎频道无发消息权限: {guild.name} / {ch.name}")
+                else:
+                    print(f"[on_ready] 未找到频道 1398991787523313675: {guild.name}")
+        except Exception as e:
+            print(f"[on_ready] 欢迎频道自检异常: {e}")
+
+    async def on_member_join(self, member: discord.Member):
+        if self.bot_role != "full":
+            return
+        print(f"[on_member_join] 触发! member={member.name}, bot={member.bot}")
+        if member.bot:
+            return
+
+        try:
+            embed = discord.Embed(
+                title="👋 Welcome to Gaming Planet! 🪐",
+                description=f"{member.mention} 加入了我们！",
+                color=0xA385FF,
+                timestamp=datetime.datetime.now(),
+            )
+            embed.description += (
+                "\n━━━━━━━━━━━━━━━━\n"
+                "🚀 🔥 ✨ **What to expect here:**\n"
+                "🎮 Active members • Weekly custom matches\n"
+                "🏆 Monthly tournament & giveaways\n"
+                "🎙️ Voice chat & live streams\n"
+                "🌸 Friendly owner & admins\n"
+                "━━━━━━━━━━━━━━━━\n\n"
+                "📖 **快速上手 | Quick Start**\n"
+                "💬 `/gmpt-help`\n"
+                "🎮 `/gmpt-dashboard`\n\n"
+            )
+
+            # 查找 / 生成背景图
+            try:
+                path = os.path.join(os.path.dirname(__file__), "assets", "welcome_bg.png")
+                if os.path.exists(path):
+                    file = discord.File(path, filename="welcome_bg.png")
+                    embed.set_image(url="attachment://welcome_bg.png")
+                    # 发送到 WELCOME_CHANNEL_ID 1398991787523313675
+                    ch = member.guild.get_channel(1398991787523313675)
+                    if ch and ch.permissions_for(member.guild.me).send_messages:
+                        await ch.send(content=member.mention, embed=embed, file=file)
+                        print(f"[on_member_join] 发送完成 → 主频道 {ch.name}")
+                        return
+            except Exception:
+                pass
+
+            # fallback
+            for ch in member.guild.text_channels:
+                if ch.permissions_for(member.guild.me).send_messages:
+                    await ch.send(content=member.mention, embed=embed)
+                    print(f"[on_member_join] 发送完成 → fallback 频道 {ch.name}")
+                    break
+        except Exception as e:
+            print(f"[on_member_join] 异常! {e}")
+            logger.warning(f"Welcome message failed (non-critical): {e}")
+
+    async def on_message(self, message):
+        if message.author.bot:
+            return
+        uid = str(message.author.id)
+
+        try:
+            from cogs.economy import update_weekly_progress
+            update_weekly_progress(uid, "send_message")
+            if message.attachments:
+                update_weekly_progress(uid, "send_attachment", len(message.attachments))
+        except Exception as e:
+            log_error("main", "on_message_weekly", e)
+
+        # ── Text XP: +2 per message, 60s cooldown ──
+        try:
+            now = time.time()
+            last = _msg_xp_cooldowns.get(uid, 0)
+            if now - last >= 60:
+                _msg_xp_cooldowns[uid] = now
+                with get_db_ctx() as conn:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "INSERT INTO users (discord_id, username) VALUES (?, ?) ON CONFLICT(discord_id) DO NOTHING",
+                        (uid, message.author.name),
+                    )
+                    cur.execute("UPDATE users SET xp = xp + 2 WHERE discord_id = ?", (uid,))
+                    cur.execute("SELECT xp, level FROM users WHERE discord_id=?", (uid,))
+                    xp_row = cur.fetchone()
+                    if xp_row:
+                        current_xp = xp_row["xp"]
+                        current_level = xp_row["level"] or 1
+                        while current_xp >= int(current_level ** 1.5 * 100):
+                            current_xp -= int(current_level ** 1.5 * 100)
+                            current_level += 1
+                        if current_level != xp_row["level"]:
+                            cur.execute("UPDATE users SET level = ?, xp = ? WHERE discord_id=?", (current_level, current_xp, uid))
+                    conn.commit()
+        except Exception as e:
+            log_error("main", "on_message_xp", e)
+
+    async def on_reaction_add(self, reaction, user):
+        if user.bot:
+            return
+        try:
+            from cogs.economy import update_weekly_progress
+            update_weekly_progress(str(user.id), "react")
+        except Exception as e:
+            log_error("main", "on_reaction_weekly", e)
+
+
+async def run_bot_instance(token: str, role: str):
+    """启动单个 Bot 实例（多实例模式）。"""
+    bot = GMPTBot(role=role)
+    cogs = get_cogs_for_role(role)
+    logger.info(f"[{role}] 加载 {len(cogs)} 个 cog: {[c.split('.')[-1] for c in cogs]}")
+    for cog in cogs:
+        try:
+            await bot.load_extension(cog)
+            logger.info(f"[{role}] Loaded: {cog}")
+        except Exception as e:
+            logger.error(f"[{role}] FAILED to load {cog}: {e}", exc_info=True)
+            continue
+    await bot.start(token)
+
+
+# =============================================================================
+# Global app command error handler (module-level bot, 单实例模式)
 # =============================================================================
 async def setup_hook(self):
     """Register global on_app_command_error handler."""
@@ -487,28 +757,15 @@ async def on_ready():
     # Restore data from Discord backup channel (if configured)
     await auto_restore()
     logger.info(f"Bot online: {bot.user}")
-    # ── 释放全局命令配额 + 清除 Discord 残留全局命令 ──
-    # 所有 cog 的 @app_commands.command() 默认注册为全局命令，占用 100 条配额。
-    # 先将已有全局命令移至公会作用域，清空全局树。
-    for guild in bot.guilds:
-        bot.tree.copy_global_to(guild=guild)
-    bot.tree.clear_commands(guild=None)
-
-    # 一次性清理：将空命令树同步到 Discord，清除服务端残留全局命令
-    try:
-        await bot.tree.sync()
-        logger.info("Cleared residual global commands from Discord")
-    except Exception as e:
-        logger.error(f"Failed to clear global commands: {e}")
-
-    # cogs.social 已通过 ROLE_COGS["economy"] 在 main() 中加载，此处不再重复加载
-
-    # ── 仅在公会作用域注册命令 ──
+    # ── Per-guild sync：copy global commands → sync to each guild ──
+    # 不调用 clear_commands(guild=None)，避免清空本地命令树导致 sync 0 条。
+    # sync 的覆盖行为会自动替换旧命令，无需手动清除。
     total = 0
     for guild in bot.guilds:
+        bot.tree.copy_global_to(guild=guild)
         try:
             synced = await bot.tree.sync(guild=guild)
-            logger.info(f"Synced {len(synced)} commands for guild {guild.name} ({guild.id})")
+            logger.info(f"Synced {len(synced)} commands to {guild.name} ({guild.id})")
             total += len(synced)
         except Exception as e:
             logger.error(f"Guild sync error for {guild.name}: {e}")
@@ -678,13 +935,43 @@ async def health_check():
 
 
 async def main():
-    # Start background backup loop (pushes to Discord channel)
-    asyncio.create_task(auto_backup_loop())
+    """启动所有 Bot 实例。
 
-    # 启动保活服务
+    单实例模式（BOT_ROLE 已设置）：使用模块级 bot，兼容旧部署。
+    多实例模式（BOT_ROLE 未设置）：为 TOKENS 中每个有值的角色启动一个 GMPTBot。
+    """
+    # 保活服务 + 备份循环（全局只启动一次，使用模块级 bot）
     asyncio.create_task(health_server())
     asyncio.create_task(health_check())
+    asyncio.create_task(auto_backup_loop())
 
+    # ── 多实例模式 ──
+    if not BOT_ROLE:
+        logger.info("多实例模式启动中...")
+        # 合并数据库（如果存在多个旧 data*.db 文件）
+        _merge_databases()
+
+        tasks = []
+        for role, token in [
+            ("full", TOKENS.get("full", "")),
+            ("economy", TOKENS.get("economy", "")),
+            ("community", TOKENS.get("community", "")),
+            ("arena", TOKENS.get("arena", "")),
+            ("gambling", TOKENS.get("gambling", "")),
+        ]:
+            if token:
+                logger.info(f"启动 {role} 实例...")
+                tasks.append(run_bot_instance(token, role))
+
+        if not tasks:
+            logger.critical("没有配置任何 TOKEN_* 环境变量！")
+            return
+
+        await asyncio.gather(*tasks)
+        return
+
+    # ── 单实例模式（向后兼容） ──
+    logger.info(f"单实例模式：BOT_ROLE={BOT_ROLE}")
     for cog in COGS:
         try:
             await bot.load_extension(cog)

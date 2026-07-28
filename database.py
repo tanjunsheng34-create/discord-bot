@@ -852,3 +852,144 @@ def init_db():
 
     conn.commit()
     conn.close()
+
+
+# =============================================================================
+# 数据库合并 — 多实例迁移：4 容器各自 data.db → 统一 data.db
+# =============================================================================
+def _merge_databases():
+    """检测并合并多个旧 data*.db 文件到主 data.db。
+
+    合并策略：
+    - users 表：同一 user_id 的 score（balance）累加
+    - user_inventory：同一 user_id + item_id 合并去重，quantity 累加
+    - transactions / voice_tracker 等：全部合并
+    - player_skills：同一 user_id + skill_id 保留最高 level
+    - 合并完成后旧 DB 重命名为 .bak
+    """
+    import os as _os
+    import glob as _glob
+    import shutil as _shutil
+
+    db_dir = _os.path.dirname(DATABASE) or "."
+    main_db_path = DATABASE
+
+    # 扫描 data*.db（排除主 data.db）
+    candidates = [
+        p for p in _glob.glob(_os.path.join(db_dir, "data*.db"))
+        if _os.path.abspath(p) != _os.path.abspath(main_db_path)
+    ]
+    if not candidates:
+        return  # 没有需要合并的副 DB
+
+    logger.info(f"检测到 {len(candidates)} 个副数据库，开始合并...")
+
+    # 要合并的表（按合并策略分类）
+    sum_tables = {"users": ("discord_id", "score")}
+    inventory_tables = {"user_inventory": ("user_id", "item_id", "quantity")}
+    skill_tables = {"player_skills": ("user_id", "skill_id", "level", "equipped")}
+    append_tables = [
+        "transactions", "voice_tracker", "daily_checkin", "game_limits",
+        "achievements", "user_achievements", "active_effects", "daily_tasks",
+        "active_buffs", "tournaments", "registrations", "teams", "results",
+        "matches", "match_signups", "bets", "active_bets", "job_cooldowns",
+    ]
+
+    with get_db_ctx() as main_conn:
+        main_cur = main_conn.cursor()
+
+        for side_db_path in candidates:
+            logger.info(f"合并: {side_db_path}")
+            try:
+                side_conn = sqlite3.connect(side_db_path, timeout=30)
+                side_conn.row_factory = sqlite3.Row
+                side_cur = side_conn.cursor()
+
+                # 1. 累加表（users → score 累加）
+                for table, (key_col, val_col) in sum_tables.items():
+                    try:
+                        side_cur.execute(f"SELECT * FROM {table}")
+                        for row in side_cur.fetchall():
+                            row_dict = dict(row)
+                            if key_col in row_dict and val_col in row_dict:
+                                main_cur.execute(
+                                    f"INSERT INTO {table} ({key_col}, {val_col}, username, created_at) "
+                                    f"VALUES (?, ?, ?, ?) "
+                                    f"ON CONFLICT({key_col}) DO UPDATE SET "
+                                    f"{val_col} = {val_col} + excluded.{val_col}",
+                                    (row_dict[key_col], row_dict.get(val_col, 0),
+                                     row_dict.get("username", ""), row_dict.get("created_at", "")),
+                                )
+                    except sqlite3.OperationalError:
+                        pass
+
+                # 2. 仓库表（user_inventory → quantity 累加）
+                for table, (uid_col, item_col, qty_col) in inventory_tables.items():
+                    try:
+                        side_cur.execute(f"SELECT * FROM {table}")
+                        for row in side_cur.fetchall():
+                            row_dict = dict(row)
+                            if uid_col in row_dict and item_col in row_dict:
+                                main_cur.execute(
+                                    f"INSERT INTO {table} ({uid_col}, {item_col}, {qty_col}) "
+                                    f"VALUES (?, ?, ?) "
+                                    f"ON CONFLICT({uid_col}, {item_col}) DO UPDATE SET "
+                                    f"{qty_col} = {qty_col} + excluded.{qty_col}",
+                                    (row_dict[uid_col], row_dict[item_col], row_dict.get(qty_col, 1)),
+                                )
+                    except sqlite3.OperationalError:
+                        pass
+
+                # 3. 技能表（player_skills → 保留最高 level / equipped）
+                for table, (uid_col, sid_col, lvl_col, eq_col) in skill_tables.items():
+                    try:
+                        side_cur.execute(f"SELECT * FROM {table}")
+                        for row in side_cur.fetchall():
+                            row_dict = dict(row)
+                            if uid_col in row_dict and sid_col in row_dict:
+                                main_cur.execute(
+                                    f"INSERT INTO {table} ({uid_col}, {sid_col}, {lvl_col}, {eq_col}) "
+                                    f"VALUES (?, ?, ?, ?) "
+                                    f"ON CONFLICT({uid_col}, {sid_col}) DO UPDATE SET "
+                                    f"{lvl_col} = MAX({lvl_col}, excluded.{lvl_col}), "
+                                    f"{eq_col} = MAX({eq_col}, excluded.{eq_col})",
+                                    (row_dict[uid_col], row_dict[sid_col],
+                                     row_dict.get(lvl_col, 1), row_dict.get(eq_col, 0)),
+                                )
+                    except sqlite3.OperationalError:
+                        pass
+
+                # 4. 追加表（直接 INSERT OR IGNORE）
+                for table in append_tables:
+                    try:
+                        # 获取表列名
+                        side_cur.execute(f"SELECT * FROM {table} LIMIT 0")
+                        cols = [d[0] for d in side_cur.description]
+                        placeholders = ", ".join(["?"] * len(cols))
+                        col_names = ", ".join(cols)
+
+                        side_cur.execute(f"SELECT * FROM {table}")
+                        for row in side_cur.fetchall():
+                            vals = [row[c] for c in cols]
+                            try:
+                                main_cur.execute(
+                                    f"INSERT OR IGNORE INTO {table} ({col_names}) VALUES ({placeholders})",
+                                    vals,
+                                )
+                            except sqlite3.OperationalError:
+                                pass
+                    except sqlite3.OperationalError:
+                        pass
+
+                side_conn.close()
+                main_conn.commit()
+
+                # 重命名为 .bak
+                bak_path = side_db_path + ".bak"
+                _shutil.move(side_db_path, bak_path)
+                logger.info(f"已备份: {_os.path.basename(side_db_path)} → {_os.path.basename(bak_path)}")
+
+            except Exception as e:
+                logger.warning(f"合并 {side_db_path} 失败: {e}")
+
+    logger.info("数据库合并完成")

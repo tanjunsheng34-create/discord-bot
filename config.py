@@ -20,6 +20,21 @@ TIER_SCORE = {
 }
 
 TOKEN: Optional[str] = os.getenv("DISCORD_TOKEN")
+
+# ── 多实例 TOKEN 字典 ──
+# 不设置 BOT_ROLE 时为多实例模式，每个角色独立 TOKEN
+TOKENS: dict = {
+    "full": os.getenv("TOKEN_FULL", ""),
+    "economy": os.getenv("TOKEN_ECONOMY", ""),
+    "community": os.getenv("TOKEN_COMMUNITY", ""),
+    "arena": os.getenv("TOKEN_ARENA", ""),
+    "gambling": os.getenv("TOKEN_GAMBLING", ""),
+}
+
+# 向后兼容：BOT_ROLE 指定时走单实例模式
+BOT_ROLE = os.getenv("BOT_ROLE", "").strip().lower()
+if BOT_ROLE:
+    TOKEN = TOKENS.get(BOT_ROLE, TOKEN) if BOT_ROLE in TOKENS else TOKEN
 RIOT_API_KEY: str = os.getenv("RIOT_API_KEY", "")
 
 # 自动备份配置 (Discord channel-based)
