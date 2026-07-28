@@ -705,41 +705,94 @@ class MMORPGMainView(discord.ui.View):
                 embed=self._build_sub_embed("Boss Raid / Boss 团战", 0xC0392B, desc), view=self
             )
 
-    # Row 1: Dungeon (placeholder), Equipment (placeholder), Daily Quest (placeholder), Back
-    @discord.ui.button(label="Dungeon / 地下城", style=discord.ButtonStyle.secondary, row=1, emoji="🏰", disabled=True)
+    # Row 1: Dungeon, Equipment, Daily Quest, Class, Back
+    @discord.ui.button(label="Dungeon / 地下城", style=discord.ButtonStyle.secondary, row=1, emoji="🏰")
     async def dungeon_btn(self, interaction: discord.Interaction, button):
-        desc = "**Dungeon / 地下城** — 开发中 In Development"
+        desc = (
+            "**Dungeon / 地下城**\n\n"
+            "🏰 `/gmpt-dungeon explore` — Start dungeon run / 开始探索\n"
+            "📊 5 层随机怪物，每日免费 1 次\n"
+            "📊 5 floors, 1 free daily run\n"
+            "💵 Extra runs / 额外: 200G\n\n"
+            "Each floor yields increasing rewards!"
+        )
         try:
             await interaction.response.edit_message(
-                embed=self._build_sub_embed("Dungeon / 地下城", 0x7F8C8D, desc), view=self
+                embed=self._build_sub_embed("Dungeon / 地下城", 0x8E44AD, desc), view=self
             )
         except discord.InteractionResponded:
             await interaction.edit_original_response(
-                embed=self._build_sub_embed("Dungeon / 地下城", 0x7F8C8D, desc), view=self
+                embed=self._build_sub_embed("Dungeon / 地下城", 0x8E44AD, desc), view=self
             )
 
-    @discord.ui.button(label="Equipment / 装备", style=discord.ButtonStyle.secondary, row=1, emoji="🗡️", disabled=True)
+    @discord.ui.button(label="Equipment / 装备", style=discord.ButtonStyle.secondary, row=1, emoji="🗡️")
     async def equipment_btn(self, interaction: discord.Interaction, button):
-        desc = "**Equipment / 装备系统** — 开发中 In Development"
+        desc = (
+            "**Equipment System / 装备系统**\n\n"
+            "⚔️ Weapon 武器 (ATK) | 🛡️ Armor 护甲 (DEF)\n"
+            "⛑️ Helmet 头盔 (HP) | 💍 Ring 戒指 (Crit)\n"
+            "📿 Accessory 饰品 (SPD)\n\n"
+            "💎 品质 / Quality: ⚪普通 🔵稀有 🟣史诗 🟡传说\n"
+            "Boss 掉落 / Shop / `/gmpt-equipment` to manage"
+        )
         try:
             await interaction.response.edit_message(
-                embed=self._build_sub_embed("Equipment / 装备系统", 0x7F8C8D, desc), view=self
+                embed=self._build_sub_embed("Equipment System / 装备系统", 0xE67E22, desc), view=self
             )
         except discord.InteractionResponded:
             await interaction.edit_original_response(
-                embed=self._build_sub_embed("Equipment / 装备系统", 0x7F8C8D, desc), view=self
+                embed=self._build_sub_embed("Equipment System / 装备系统", 0xE67E22, desc), view=self
             )
 
-    @discord.ui.button(label="Daily Quest / 每日任务", style=discord.ButtonStyle.secondary, row=1, emoji="📋", disabled=True)
+    @discord.ui.button(label="Daily Quest / 每日任务", style=discord.ButtonStyle.secondary, row=1, emoji="📋")
     async def daily_quest_btn(self, interaction: discord.Interaction, button):
-        desc = "**Daily Quest / 每日任务** — 开发中 In Development"
+        desc = (
+            "**Daily Quests / 每日任务**\n\n"
+            "📋 每日 3 个随机任务 / 3 random quests daily\n"
+            "🕛 UTC+8 午夜重置 / Resets at midnight UTC+8\n\n"
+            "Tasks: 杀怪 / 打工 / PVP / 购物 / 用药水\n"
+            "Use `/gmpt-daily` to view your quests"
+        )
         try:
             await interaction.response.edit_message(
-                embed=self._build_sub_embed("Daily Quest / 每日任务", 0x7F8C8D, desc), view=self
+                embed=self._build_sub_embed("Daily Quests / 每日任务", 0x3498DB, desc), view=self
             )
         except discord.InteractionResponded:
             await interaction.edit_original_response(
-                embed=self._build_sub_embed("Daily Quest / 每日任务", 0x7F8C8D, desc), view=self
+                embed=self._build_sub_embed("Daily Quests / 每日任务", 0x3498DB, desc), view=self
+            )
+
+    @discord.ui.button(label="Class / 职业", style=discord.ButtonStyle.secondary, row=1, emoji="🎭")
+    async def class_btn(self, interaction: discord.Interaction, button):
+        from cogs.mmorpg_class import CLASS_DEFS, _get_class
+        uid = str(interaction.user.id)
+        current_key = _get_class(uid)
+        lines = []
+        if current_key:
+            cd = CLASS_DEFS.get(current_key)
+            if cd:
+                lines.append(
+                    f"**当前职业 / Current:** {cd['emoji']} **{cd['name_cn']} / {cd['name_en']}**\n"
+                    f"　{cd['passive_cn']}\n"
+                )
+        else:
+            lines.append("**未选择 / None selected**\n")
+        lines.append("")
+        lines.append(
+            "⚔️ 战士 Warrior | 🔮 法师 Mage | 🗡️ 刺客 Assassin\n"
+            "✝️ 牧师 Priest | 🛡️ 圣骑士 Paladin | 🏹 弓箭手 Archer\n\n"
+            "**Choose:** `/gmpt-class choose <class>`\n"
+            "**View:** `/gmpt-class info`\n"
+            "首次免费 / First free | 更换 500G / Change 500G"
+        )
+        desc = "\n".join(lines)
+        try:
+            await interaction.response.edit_message(
+                embed=self._build_sub_embed("Class System / 职业系统", 0x9B59B6, desc), view=self
+            )
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(
+                embed=self._build_sub_embed("Class System / 职业系统", 0x9B59B6, desc), view=self
             )
 
     @discord.ui.button(label="Main Panel / 主面板", style=discord.ButtonStyle.success, row=1, emoji="🏠")

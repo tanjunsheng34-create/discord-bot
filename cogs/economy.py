@@ -102,6 +102,16 @@ DEFAULT_SHOP = [
     {"name": "金条 (Gold Bar)", "desc": "收藏品，可交易 / Collectible, tradeable", "price": 5000, "type": "gold_bar", "emoji": "🟨", "category": "💎 收集品 Collectibles"},
     {"name": "钻石 (Diamond)", "desc": "收藏品，可交易 / Collectible, tradeable", "price": 10000, "type": "diamond", "emoji": "💎", "category": "💎 收集品 Collectibles"},
     {"name": "宝箱钥匙 (Treasure Key)", "desc": "开启宝箱获得随机物品 / Open chest for random item", "price": 800, "type": "treasure_key", "emoji": "🗝️", "category": "💎 收集品 Collectibles"},
+
+    # 👗 外观 Cosmetics
+    {"name": "王者皇冠 (King's Crown)", "desc": "称号前缀 [王] / Title prefix [King]", "price": 5000, "type": "cosm_king_crown", "emoji": "👑", "category": "👗 外观 Cosmetics"},
+    {"name": "忍者面具 (Ninja Mask)", "desc": "称号前缀 [忍] / Title prefix [Ninja]", "price": 3000, "type": "cosm_ninja_mask", "emoji": "🎭", "category": "👗 外观 Cosmetics"},
+    {"name": "天使翅膀 (Angel Wings)", "desc": "称号前缀 [天使] / Title prefix [Angel]", "price": 4000, "type": "cosm_angel_wings", "emoji": "👼", "category": "👗 外观 Cosmetics"},
+    {"name": "恶魔之角 (Demon Horns)", "desc": "称号前缀 [恶魔] / Title prefix [Demon]", "price": 4000, "type": "cosm_demon_horns", "emoji": "😈", "category": "👗 外观 Cosmetics"},
+    {"name": "彩虹披风 (Rainbow Cape)", "desc": "称号前缀 [🌈] / Title prefix [🌈]", "price": 3500, "type": "cosm_rainbow_cape", "emoji": "🌈", "category": "👗 外观 Cosmetics"},
+    {"name": "黄金铠甲 (Golden Armor)", "desc": "称号前缀 [金] / Title prefix [Gold]", "price": 6000, "type": "cosm_golden_armor", "emoji": "🛡️", "category": "👗 外观 Cosmetics"},
+    {"name": "暗影斗篷 (Shadow Cloak)", "desc": "称号前缀 [影] / Title prefix [Shadow]", "price": 4500, "type": "cosm_shadow_cloak", "emoji": "🌑", "category": "👗 外观 Cosmetics"},
+    {"name": "火焰光环 (Fire Aura)", "desc": "称号前缀 [🔥] / Title prefix [🔥]", "price": 5500, "type": "cosm_fire_aura", "emoji": "🔥", "category": "👗 外观 Cosmetics"},
 ]
 
 ACHIEVEMENTS = [
@@ -282,6 +292,7 @@ CATEGORY_COLORS = {
     "🎭 Discord道具": 0x9B59B6,
     "🧪 消耗品 Consumables": 0x1ABC9C,
     "💎 收集品 Collectibles": 0xE91E63,
+    "👗 外观 Cosmetics": 0xFF69B4,
 }
 
 
@@ -336,6 +347,15 @@ ITEM_DISPLAY = {
     "gold_bar":         "金条 Gold Bar — 收藏品，可交易 Collectible, tradeable",
     "diamond":          "钻石 Diamond — 收藏品，可交易 Collectible, tradeable",
     "treasure_key":     "宝箱钥匙 Treasure Key — 开启宝箱得随机物品 Open chest",
+    # 👗 外观
+    "cosm_king_crown":     "王者皇冠 King's Crown — 称号前缀 [王] Title prefix [King]",
+    "cosm_ninja_mask":     "忍者面具 Ninja Mask — 称号前缀 [忍] Title prefix [Ninja]",
+    "cosm_angel_wings":    "天使翅膀 Angel Wings — 称号前缀 [天使] Title prefix [Angel]",
+    "cosm_demon_horns":    "恶魔之角 Demon Horns — 称号前缀 [恶魔] Title prefix [Demon]",
+    "cosm_rainbow_cape":   "彩虹披风 Rainbow Cape — 称号前缀 [🌈] Title prefix [🌈]",
+    "cosm_golden_armor":   "黄金铠甲 Golden Armor — 称号前缀 [金] Title prefix [Gold]",
+    "cosm_shadow_cloak":   "暗影斗篷 Shadow Cloak — 称号前缀 [影] Title prefix [Shadow]",
+    "cosm_fire_aura":      "火焰光环 Fire Aura — 称号前缀 [🔥] Title prefix [🔥]",
 }
 
 
@@ -368,6 +388,7 @@ class MainMenuView(discord.ui.View):
         ("🎭 Discord", "🎭 Discord道具", 1),
         ("🧪 消耗品",  "🧪 消耗品 Consumables", 2),
         ("💎 收集品",  "💎 收集品 Collectibles", 2),
+        ("👗 外观",    "👗 外观 Cosmetics", 2),
     ]
 
     def __init__(self, all_items, categories, user_id, bal):
@@ -468,6 +489,9 @@ class ShopView(discord.ui.View):
                 "giveaway_ticket": "抽奖券", "queue_skip": "插队", "mode_pick": "自选模式",
                 "double_coin": "双倍金币", "death_protect": "免死金牌", "lucky_charm": "幸运符",
                 "work_accel": "打工加速", "gold_bar": "金条", "diamond": "钻石", "treasure_key": "宝箱钥匙",
+                "cosm_king_crown": "皇冠", "cosm_ninja_mask": "面具", "cosm_angel_wings": "天使翅膀",
+                "cosm_demon_horns": "恶魔角", "cosm_rainbow_cape": "🌈披风", "cosm_golden_armor": "黄金甲",
+                "cosm_shadow_cloak": "暗影斗篷", "cosm_fire_aura": "🔥光环",
             }
             label = label_map.get(it["item_type"], it["name"][:8])
             btn = discord.ui.Button(

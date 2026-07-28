@@ -277,3 +277,197 @@ async def pvp_vs_animation(interaction_or_msg, p1_name: str, p2_name: str, bet: 
             await interaction_or_msg.edit(embed=embed)
     except (discord.NotFound, discord.HTTPException):
         pass
+
+
+# ══════════════════════════════════════════════════════════════
+# Internal helper — safe edit
+# ══════════════════════════════════════════════════════════════
+
+async def _safe_edit(interaction_or_msg, embed: discord.Embed):
+    """Edit interaction original response or message, swallowing HTTP errors."""
+    try:
+        if isinstance(interaction_or_msg, discord.Interaction):
+            await interaction_or_msg.edit_original_response(embed=embed)
+        else:
+            await interaction_or_msg.edit(embed=embed)
+    except (discord.NotFound, discord.HTTPException):
+        pass
+
+
+# ══════════════════════════════════════════════════════════════
+# Purchase Success Animation / 购买成功闪光动画
+# ══════════════════════════════════════════════════════════════
+
+async def purchase_success_animation(interaction_or_msg, item_name: str,
+                                     item_emoji: str = "🛍️", price: int = 0,
+                                     balance: int | None = None):
+    """✨ Sparkle effect + item icon pop-out on successful purchase.
+
+    Args:
+        interaction_or_msg: discord.Interaction (deferred) or discord.Message
+        item_name: Item display name (bilingual OK)
+        item_emoji: Item emoji icon
+        price: Price paid
+        balance: Remaining balance (optional)
+    """
+    sparkle_frames = [
+        f"## ✨ {item_emoji} ✨",
+        f"## ✨💫 {item_emoji} 💫✨",
+        f"# 🌟✨💫 {item_emoji} 💫✨🌟",
+    ]
+    for frame in sparkle_frames:
+        embed = discord.Embed(description=frame, color=0xF1C40F)
+        await _safe_edit(interaction_or_msg, embed)
+        await asyncio.sleep(0.5)
+
+    desc = (f"# {item_emoji} 购买成功！/ Purchase Success!\n\n"
+            f"**{item_name}**\n"
+            f"💰 花费 / Cost: 🪙 **{price:,}**")
+    if balance is not None:
+        desc += f"\n💳 余额 / Balance: 🪙 **{balance:,}**"
+    embed = discord.Embed(description=desc, color=0x2ECC71)
+    await _safe_edit(interaction_or_msg, embed)
+
+
+# ══════════════════════════════════════════════════════════════
+# Loot Drop Animation / 掉落庆祝动画
+# ══════════════════════════════════════════════════════════════
+
+async def loot_animation(interaction_or_msg, loot_name: str,
+                         loot_emoji: str = "🎁", rarity: str = ""):
+    """🎉 Celebration animation for boss loot / chest drops.
+
+    Args:
+        interaction_or_msg: discord.Interaction (deferred) or discord.Message
+        loot_name: Loot display name (bilingual OK)
+        loot_emoji: Loot emoji
+        rarity: Rarity label, e.g. '🟡 传说 Legendary'
+    """
+    frames = [
+        "## 📦 ...",
+        "## 📦 ❗",
+        "## 📦💥",
+        f"# 🎉 {loot_emoji} 🎉",
+    ]
+    for frame in frames:
+        embed = discord.Embed(description=frame, color=0xE67E22)
+        await _safe_edit(interaction_or_msg, embed)
+        await asyncio.sleep(0.55)
+
+    desc = (f"# 🎉 获得战利品！/ Loot Acquired!\n\n"
+            f"{loot_emoji} **{loot_name}**")
+    if rarity:
+        desc += f"\n品质 / Rarity: {rarity}"
+    desc += "\n\n🎊🎊🎊"
+    embed = discord.Embed(description=desc, color=0xF39C12)
+    await _safe_edit(interaction_or_msg, embed)
+
+
+# ══════════════════════════════════════════════════════════════
+# Class Select Animation / 职业选择粒子动画
+# ══════════════════════════════════════════════════════════════
+
+async def class_select_animation(interaction_or_msg, class_name: str,
+                                 class_emoji: str = "🌟"):
+    """🌟 Particle effect when a class is chosen.
+
+    Args:
+        interaction_or_msg: discord.Interaction (deferred) or discord.Message
+        class_name: Class display name (bilingual OK)
+        class_emoji: Class emoji
+    """
+    frames = [
+        f"## ⭐ {class_emoji}",
+        f"## 🌟⭐ {class_emoji} ⭐🌟",
+        f"# ✨🌟💫 {class_emoji} 💫🌟✨",
+    ]
+    for frame in frames:
+        embed = discord.Embed(description=frame, color=0x9B59B6)
+        await _safe_edit(interaction_or_msg, embed)
+        await asyncio.sleep(0.55)
+
+    embed = discord.Embed(
+        description=(f"# {class_emoji} 转职成功！/ Class Selected!\n\n"
+                     f"你现在是 **{class_name}**！\nYou are now a **{class_name}**!\n\n"
+                     f"🌟✨💫✨🌟"),
+        color=0x8E44AD,
+    )
+    await _safe_edit(interaction_or_msg, embed)
+
+
+# ══════════════════════════════════════════════════════════════
+# Card Flip Animation / 翻牌动画
+# ══════════════════════════════════════════════════════════════
+
+async def card_flip_animation(interaction_or_msg, card_display: str,
+                              title: str = "🎴 翻牌 / Card Flip"):
+    """Flip a face-down card to reveal its value.
+
+    Args:
+        interaction_or_msg: discord.Interaction (deferred) or discord.Message
+        card_display: Final card text, e.g. 'K♠'
+        title: Embed title
+    """
+    frames = ["## 🂠", "## 🂠 ↻", "## 🂠 ↺"]
+    for frame in frames:
+        embed = discord.Embed(title=title, description=frame, color=0x3498DB)
+        await _safe_edit(interaction_or_msg, embed)
+        await asyncio.sleep(0.5)
+
+    embed = discord.Embed(title=title, description=f"# {card_display}", color=0x2ECC71)
+    await _safe_edit(interaction_or_msg, embed)
+
+
+# ══════════════════════════════════════════════════════════════
+# Roulette Spin Animation / 轮盘旋转动画
+# ══════════════════════════════════════════════════════════════
+
+async def roulette_spin_animation(interaction_or_msg, result_number: int,
+                                  result_color: str):
+    """Spin the roulette wheel then reveal the result number.
+
+    Args:
+        interaction_or_msg: discord.Interaction (deferred) or discord.Message
+        result_number: Winning number (0-36)
+        result_color: '🔴' or '⚫' (or '🟢' for 0)
+    """
+    import random as _random
+    spin_frames = []
+    for _ in range(4):
+        fake = _random.randint(1, 36)
+        fake_color = _random.choice(["🔴", "⚫"])
+        spin_frames.append(f"## 🎡 旋转中... / Spinning...\n# {fake_color} {fake}")
+    for frame in spin_frames:
+        embed = discord.Embed(description=frame, color=0xE74C3C)
+        await _safe_edit(interaction_or_msg, embed)
+        await asyncio.sleep(0.6)
+
+    embed = discord.Embed(
+        description=f"## 🎡 轮盘停止！/ Wheel stopped!\n# {result_color} **{result_number}**",
+        color=0xF1C40F,
+    )
+    await _safe_edit(interaction_or_msg, embed)
+
+
+# ══════════════════════════════════════════════════════════════
+# Number Reveal Animation / 数字揭示动画
+# ══════════════════════════════════════════════════════════════
+
+async def number_reveal_animation(interaction_or_msg, number: int,
+                                  title: str = "🔢 数字揭示 / Number Reveal"):
+    """Reveal a hidden number with a scramble effect.
+
+    Args:
+        interaction_or_msg: discord.Interaction (deferred) or discord.Message
+        number: The final number to reveal
+        title: Embed title
+    """
+    import random as _random
+    for _ in range(3):
+        fake = _random.randint(1, 100)
+        embed = discord.Embed(title=title, description=f"# ❓ {fake} ❓", color=0x95A5A6)
+        await _safe_edit(interaction_or_msg, embed)
+        await asyncio.sleep(0.5)
+
+    embed = discord.Embed(title=title, description=f"# 🎯 **{number}**", color=0x2ECC71)
+    await _safe_edit(interaction_or_msg, embed)

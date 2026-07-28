@@ -57,6 +57,7 @@ MMORPG_COGS = {
     "cogs.mmorpg_skills",
     "cogs.mmorpg_pvp",
     "cogs.mmorpg_equipment",
+    "cogs.mmorpg_class",
     "cogs.daily_quest",
     "cogs.dungeon",
 }
@@ -191,14 +192,28 @@ class GMPTBot(commands.Bot):
                     logger.warning(f"Failed to send error message: {e}")
 
         # ── Sync slash commands ──
-        # 只有 full 实例负责 sync，避免 4 实例合并后命令重复
         if self.bot_role == "full":
+            # full: clear all stale commands first, then sync
             guild_id = os.getenv("GUILD_ID")
+            guild_obj = None
             if guild_id:
                 try:
-                    guild = discord.Object(id=int(guild_id))
-                    self.tree.copy_global_to(guild=guild)
-                    synced = await self.tree.sync(guild=guild)
+                    guild_obj = discord.Object(id=int(guild_id))
+                    self.tree.clear_commands(guild=guild_obj)
+                    logger.info(f"[{self.bot_role}] Cleared old guild commands")
+                except Exception as e:
+                    logger.warning(f"[{self.bot_role}] Failed to clear guild commands: {e}")
+            else:
+                try:
+                    self.tree.clear_commands(guild=None)
+                    logger.info(f"[{self.bot_role}] Cleared old global commands")
+                except Exception as e:
+                    logger.warning(f"[{self.bot_role}] Failed to clear global commands: {e}")
+            # Now register and sync
+            if guild_obj:
+                try:
+                    self.tree.copy_global_to(guild=guild_obj)
+                    synced = await self.tree.sync(guild=guild_obj)
                     logger.info(f"[{self.bot_role}] Synced {len(synced)} commands to guild {guild_id}")
                 except Exception as e:
                     logger.error(f"[{self.bot_role}] Guild sync failed for GUILD_ID={guild_id}: {e}")
@@ -209,7 +224,22 @@ class GMPTBot(commands.Bot):
                 except Exception as e:
                     logger.error(f"[{self.bot_role}] Global sync failed: {e}")
         else:
-            logger.info(f"[{self.bot_role}] Skipped sync (only full role syncs)")
+            # Non-full roles: clear all stale Discord commands, then skip sync
+            guild_id = os.getenv("GUILD_ID")
+            if guild_id:
+                try:
+                    guild_obj = discord.Object(id=int(guild_id))
+                    self.tree.clear_commands(guild=guild_obj)
+                    logger.info(f"({self.bot_role}) Cleared stale commands from guild")
+                except Exception as e:
+                    logger.warning(f"({self.bot_role}) Failed to clear guild commands: {e}")
+            else:
+                try:
+                    self.tree.clear_commands(guild=None)
+                    logger.info(f"({self.bot_role}) Cleared stale global commands")
+                except Exception as e:
+                    logger.warning(f"({self.bot_role}) Failed to clear global commands: {e}")
+            logger.info(f"({self.bot_role}) Skipped sync (Only full role syncs)")
 
     async def on_ready(self):
         bot_role = self.bot_role
