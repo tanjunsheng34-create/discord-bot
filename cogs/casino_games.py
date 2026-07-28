@@ -117,12 +117,18 @@ class BlackjackView(discord.ui.View):
             embed.add_field(name="余额 / Balance", value=f"🪙 {bal:,}", inline=True)
             for child in self.children:
                 child.disabled = True
-            await interaction.response.edit_message(embed=embed, view=self)
+            try:
+                await interaction.response.edit_message(embed=embed, view=self)
+            except discord.InteractionResponded:
+                await interaction.edit_original_response(embed=embed, view=self)
         elif pv == 21:
             await self._stand(interaction)
         else:
             embed = await self._build_embed()
-            await interaction.response.edit_message(embed=embed, view=self)
+            try:
+                await interaction.response.edit_message(embed=embed, view=self)
+            except discord.InteractionResponded:
+                await interaction.edit_original_response(embed=embed, view=self)
 
     @discord.ui.button(label="✋ Stand 停牌", style=discord.ButtonStyle.secondary)
     async def stand_btn(self, interaction: discord.Interaction, button):
@@ -160,7 +166,10 @@ class BlackjackView(discord.ui.View):
             embed.add_field(name="余额 / Balance", value=f"🪙 {bal2:,}", inline=True)
             for child in self.children:
                 child.disabled = True
-            await interaction.response.edit_message(embed=embed, view=self)
+            try:
+                await interaction.response.edit_message(embed=embed, view=self)
+            except discord.InteractionResponded:
+                await interaction.edit_original_response(embed=embed, view=self)
         else:
             await self._stand(interaction)
 
@@ -203,7 +212,10 @@ class BlackjackView(discord.ui.View):
 
         for child in self.children:
             child.disabled = True
-        await interaction.response.edit_message(embed=embed, view=self)
+        try:
+            await interaction.response.edit_message(embed=embed, view=self)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=embed, view=self)
 
     async def on_timeout(self):
         if not self.finished:
@@ -361,13 +373,19 @@ class TicTacToeView(discord.ui.View):
                     embed.add_field(name="结果 / Result", value=f"🎉 {winner_name} 获胜 / Wins! 🪙 +50", inline=False)
                     add_coins(winner_id, 50, "井字棋获胜 / TicTacToe win")
 
-                await interaction.response.edit_message(embed=embed, view=self)
+                try:
+                    await interaction.response.edit_message(embed=embed, view=self)
+                except discord.InteractionResponded:
+                    await interaction.edit_original_response(embed=embed, view=self)
             else:
                 self.current_turn = self.player_o_id if self.current_turn == self.player_x_id else self.player_x_id
                 self.current_mark = 'O' if self.current_mark == 'X' else 'X'
 
                 embed = self._build_embed()
-                await interaction.response.edit_message(embed=embed, view=self)
+                try:
+                    await interaction.response.edit_message(embed=embed, view=self)
+                except discord.InteractionResponded:
+                    await interaction.edit_original_response(embed=embed, view=self)
 
                 self.move_task = asyncio.create_task(self._move_timeout(interaction))
 
@@ -451,7 +469,10 @@ class HorseRaceView(discord.ui.View):
                 color=0xE67E22,
             )
             embed.add_field(name="赌注 / Bet", value=f"🪙 {self.bet:,}", inline=True)
-            await interaction.response.edit_message(embed=embed, view=self)
+            try:
+                await interaction.response.edit_message(embed=embed, view=self)
+            except discord.InteractionResponded:
+                await interaction.edit_original_response(embed=embed, view=self)
 
             asyncio.create_task(self._run_race(interaction, idx))
 

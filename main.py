@@ -53,58 +53,56 @@ COMMON_COGS = [
     "cogs.dashboard",
 ]
 
-ROLE_COGS = {
-    "economy": [
-        "cogs.economy",
-        "cogs.economy_jobs",
-        "cogs.shop",
-        "cogs.social",
-        "cogs.announce",
-        "cogs.leaderboard",
-        "cogs.auction",
-        # ── Gambling cogs moved here (all depend on cogs.economy) ──
-        "cogs.gambling",
-        "cogs.casino_games",
-        "cogs.poker",
-        "cogs.games",
-        "cogs.casino",
-        "cogs.trivia",
-        "cogs.mini_games",
-        "cogs.wheel",
-        "cogs.boss",
-        # ── New duel system (involves money) ──
-        "cogs.duel",
-        # ── MMORPG ──
-        "cogs.mmorpg_shop",
-        "cogs.mmorpg_skills",
-        "cogs.mmorpg_pvp",
-    ],
-    "gambling": [],
-    "community": [
-        "cogs.pets",
-        "cogs.clans",
-        "cogs.meme",
-        "cogs.predict",
-        "cogs.guess_champion",
-        "cogs.polls",
-    ],
-    "arena": [
-        "cogs.tournament",
-        "cogs.lol",
-        "cogs.help",
-        "cogs.queue",
-        "cogs.mmorpg_skills",
-        "cogs.mmorpg_pvp",
-    ],
+MMORPG_COGS = {
+    "cogs.boss",
+    "cogs.mmorpg_shop",
+    "cogs.mmorpg_skills",
+    "cogs.mmorpg_pvp",
+}
+COMMUNITY_COGS = {
+    "cogs.pets",
+    "cogs.clans",
+    "cogs.polls",
+    "cogs.meme",
+    "cogs.predict",
+    "cogs.guess_champion",
+    "cogs.social",
+}
+ARENA_COGS = {
+    "cogs.tournament",
+    "cogs.lol",
+    "cogs.queue",
+    "cogs.help",
+}
+FULL_ONLY_COGS = {
+    "cogs.economy",
+    "cogs.economy_jobs",
+    "cogs.shop",
+    "cogs.announce",
+    "cogs.leaderboard",
+    "cogs.auction",
+    "cogs.gambling",
+    "cogs.casino_games",
+    "cogs.poker",
+    "cogs.games",
+    "cogs.casino",
+    "cogs.trivia",
+    "cogs.mini_games",
+    "cogs.wheel",
+    "cogs.duel",
 }
 
-# Full COGS list (backward compatible)
-ALL_COGS = COMMON_COGS[:]
-for role_cogs in ROLE_COGS.values():
-    for cog in role_cogs:
-        if cog not in ALL_COGS:
-            ALL_COGS.append(cog)
+# Build ALL_COGS — union of all cog sets
+ALL_COGS = list(set(COMMON_COGS) | MMORPG_COGS | COMMUNITY_COGS | ARENA_COGS | FULL_ONLY_COGS)
 
+ROLE_COGS = {
+    "full": ALL_COGS,
+    "mmorpg": list(MMORPG_COGS),
+    "community": list(COMMUNITY_COGS),
+    "arena": list(ARENA_COGS),
+}
+
+# COGS resolution
 if BOT_ROLE == "full":
     COGS = ALL_COGS
 elif BOT_ROLE in ROLE_COGS:
@@ -1003,10 +1001,9 @@ async def main():
         tasks = []
         for role, token in [
             ("full", TOKENS.get("full", "")),
-            ("economy", TOKENS.get("economy", "")),
+            ("mmorpg", TOKENS.get("mmorpg", "")),
             ("community", TOKENS.get("community", "")),
             ("arena", TOKENS.get("arena", "")),
-            ("gambling", TOKENS.get("gambling", "")),
         ]:
             if token:
                 logger.info(f"启动 {role} 实例...")

@@ -831,7 +831,10 @@ class PokerPanelView(discord.ui.View):
         embed.add_field(name="Phase", value=g.phase.value, inline=True)
         embed.add_field(name="Pot", value=str(g.pot), inline=True)
         embed.add_field(name="Players", value="\n".join(p_lines) or "无 / None", inline=False)
-        await interaction.response.edit_message(embed=embed, view=self)
+        try:
+            await interaction.response.edit_message(embed=embed, view=self)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=embed, view=self)
 
     @discord.ui.button(label="◀ 返回 / Back", style=discord.ButtonStyle.danger, row=1)
     async def back_btn(self, interaction: discord.Interaction, button):
@@ -841,7 +844,10 @@ class PokerPanelView(discord.ui.View):
         view.category = 0
         view.build_page_buttons()
         embed = view._build_page_embed()
-        await interaction.response.edit_message(embed=embed, view=view)
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=embed, view=view)
 
 
 async def setup(bot: commands.Bot):

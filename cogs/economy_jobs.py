@@ -618,13 +618,23 @@ class EconomyJobsView(discord.ui.View):
             self.dashboard_view.category = 0
             self.dashboard_view.build_page_buttons()
             embed = self.dashboard_view._build_page_embed()
-            await interaction.response.edit_message(embed=embed, view=self.dashboard_view)
+            try:
+                await interaction.response.edit_message(embed=embed, view=self.dashboard_view)
+            except discord.InteractionResponded:
+                await interaction.edit_original_response(embed=embed, view=self.dashboard_view)
         else:
-            await interaction.response.edit_message(
-                content="使用 `/gmpt-dashboard` 返回主菜单 / Use `/gmpt-dashboard` to go back.",
-                embed=None,
-                view=None,
-            )
+            try:
+                await interaction.response.edit_message(
+                    content="使用 `/gmpt-dashboard` 返回主菜单 / Use `/gmpt-dashboard` to go back.",
+                    embed=None,
+                    view=None,
+                )
+            except discord.InteractionResponded:
+                await interaction.edit_original_response(
+                    content="使用 `/gmpt-dashboard` 返回主菜单 / Use `/gmpt-dashboard` to go back.",
+                    embed=None,
+                    view=None,
+                )
 
     # ═══════════════════ Job Handlers ═══════════════════
 

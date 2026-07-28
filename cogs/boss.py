@@ -903,7 +903,7 @@ class BossCog(CogBase):
         with get_db_ctx() as conn:
             cur = conn.cursor()
             cur.execute(
-                "SELECT id, quantity FROM user_inventory WHERE user_id = ? AND item_id = 0 AND item_name = ? AND item_type = 'potion'",
+                "SELECT rowid as id, quantity FROM user_inventory WHERE user_id = ? AND item_id = 0 AND item_name = ? AND item_type = 'potion'",
                 (uid, name),
             )
             inv_row = cur.fetchone()

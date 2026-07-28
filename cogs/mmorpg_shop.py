@@ -460,9 +460,14 @@ class MMORPGMainView(discord.ui.View):
             "🧪 `/gmpt-potionshop use <药水名>` — 使用药水\n\n"
             "药水种类：治疗/回蓝/攻击Buff/防御Buff/复活"
         )
-        await interaction.response.edit_message(
-            embed=self._build_sub_embed("🧪 药水商店 / Potion Shop", 0x3498DB, desc), view=self
-        )
+        try:
+            await interaction.response.edit_message(
+                embed=self._build_sub_embed("🧪 药水商店 / Potion Shop", 0x3498DB, desc), view=self
+            )
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(
+                embed=self._build_sub_embed("🧪 药水商店 / Potion Shop", 0x3498DB, desc), view=self
+            )
 
     @discord.ui.button(label="⚔️ 技能", style=discord.ButtonStyle.primary, row=0)
     async def skills_btn(self, interaction: discord.Interaction, button):
@@ -474,9 +479,14 @@ class MMORPGMainView(discord.ui.View):
             "❌ `!unequip <技能名>` — 卸下技能\n\n"
             "技能可在 PVP 和 Boss 战中使用！"
         )
-        await interaction.response.edit_message(
-            embed=self._build_sub_embed("⚔️ 技能系统 / Skills", 0xE67E22, desc), view=self
-        )
+        try:
+            await interaction.response.edit_message(
+                embed=self._build_sub_embed("⚔️ 技能系统 / Skills", 0xE67E22, desc), view=self
+            )
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(
+                embed=self._build_sub_embed("⚔️ 技能系统 / Skills", 0xE67E22, desc), view=self
+            )
 
     @discord.ui.button(label="🏆 PVP 对战", style=discord.ButtonStyle.primary, row=0)
     async def pvp_btn(self, interaction: discord.Interaction, button):
@@ -487,9 +497,14 @@ class MMORPGMainView(discord.ui.View):
             "👊 `/gmpt-duel challenge` — 发起对决\n\n"
             "使用技能和药水在战斗中获得优势！"
         )
-        await interaction.response.edit_message(
-            embed=self._build_sub_embed("🏆 PVP 对战 / PVP Arena", 0xE74C3C, desc), view=self
-        )
+        try:
+            await interaction.response.edit_message(
+                embed=self._build_sub_embed("🏆 PVP 对战 / PVP Arena", 0xE74C3C, desc), view=self
+            )
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(
+                embed=self._build_sub_embed("🏆 PVP 对战 / PVP Arena", 0xE74C3C, desc), view=self
+            )
 
     @discord.ui.button(label="🐉 Boss 战", style=discord.ButtonStyle.danger, row=0)
     async def boss_btn(self, interaction: discord.Interaction, button):
@@ -501,9 +516,14 @@ class MMORPGMainView(discord.ui.View):
             "🧪 `!boss_use_potion` — 使用药水\n\n"
             "组队挑战强大的 Boss 平分奖励！"
         )
-        await interaction.response.edit_message(
-            embed=self._build_sub_embed("🐉 Boss 战 / Boss Battle", 0xC0392B, desc), view=self
-        )
+        try:
+            await interaction.response.edit_message(
+                embed=self._build_sub_embed("🐉 Boss 战 / Boss Battle", 0xC0392B, desc), view=self
+            )
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(
+                embed=self._build_sub_embed("🐉 Boss 战 / Boss Battle", 0xC0392B, desc), view=self
+            )
 
     @discord.ui.button(label="🏠 主面板", style=discord.ButtonStyle.secondary, row=1)
     async def back_btn(self, interaction: discord.Interaction, button):
@@ -522,7 +542,10 @@ class MMORPGMainView(discord.ui.View):
             ),
             color=0x9B59B6,
         )
-        await interaction.response.edit_message(embed=embed, view=self)
+        try:
+            await interaction.response.edit_message(embed=embed, view=self)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=embed, view=self)
 
 
 class PotionBrowseView(discord.ui.View):
@@ -576,7 +599,10 @@ class PotionBrowseView(discord.ui.View):
             return await interaction.response.send_message("这不是你的页面 / Not your page.", ephemeral=True)
         self.page -= 1
         self._update_buttons()
-        await interaction.response.edit_message(embed=self.build_embed(self.page), view=self)
+        try:
+            await interaction.response.edit_message(embed=self.build_embed(self.page), view=self)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=self.build_embed(self.page), view=self)
 
     @discord.ui.button(label="下一页 ▶", style=discord.ButtonStyle.secondary)
     async def next_btn(self, interaction: discord.Interaction, button):
@@ -584,7 +610,10 @@ class PotionBrowseView(discord.ui.View):
             return await interaction.response.send_message("这不是你的页面 / Not your page.", ephemeral=True)
         self.page += 1
         self._update_buttons()
-        await interaction.response.edit_message(embed=self.build_embed(self.page), view=self)
+        try:
+            await interaction.response.edit_message(embed=self.build_embed(self.page), view=self)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=self.build_embed(self.page), view=self)
 
     async def on_timeout(self):
         for child in self.children:

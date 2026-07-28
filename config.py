@@ -25,10 +25,9 @@ TOKEN: Optional[str] = os.getenv("DISCORD_TOKEN")
 # 不设置 BOT_ROLE 时为多实例模式，每个角色独立 TOKEN
 TOKENS: dict = {
     "full": os.getenv("TOKEN_FULL", ""),
-    "economy": os.getenv("TOKEN_ECONOMY", ""),
+    "mmorpg": os.getenv("TOKEN_ECONOMY", ""),
     "community": os.getenv("TOKEN_COMMUNITY", ""),
     "arena": os.getenv("TOKEN_ARENA", ""),
-    "gambling": os.getenv("TOKEN_GAMBLING", ""),
 }
 
 # 向后兼容：BOT_ROLE 指定时走单实例模式

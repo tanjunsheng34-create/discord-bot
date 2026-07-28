@@ -50,10 +50,16 @@ class DuelChallengeView(discord.ui.View):
 
         for child in self.children:
             child.disabled = True
-        await interaction.response.edit_message(
-            content=f"❌ {interaction.user.mention} 拒绝了决斗！/ Duel declined!",
-            view=self,
-        )
+        try:
+            await interaction.response.edit_message(
+                content=f"❌ {interaction.user.mention} 拒绝了决斗！/ Duel declined!",
+                view=self,
+            )
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(
+                content=f"❌ {interaction.user.mention} 拒绝了决斗！/ Duel declined!",
+                view=self,
+            )
         # Cleanup
         if self.duel_data.get("msg_id"):
             _active_duels.pop(self.duel_data["msg_id"], None)

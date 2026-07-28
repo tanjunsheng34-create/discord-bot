@@ -564,10 +564,16 @@ class AchFilter(discord.ui.View):
             page=self.current_page + 1,
             total_pages=total_pages,
         )
-        await interaction.response.edit_message(
-            attachments=[discord.File(img_buf, filename="ach.png")],
-            view=self,
-        )
+        try:
+            await interaction.response.edit_message(
+                attachments=[discord.File(img_buf, filename="ach.png")],
+                view=self,
+            )
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(
+                attachments=[discord.File(img_buf, filename="ach.png")],
+                view=self,
+            )
 
     @discord.ui.button(label="⬅️ Previous", style=discord.ButtonStyle.secondary, custom_id="ach_prev", row=0)
     async def prev_btn(self, interaction: discord.Interaction, button):
@@ -2362,10 +2368,16 @@ def settle_bets(match_id: int, winning_team_id: int) -> list:
                         cur2.execute("INSERT INTO giveaway_entries (giveaway_id, discord_id, tickets_used) VALUES (?,?,1)", (giveaway_id, uid))
                         conn2.commit()
                     for child in self.children: child.disabled = True
-                    await btn_i.response.edit_message(
-                        content=f"✅ Entered giveaway #{giveaway_id} with 1 ticket! / 已用1张券参与抽奖 #{giveaway_id}！",
-                        view=self,
-                    )
+                    try:
+                        await btn_i.response.edit_message(
+                            content=f"✅ Entered giveaway #{giveaway_id} with 1 ticket! / 已用1张券参与抽奖 #{giveaway_id}！",
+                            view=self,
+                        )
+                    except discord.InteractionResponded:
+                        await btn_i.edit_original_response(
+                            content=f"✅ Entered giveaway #{giveaway_id} with 1 ticket! / 已用1张券参与抽奖 #{giveaway_id}！",
+                            view=self,
+                        )
 
                 @discord.ui.button(label="Use ALL Tickets / 全部投入", style=discord.ButtonStyle.primary, emoji="🎰")
                 async def use_all(self, btn_i: discord.Interaction, button):
@@ -2384,10 +2396,16 @@ def settle_bets(match_id: int, winning_team_id: int) -> list:
                                     (giveaway_id, uid, tix))
                         conn2.commit()
                     for child in self.children: child.disabled = True
-                    await btn_i.response.edit_message(
-                        content=f"✅ Entered giveaway #{giveaway_id} with ALL **{tix}** tickets! / 已投入全部 **{tix}** 张券参与抽奖 #{giveaway_id}！",
-                        view=self,
-                    )
+                    try:
+                        await btn_i.response.edit_message(
+                            content=f"✅ Entered giveaway #{giveaway_id} with ALL **{tix}** tickets! / 已投入全部 **{tix}** 张券参与抽奖 #{giveaway_id}！",
+                            view=self,
+                        )
+                    except discord.InteractionResponded:
+                        await btn_i.edit_original_response(
+                            content=f"✅ Entered giveaway #{giveaway_id} with ALL **{tix}** tickets! / 已投入全部 **{tix}** 张券参与抽奖 #{giveaway_id}！",
+                            view=self,
+                        )
 
                 @discord.ui.button(label="Cancel / 取消", style=discord.ButtonStyle.secondary, emoji="❌")
                 async def cancel(self, btn_i: discord.Interaction, button):
@@ -2395,7 +2413,10 @@ def settle_bets(match_id: int, winning_team_id: int) -> list:
                     if str(btn_i.user.id) != uid:
                         return await btn_i.response.send_message("Not your entry. / 不是你的参与。", ephemeral=True)
                     for child in self.children: child.disabled = True
-                    await btn_i.response.edit_message(content="Cancelled. / 已取消。", view=self)
+                    try:
+                        await btn_i.response.edit_message(content="Cancelled. / 已取消。", view=self)
+                    except discord.InteractionResponded:
+                        await btn_i.edit_original_response(content="Cancelled. / 已取消。", view=self)
         await interaction.response.send_message(
             f"🎟️ **Enter Giveaway #{giveaway_id}**\nPrize: **{ga['prize']}**\nYou have **{tickets}** ticket(s).\nHow many to use? / 使用几张券？",
             view=EnterConfirm(),
@@ -3070,7 +3091,10 @@ class GiveawayPanelView(discord.ui.View):
                 value=f"开奖 / Draw: {r['draw_at']}\n创建者 / Creator: <@{r['created_by']}>",
                 inline=False,
             )
-        await interaction.response.edit_message(embed=embed, view=self)
+        try:
+            await interaction.response.edit_message(embed=embed, view=self)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=embed, view=self)
 
     @discord.ui.button(label="◀ 返回 / Back", style=discord.ButtonStyle.danger, row=1)
     async def back_btn(self, interaction: discord.Interaction, button):
@@ -3080,7 +3104,10 @@ class GiveawayPanelView(discord.ui.View):
         view.category = 0
         view.build_page_buttons()
         embed = view._build_page_embed()
-        await interaction.response.edit_message(embed=embed, view=view)
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=embed, view=view)
 
 
 # ══════════ Lottery Panel View ══════════
@@ -3162,7 +3189,10 @@ class LotteryPanelView(discord.ui.View):
         view.category = 0
         view.build_page_buttons()
         embed = view._build_page_embed()
-        await interaction.response.edit_message(embed=embed, view=view)
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=embed, view=view)
 
 
 # ══════════ Season Panel View ══════════
@@ -3196,7 +3226,10 @@ class SeasonPanelView(discord.ui.View):
                 medal = ["🥇", "🥈", "🥉"][i - 1] if i <= 3 else f"#{i}"
                 lines.append(f"{medal} <@{r['discord_id']}> — MMR {r['mmr']} | {r['wins']}W {r['losses']}L")
             embed.description = "\n".join(lines)
-        await interaction.response.edit_message(embed=embed, view=self)
+        try:
+            await interaction.response.edit_message(embed=embed, view=self)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=embed, view=self)
 
     @discord.ui.button(label="👤 我的 / My Rank", style=discord.ButtonStyle.success, row=0)
     async def my_rank_btn(self, interaction: discord.Interaction, button):
@@ -3232,7 +3265,10 @@ class SeasonPanelView(discord.ui.View):
         embed = discord.Embed(title=f"ℹ️ {season['name']}", color=0xE67E22)
         embed.add_field(name="开始时间 / Start", value=str(season["start_date"]), inline=True)
         embed.add_field(name="参与人数 / Participants", value=str(cnt), inline=True)
-        await interaction.response.edit_message(embed=embed, view=self)
+        try:
+            await interaction.response.edit_message(embed=embed, view=self)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=embed, view=self)
 
     @discord.ui.button(label="◀ 返回 / Back", style=discord.ButtonStyle.danger, row=1)
     async def back_btn(self, interaction: discord.Interaction, button):
@@ -3242,7 +3278,10 @@ class SeasonPanelView(discord.ui.View):
         view.category = 0
         view.build_page_buttons()
         embed = view._build_page_embed()
-        await interaction.response.edit_message(embed=embed, view=view)
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=embed, view=view)
 
 
 # ══════════ Item Panel View ══════════
@@ -3270,7 +3309,10 @@ class ItemPanelView(discord.ui.View):
         embed = discord.Embed(title=f"🎒 {interaction.user.display_name} 的背包 / Backpack", color=0xF1C40F)
         for r in rows:
             embed.add_field(name=f"{r['name']} (x{r['quantity']})", value=f"类型: {r['item_type']}", inline=True)
-        await interaction.response.edit_message(embed=embed, view=self)
+        try:
+            await interaction.response.edit_message(embed=embed, view=self)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=embed, view=self)
 
     @discord.ui.button(label="⚡ 使用 / Use", style=discord.ButtonStyle.success, row=0)
     async def use_btn(self, interaction: discord.Interaction, button):
@@ -3310,7 +3352,10 @@ class ItemPanelView(discord.ui.View):
             lines.append(f"**{key}** — {desc}")
         embed.description = "\n".join(lines[:10])
         embed.add_field(name="更多 / More (1-10)", value="\n".join(lines[10:]) or "...", inline=False)
-        await interaction.response.edit_message(embed=embed, view=self)
+        try:
+            await interaction.response.edit_message(embed=embed, view=self)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=embed, view=self)
 
     @discord.ui.button(label="◀ 返回 / Back", style=discord.ButtonStyle.danger, row=1)
     async def back_btn(self, interaction: discord.Interaction, button):
@@ -3320,7 +3365,10 @@ class ItemPanelView(discord.ui.View):
         view.category = 0
         view.build_page_buttons()
         embed = view._build_page_embed()
-        await interaction.response.edit_message(embed=embed, view=view)
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=embed, view=view)
 
 
 async def setup(bot):
