@@ -17,6 +17,7 @@ from discord import app_commands
 from discord.ext import commands
 from database import get_db, get_db_ctx
 from utils.cog_base import CogBase
+from utils.animations import progress_bar
 from cogs.economy import get_balance, add_coins
 
 logger = logging.getLogger(__name__)
@@ -577,6 +578,16 @@ class EconomyJobsView(discord.ui.View):
         "treasure": "🗺️",
         "busk":     "🎸",
         "stock":    "📈",
+        "miner":    "⛏️",
+        "fisher":   "🐟",
+        "hunter":   "🦌",
+        "merchant": "🧳",
+        "bounty":   "💀",
+        "alchemist": "⚗️",
+        "blacksmith": "🔨",
+        "enchanter": "✨",
+        "potion_dealer": "🧪",
+        "adventurer": "🗡️",
     }
 
     def __init__(self, guild=None, dashboard_view=None):
@@ -607,15 +618,209 @@ class EconomyJobsView(discord.ui.View):
                 btn.callback = self._make_job_callback(job)
                 self.add_item(btn)
 
+        # Work All button
+        work_all_btn = discord.ui.Button(
+            label="⏰ 全部打工 | Work All",
+            style=discord.ButtonStyle.success,
+            row=4,
+            custom_id="ejob_work_all",
+        )
+        work_all_btn.callback = self._work_all_callback
+        self.add_item(work_all_btn)
+
         # Back button
         back_btn = discord.ui.Button(
             label="返回主菜单 | Back to Main",
             style=discord.ButtonStyle.danger,
-            row=2,
+            row=4,
             custom_id="ejob_back",
         )
         back_btn.callback = self._back_callback
         self.add_item(back_btn)
+
+    async def _work_all_callback(self, interaction: discord.Interaction):
+        """⏰ Execute all available jobs sequentially with progress."""
+        uid = str(interaction.user.id)
+        uname = interaction.user.display_name
+
+        # Build job list (all non-rob jobs)
+        all_jobs = [
+            "work", "beg", "fish", "hunt", "treasure", "busk", "stock",
+            "miner", "fisher", "hunter", "merchant", "bounty",
+            "alchemist", "blacksmith", "enchanter", "potion_dealer", "adventurer",
+        ]
+
+        # Disable all buttons during execution
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(view=self)
+
+        # Initial progress embed
+        embed = discord.Embed(
+            title="⏰ 全部打工中... / Working All...",
+            description="正在逐项执行打工任务...\n" + progress_bar(0, len(all_jobs)),
+            color=0x3498DB,
+        )
+        msg = await interaction.followup.send(embed=embed)
+
+        bal_before = get_balance(uid)
+        results = []  # list of {job, label, earned, skipped, cd, error}
+        total_earned = 0
+
+        for i, job in enumerate(all_jobs):
+            # Check cooldown
+            remaining = _get_cd_remaining(uid, job)
+            if remaining > 0:
+                results.append({
+                    "job": job,
+                    "label": self.JOB_LABELS.get(job, job),
+                    "earned": 0,
+                    "skipped": True,
+                    "cd": _format_cd(remaining),
+                })
+                continue
+
+            pre_bal = get_balance(uid)
+            try:
+                # Execute job
+                if job == "work":
+                    base = random.randint(50, 200)
+                    if random.random() < 0.10:
+                        base += random.randint(100, 300)
+                    add_coins(uid, base, "打工收入 / Work income (Work All)")
+                    _update_cd(uid, job)
+                elif job == "beg":
+                    roll = random.random()
+                    if roll < 0.60:
+                        base = random.randint(10, 80)
+                    elif roll < 0.90:
+                        base = 0
+                    else:
+                        base = random.randint(200, 500)
+                    if base > 0:
+                        add_coins(uid, base, "乞讨收入 / Begging income (Work All)")
+                    _update_cd(uid, job)
+                elif job == "fish":
+                    roll = random.random()
+                    if roll < 0.05:
+                        base = random.randint(500, 2000)
+                    elif roll < 0.25:
+                        base = random.randint(100, 200)
+                    elif roll < 0.55:
+                        base = random.randint(30, 60)
+                    elif roll < 0.85:
+                        base = random.randint(5, 20)
+                    else:
+                        base = 0
+                    if base > 0:
+                        add_coins(uid, base, "钓鱼收入 / Fishing income (Work All)")
+                    _update_cd(uid, job)
+                elif job == "hunt":
+                    await _do_hunt(self.guild, uname, uid)
+                    # _do_hunt updates cd and coins internally
+                elif job == "treasure":
+                    await _do_treasure(self.guild, uname, uid)
+                elif job == "busk":
+                    await _do_busk(self.guild, uname, uid)
+                elif job == "stock":
+                    await _do_stock(uname, uid)
+                elif job == "miner":
+                    await _do_miner(self.guild, uname, uid)
+                elif job == "fisher":
+                    await _do_fisher(self.guild, uname, uid)
+                elif job == "hunter":
+                    await _do_hunter_job(self.guild, uname, uid)
+                elif job == "merchant":
+                    await _do_merchant(self.guild, uname, uid)
+                elif job == "bounty":
+                    await _do_bounty(self.guild, uname, uid)
+                elif job == "alchemist":
+                    await _do_alchemist(self.guild, uname, uid)
+                elif job == "blacksmith":
+                    await _do_blacksmith(self.guild, uname, uid)
+                elif job == "enchanter":
+                    await _do_enchanter(self.guild, uname, uid)
+                elif job == "potion_dealer":
+                    await _do_potion_dealer(self.guild, uname, uid)
+                elif job == "adventurer":
+                    await _do_adventurer(self.guild, uname, uid)
+
+                post_bal = get_balance(uid)
+                earned = post_bal - pre_bal
+                results.append({
+                    "job": job,
+                    "label": self.JOB_LABELS.get(job, job),
+                    "earned": earned,
+                    "skipped": False,
+                })
+                total_earned += earned
+            except Exception as e:
+                logger.error(f"Work All error on {job}: {e}")
+                results.append({
+                    "job": job,
+                    "label": self.JOB_LABELS.get(job, job),
+                    "earned": 0,
+                    "skipped": False,
+                    "error": True,
+                })
+
+            # Update progress
+            done = i + 1
+            total = len(all_jobs)
+            desc_lines = [f"进度 / Progress: {progress_bar(done, total)} ({done}/{total})"]
+            # Show last few results
+            for r in results[-5:]:
+                if r.get("skipped"):
+                    desc_lines.append(f"{self.JOB_EMOJIS.get(r['job'], '')} **{r['label']}**: ⏳ 冷却中 ({r['cd']})")
+                elif r.get("error"):
+                    desc_lines.append(f"{self.JOB_EMOJIS.get(r['job'], '')} **{r['label']}**: ❌ 出错")
+                elif r["earned"] > 0:
+                    desc_lines.append(f"{self.JOB_EMOJIS.get(r['job'], '')} **{r['label']}**: +🪙{r['earned']:,}")
+                elif r["earned"] < 0:
+                    desc_lines.append(f"{self.JOB_EMOJIS.get(r['job'], '')} **{r['label']}**: 💸{abs(r['earned']):,}")
+                else:
+                    desc_lines.append(f"{self.JOB_EMOJIS.get(r['job'], '')} **{r['label']}**: +0")
+            embed.description = "\n".join(desc_lines)
+            try:
+                await msg.edit(embed=embed)
+            except (discord.NotFound, discord.HTTPException):
+                pass
+            await asyncio.sleep(0.5)
+
+        # Build final summary embed
+        bal_after = get_balance(uid)
+        net_change = bal_after - bal_before
+
+        summary_lines = [f"## 全部打工完成！ / Work All Complete!\n"]
+        summary_lines.append(f"💰 总收入变动: {'+' if net_change >= 0 else ''}🪙 {net_change:,}")
+        summary_lines.append(f"💼 最终余额: 🪙 {bal_after:,}\n")
+        summary_lines.append("─── 明细 / Details ───")
+
+        for r in results:
+            emoji = self.JOB_EMOJIS.get(r["job"], "")
+            if r.get("skipped"):
+                summary_lines.append(f"{emoji} **{r['label']}**: ⏳ 冷却中")
+            elif r.get("error"):
+                summary_lines.append(f"{emoji} **{r['label']}**: ❌ 出错")
+            elif r["earned"] > 0:
+                summary_lines.append(f"{emoji} **{r['label']}**: +🪙{r['earned']:,}")
+            elif r["earned"] < 0:
+                summary_lines.append(f"{emoji} **{r['label']}**: 💸{abs(r['earned']):,}")
+            else:
+                summary_lines.append(f"{emoji} **{r['label']}**: +0")
+
+        final_embed = discord.Embed(
+            title="⏰ 全部打工 / Work All",
+            description="\n".join(summary_lines),
+            color=0x2ECC71 if net_change >= 0 else 0xE74C3C,
+        )
+        final_embed.set_footer(text=f"已完成 {len([r for r in results if not r.get('skipped')])}/{len(all_jobs)} 项打工，{len([r for r in results if r.get('skipped')])} 项冷却中")
+
+        # Re-enable buttons
+        for child in self.children:
+            child.disabled = False
+        await msg.edit(embed=final_embed, view=None)
+        await interaction.edit_original_response(view=self)
 
     def _make_job_callback(self, job: str):
         async def cb(interaction: discord.Interaction):

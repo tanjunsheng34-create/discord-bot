@@ -471,3 +471,133 @@ async def number_reveal_animation(interaction_or_msg, number: int,
 
     embed = discord.Embed(title=title, description=f"# 🎯 **{number}**", color=0x2ECC71)
     await _safe_edit(interaction_or_msg, embed)
+
+
+# ══════════════════════════════════════════════════════════════
+# Cosmetics animations (外观动画)
+# ══════════════════════════════════════════════════════════════
+
+# Cosmetic item emoji mapping
+COSMETIC_EMOJI = {
+    "cosm_king_crown": "👑",
+    "cosm_ninja_mask": "🥷",
+    "cosm_angel_wings": "👼",
+    "cosm_demon_horns": "👿",
+    "cosm_rainbow_cape": "🌈",
+    "cosm_golden_armor": "🛡️",
+    "cosm_shadow_cloak": "🌑",
+    "cosm_fire_aura": "🔥",
+}
+
+
+async def cosmetic_purchase_animation(interaction_or_msg, item_emoji: str, item_name: str,
+                                      title: str = "🛍️ 购买外观 / Cosmetic Purchase"):
+    """3-second purchase animation: emoji spins + scales + sparkles."""
+    frames = [
+        f"　　{item_emoji}　　",
+        f"　{item_emoji} ✨　",
+        f"✨ {item_emoji} ✨",
+        f"　{item_emoji} ✨　",
+        f"　　{item_emoji}　　",
+        f"🌟 {item_emoji} 🌟",
+        f"✨🌟 {item_emoji} 🌟✨",
+        f"🌟 {item_emoji} 🌟",
+    ]
+    for i, frame in enumerate(frames):
+        scale = "🔆" * (i % 3 + 1)
+        embed = discord.Embed(
+            title=title,
+            description=f"# {frame}\n\n**{item_name}**\n{scale}",
+            color=0xF1C40F,
+        )
+        await _safe_edit(interaction_or_msg, embed)
+        await asyncio.sleep(0.4)
+    embed = discord.Embed(
+        title=f"✅ {title}",
+        description=f"# 🌟 {item_emoji} ✨\n\n**{item_name}**\n已购买 / Purchased!",
+        color=0x2ECC71,
+    )
+    await _safe_edit(interaction_or_msg, embed)
+
+
+async def cosmetic_equip_animation(interaction_or_msg, item_emoji: str, item_name: str,
+                                   title: str = "🎽 装备外观 / Equip Cosmetic"):
+    """Equip animation: particle burst effect around the cosmetic emoji."""
+    burst = ["·", "•", "∘", "○", "◌", "◉", "✺", "✸", "❉", "❋"]
+    for i, b in enumerate(burst):
+        embed = discord.Embed(
+            title=title,
+            description=f"# {b} {item_emoji} {b}\n\n**{item_name}**\n{'💫' * (i % 4 + 1)}",
+            color=0x9B59B6,
+        )
+        await _safe_edit(interaction_or_msg, embed)
+        await asyncio.sleep(0.3)
+    embed = discord.Embed(
+        title=f"✨ {title}",
+        description=f"# 💥 {item_emoji} 💥\n\n**{item_name}**\n已装备 / Equipped!",
+        color=0x8E44AD,
+    )
+    await _safe_edit(interaction_or_msg, embed)
+
+
+def cosmetic_emoji_for(item_id: str) -> str:
+    """Return the emoji for a cosmetic item id, fallback to 🎽."""
+    return COSMETIC_EMOJI.get(item_id, "🎽")
+
+
+# ══════════════════════════════════════════════════════════════
+# Work Animation / 打工动画
+# ══════════════════════════════════════════════════════════════
+
+async def work_animation(
+    interaction_or_msg,
+    job_emoji: str,
+    uname: str,
+    earned: int,
+    frames: list[str] = None,
+):
+    """Play a 3-frame work animation then show the result.
+    
+    Args:
+        interaction_or_msg: discord.Interaction (deferred) or discord.Message
+        job_emoji: Emoji representing the job (e.g., ⛏️)
+        uname: Display name of the user
+        earned: Amount earned (positive = gain, negative = loss, 0 = neutral)
+        frames: Optional custom frame texts; defaults to job-specific ones
+    
+    Duration: ~2.2s total (3 frames × 0.6s + 0.4s hold), within 3s budget.
+    """
+    if frames is None:
+        frames = [
+            f"{job_emoji} {uname} 开始工作...",
+            f"{job_emoji} {uname} 努力工作中...",
+            f"{job_emoji} {uname} 即将完成...",
+        ]
+
+    # Format result
+    if earned > 0:
+        coins_emojis = "💰" * min(8, max(1, earned // 50))
+        result = f"{job_emoji} **{uname}** 获得 {coins_emojis} +🪙{earned:,}!"
+    elif earned < 0:
+        loss_emojis = "💸" * min(5, max(1, abs(earned) // 100))
+        result = f"{job_emoji} **{uname}** 亏损 {loss_emojis} -🪙{abs(earned):,}!"
+    else:
+        result = f"{job_emoji} **{uname}** 毫无收获..."
+    
+    frames.append(result)
+
+    # Determine if we have an interaction or a message
+    is_interaction = hasattr(interaction_or_msg, 'response')
+    
+    if is_interaction:
+        msg = await interaction_or_msg.followup.send(frames[0])
+    else:
+        msg = interaction_or_msg
+        await msg.edit(content=frames[0])
+    
+    for frame in frames[1:]:
+        await asyncio.sleep(0.6)
+        await msg.edit(content=frame)
+    
+    await asyncio.sleep(0.4)
+    return msg
