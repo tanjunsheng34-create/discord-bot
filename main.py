@@ -161,22 +161,8 @@ async def setup_hook(self):
             except Exception as e:
                 logger.warning(f"Failed to send error message: {e}")
 
-    # ── Sync slash commands: clear stale commands before sync ──
-    guild_id = os.getenv("GUILD_ID")
-    if guild_id:
-        try:
-            guild_obj = discord.Object(id=int(guild_id))
-            self.tree.clear_commands(guild=guild_obj)
-            logger.info("Cleared old guild commands")
-        except Exception as e:
-            logger.warning(f"Failed to clear guild commands: {e}")
-    else:
-        try:
-            self.tree.clear_commands(guild=None)
-            logger.info("Cleared old global commands")
-        except Exception as e:
-            logger.warning(f"Failed to clear global commands: {e}")
-    # Note: sync is deferred to on_ready (avoids double-sync)
+    # Note: sync is deferred to on_ready — no clear_commands needed;
+    # discord.py sync() will overwrite any stale commands automatically.
 
 bot.setup_hook = setup_hook.__get__(bot)
 
