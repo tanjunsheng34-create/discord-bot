@@ -210,24 +210,7 @@ class GMPTBot(commands.Bot):
                 except Exception as e:
                     logger.warning(f"[{self.bot_role}] Failed to clear global commands: {e}")
             # Note: sync is deferred to on_ready (avoids double-sync)
-        else:
-            # Non-full roles: clear all stale Discord commands, then push empty tree
-            guild_id = os.getenv("GUILD_ID")
-            if guild_id:
-                try:
-                    guild_obj = discord.Object(id=int(guild_id))
-                    self.tree.clear_commands(guild=guild_obj)
-                    await self.tree.sync(guild=guild_obj)
-                    logger.info(f"({self.bot_role}) Cleared + synced empty tree to guild {guild_id}")
-                except Exception as e:
-                    logger.warning(f"({self.bot_role}) Failed to clear guild commands: {e}")
-            else:
-                try:
-                    self.tree.clear_commands(guild=None)
-                    await self.tree.sync()
-                    logger.info(f"({self.bot_role}) Cleared + synced empty tree globally")
-                except Exception as e:
-                    logger.warning(f"({self.bot_role}) Failed to clear global commands: {e}")
+        # Non-full roles: defer clear+sync to on_ready where we have full guild list
 
     async def on_ready(self):
         bot_role = self.bot_role
@@ -284,9 +267,18 @@ class GMPTBot(commands.Bot):
 
         logger.info(f"Bot online: {self.user} (role={bot_role})")
 
-        # ── Per-guild sync（仅 full 实例） ──
+        # ── Non-full bots: clear all commands from ALL guilds ──
         if bot_role != "full":
+            for guild in self.guilds:
+                try:
+                    self.tree.clear_commands(guild=guild)
+                    await self.tree.sync(guild=guild)
+                except Exception as e:
+                    logger.warning(f"({bot_role}) Failed to clear commands from {guild.name}: {e}")
+            logger.info(f"({bot_role}) Cleared commands from {len(self.guilds)} guild(s)")
             return
+
+        # ── Per-guild sync（仅 full 实例） ──
         total = 0
         for guild in self.guilds:
             self.tree.copy_global_to(guild=guild)

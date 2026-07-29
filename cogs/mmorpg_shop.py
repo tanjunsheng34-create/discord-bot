@@ -711,8 +711,7 @@ class MMORPGMainView(discord.ui.View):
         except discord.InteractionResponded:
             await interaction.followup.edit_message(embed=embed, view=view)
 
-    # ── Row 1: Boss + Dungeon ──
-    @discord.ui.button(label="Boss", emoji="⚔️", style=discord.ButtonStyle.danger, row=1, custom_id="mmorpg_main:boss")
+    @discord.ui.button(label="Boss", emoji="⚔️", style=discord.ButtonStyle.danger, row=0, custom_id="mmorpg_main:boss")
     async def boss_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         from cogs.boss import BossLobbyView
         view = BossLobbyView(self.uid, main_view=self)
@@ -740,8 +739,8 @@ class MMORPGMainView(discord.ui.View):
         except discord.InteractionResponded:
             await interaction.followup.edit_message(embed=embed, view=view)
 
-    # ── Row 2: PVP + Quest ──
-    @discord.ui.button(label="PVP", emoji="⚔️", style=discord.ButtonStyle.success, row=2, custom_id="mmorpg_main:pvp")
+    
+    @discord.ui.button(label="PVP", emoji="⚔️", style=discord.ButtonStyle.success, row=1, custom_id="mmorpg_main:pvp")
     async def pvp_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
             from cogs.mmorpg_pvp import PVPView
@@ -765,7 +764,7 @@ class MMORPGMainView(discord.ui.View):
         except discord.InteractionResponded:
             await interaction.followup.edit_message(embed=embed, view=view)
 
-    @discord.ui.button(label="Quest 任务", emoji="📋", style=discord.ButtonStyle.success, row=2, custom_id="mmorpg_main:quest")
+    @discord.ui.button(label="Quest 任务", emoji="📋", style=discord.ButtonStyle.success, row=1, custom_id="mmorpg_main:quest")
     async def quest_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         from cogs.daily_quest import DailyQuestView
         view = DailyQuestView(self.uid, main_view=self)
@@ -779,8 +778,8 @@ class MMORPGMainView(discord.ui.View):
         except discord.InteractionResponded:
             await interaction.followup.edit_message(embed=embed, view=view)
 
-    # ── Row 3: Equipment + Skills ──
-    @discord.ui.button(label="Equip 装备", emoji="🛡️", style=discord.ButtonStyle.secondary, row=3, custom_id="mmorpg_main:equip")
+    # ── Row 2: Equip + Skills + Bag ──
+    @discord.ui.button(label="Equip 装备", emoji="🛡️", style=discord.ButtonStyle.secondary, row=2, custom_id="mmorpg_main:equip")
     async def equip_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         from cogs.mmorpg_equipment import EquipmentView
         view = EquipmentView(self.uid, main_view=self)
@@ -794,7 +793,7 @@ class MMORPGMainView(discord.ui.View):
         except discord.InteractionResponded:
             await interaction.followup.edit_message(embed=embed, view=view)
 
-    @discord.ui.button(label="Skills 技能", emoji="🗡️", style=discord.ButtonStyle.secondary, row=3, custom_id="mmorpg_main:skills")
+    @discord.ui.button(label="Skills 技能", emoji="🗡️", style=discord.ButtonStyle.secondary, row=2, custom_id="mmorpg_main:skills")
     async def skills_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         from cogs.mmorpg_skills import SkillShopView
         view = SkillShopView(self.uid, main_view=self)
@@ -808,8 +807,8 @@ class MMORPGMainView(discord.ui.View):
         except discord.InteractionResponded:
             await interaction.followup.edit_message(embed=embed, view=view)
 
-    # ── Row 4: Inventory + Class ──
-    @discord.ui.button(label="Bag 背包", emoji="🎒", style=discord.ButtonStyle.secondary, row=4, custom_id="mmorpg_main:inv")
+    # ── Row 3: Class + Econ + Gamble ──
+    @discord.ui.button(label="Bag 背包", emoji="🎒", style=discord.ButtonStyle.secondary, row=2, custom_id="mmorpg_main:inv")
     async def inv_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         with get_db_ctx() as conn:
             cur = conn.cursor()
@@ -843,7 +842,7 @@ class MMORPGMainView(discord.ui.View):
         except discord.InteractionResponded:
             await interaction.followup.edit_message(embed=embed, view=view)
 
-    @discord.ui.button(label="Class 职业", emoji="👤", style=discord.ButtonStyle.secondary, row=4, custom_id="mmorpg_main:class")
+    @discord.ui.button(label="Class 职业", emoji="👤", style=discord.ButtonStyle.secondary, row=3, custom_id="mmorpg_main:class")
     async def class_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         from cogs.mmorpg_class import ClassSelectView
         view = ClassSelectView(self.uid, main_view=self)
@@ -857,8 +856,8 @@ class MMORPGMainView(discord.ui.View):
         except discord.InteractionResponded:
             await interaction.followup.edit_message(embed=embed, view=view)
 
-    # ── Row 5: Economy + Gambling ──
-    @discord.ui.button(label="Econ 经济", emoji="💎", style=discord.ButtonStyle.primary, row=5, custom_id="mmorpg_main:econ")
+    
+    @discord.ui.button(label="Econ 经济", emoji="💎", style=discord.ButtonStyle.primary, row=3, custom_id="mmorpg_main:econ")
     async def econ_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         from cogs.economy import MainMenuView
         view = MainMenuView(self.uid, self.uid)
@@ -872,7 +871,7 @@ class MMORPGMainView(discord.ui.View):
         except discord.InteractionResponded:
             await interaction.followup.edit_message(embed=embed, view=view)
 
-    @discord.ui.button(label="Gamble 赌博", emoji="🎰", style=discord.ButtonStyle.primary, row=5, custom_id="mmorpg_main:gamble")
+    @discord.ui.button(label="Gamble 赌博", emoji="🎰", style=discord.ButtonStyle.primary, row=3, custom_id="mmorpg_main:gamble")
     async def gamble_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         from cogs.gambling import GamblingLobbyView
         view = GamblingLobbyView(self.uid, main_view=self)
@@ -886,8 +885,8 @@ class MMORPGMainView(discord.ui.View):
         except discord.InteractionResponded:
             await interaction.followup.edit_message(embed=embed, view=view)
 
-    # ── Row 6: Cosmetics + Leaderboard ──
-    @discord.ui.button(label="Pet 外观", emoji="🎨", style=discord.ButtonStyle.success, row=6, custom_id="mmorpg_main:pet")
+    # ── Row 4: Pet + Rank + Achieve ──
+    @discord.ui.button(label="Pet 外观", emoji="🎨", style=discord.ButtonStyle.success, row=4, custom_id="mmorpg_main:pet")
     async def pet_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
             from cogs.pets import PetPanelView
@@ -911,7 +910,7 @@ class MMORPGMainView(discord.ui.View):
         except discord.InteractionResponded:
             await interaction.followup.edit_message(embed=embed, view=view)
 
-    @discord.ui.button(label="Rank 排行", emoji="📊", style=discord.ButtonStyle.success, row=6, custom_id="mmorpg_main:rank")
+    @discord.ui.button(label="Rank 排行", emoji="📊", style=discord.ButtonStyle.success, row=4, custom_id="mmorpg_main:rank")
     async def rank_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         from cogs.leaderboard import LeaderboardView
         view = LeaderboardView(main_view=self)
@@ -925,7 +924,7 @@ class MMORPGMainView(discord.ui.View):
         except discord.InteractionResponded:
             await interaction.followup.edit_message(embed=embed, view=view)
 
-    @discord.ui.button(label="Achieve 成就", emoji="🏅", style=discord.ButtonStyle.success, row=6, custom_id="mmorpg_main:achievements")
+    @discord.ui.button(label="Achieve 成就", emoji="🏅", style=discord.ButtonStyle.success, row=4, custom_id="mmorpg_main:achievements")
     async def achievements_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         from cogs.achievements import AchievementsView
         view = AchievementsView(uid=self.uid, main_view=self)

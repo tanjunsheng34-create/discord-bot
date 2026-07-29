@@ -10,7 +10,7 @@ import discord
 from discord import app_commands
 
 from database import get_db_ctx
-from utils.helpers import CogBase, ensure_user
+from utils.cog_base import CogBase
 from cogs.economy import add_coins
 
 QUEST_TYPES = {

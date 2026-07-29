@@ -9,7 +9,7 @@ import discord
 from discord import app_commands
 
 from database import get_db_ctx
-from utils.helpers import CogBase, ensure_user
+from utils.cog_base import CogBase
 
 EQUIP_SLOTS = ["weapon", "armor", "helmet", "ring", "accessory"]
 EQUIP_SLOT_LABELS_CN = {
