@@ -55,7 +55,7 @@ class LeaderboardView(discord.ui.View):
             (), "⚔️ 胜场王 / Wins Leaderboard", 0x2ECC71,
             "wins", " wins"
         )
-        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.edit_original_response(embed=embed, view=self)
 
     @discord.ui.button(label="🏆 MVP榜 / MVP", style=discord.ButtonStyle.primary, row=0)
     async def mvp_lb(self, interaction: discord.Interaction, button):
@@ -87,7 +87,7 @@ class LeaderboardView(discord.ui.View):
             (), "📊 等级榜 / Level Leaderboard", 0x9B59B6,
             "xp", " XP"
         )
-        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.edit_original_response(embed=embed, view=self)
 
     @discord.ui.button(label="🎤 语音榜 / Voice", style=discord.ButtonStyle.primary, row=1)
     async def voice_lb(self, interaction: discord.Interaction, button):
@@ -97,7 +97,7 @@ class LeaderboardView(discord.ui.View):
             (), "🎤 语音榜 / Voice Leaderboard", 0x3498DB,
             "minutes", " min"
         )
-        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.edit_original_response(embed=embed, view=self)
 
     @discord.ui.button(label="◀ 返回 / Back", style=discord.ButtonStyle.danger, row=1)
     async def back_btn(self, interaction: discord.Interaction, button):

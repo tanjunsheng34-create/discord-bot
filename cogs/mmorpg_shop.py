@@ -716,7 +716,7 @@ class MMORPGMainView(discord.ui.View):
     @discord.ui.button(label="Class 职业", emoji="\U0001f464", style=discord.ButtonStyle.primary, row=0, custom_id="mmorpg_main:class")
     async def class_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         from cogs.mmorpg_class import ClassSelectView
-        view = ClassSelectView(self.uid, main_view=self)
+        view = ClassSelectView(self.uid, None, main_view=self)
         embed = discord.Embed(
             title="\U0001f464 Class / 职业",
             description="Choose your class!\n选择你的职业！",
