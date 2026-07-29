@@ -7922,6 +7922,7 @@ class Dashboard(CogBase):
 
     _croniter_warned = False
     def __init__(self, bot):
+        super().__init__()
         self.bot = bot
 
     admin_group = app_commands.Group(

@@ -478,16 +478,39 @@ async def on_ready():
     await auto_restore()
     logger.info(f"Bot online: {bot.user}")
 
-    # ── Per-guild sync：copy global commands → sync to each guild ──
+    # ── Diagnostic: print global command tree state ──
+    global_cmds = bot.tree.get_commands()
+    logger.info(
+        f"Global tree: {len(global_cmds)} commands — "
+        f"{[c.name for c in global_cmds[:10]]}"
+        f"{'...' if len(global_cmds) > 10 else ''}"
+    )
+
+    # ── Per-guild sync：clear guild cache → copy global → push to Discord ──
     total = 0
     for guild in bot.guilds:
-        bot.tree.copy_global_to(guild=guild)
         try:
-            synced = await bot.tree.sync(guild=guild)
-            logger.info(f"Synced {len(synced)} commands to {guild.name} ({guild.id})")
-            total += len(synced)
-        except Exception as e:
-            logger.error(f"Guild sync error for {guild.name}: {e}")
+            bot.tree.clear_commands(guild=guild)
+        except Exception:
+            pass  # clear_commands is best-effort
+        bot.tree.copy_global_to(guild=guild)
+        guild_cmds = bot.tree.get_commands(guild=guild)
+        logger.info(
+            f"Guild tree [{guild.name}]: {len(guild_cmds)} commands after copy"
+        )
+        if len(guild_cmds) > 0:
+            try:
+                synced = await bot.tree.sync(guild=guild)
+                logger.info(
+                    f"Synced {len(synced)} commands to {guild.name} ({guild.id})"
+                )
+                total += len(synced)
+            except Exception as e:
+                logger.error(f"Guild sync error for {guild.name}: {e}")
+        else:
+            logger.warning(
+                f"Guild tree for {guild.name} is empty after copy — skipping sync"
+            )
     logger.info(f"Total synced: {total} commands across {len(bot.guilds)} guilds")
 
     # 启动自检：向欢迎频道发一条上线消息，验证频道存在 + 发消息权限
