@@ -361,7 +361,7 @@ class DungeonLobbyView(discord.ui.View):
         )
         embed.add_field(
             name="⚔️ 开始探索 / Start",
-            value="使用 `/gmpt-dungeon explore` 进入地下城",
+            value="点击下方按钮直接进入地下城 / Click below to enter!",
             inline=False,
         )
         embed.set_footer(text="每日免费 1 次，额外每次 200G")
@@ -385,12 +385,38 @@ class DungeonLobbyView(discord.ui.View):
             self.add_item(back_btn)
 
     async def _explore_info_callback(self, interaction: discord.Interaction):
-        await interaction.response.send_message(
-            "🏰 **进入地下城 / Enter Dungeon:**\n"
-            "在聊天中使用 `/gmpt-dungeon explore` 开始探索！\n"
-            "Use `/gmpt-dungeon explore` to start your dungeon run!",
-            ephemeral=True,
+        """Directly open the full DungeonView for floor selection."""
+        uid = str(interaction.user.id)
+        uname = interaction.user.display_name
+        free, extra = _get_dungeon_runs(uid)
+        player = _get_player_stats(uid)
+        cost_text = "免费 Free" if free > 0 else f"🪙 {extra}"
+        embed = discord.Embed(
+            title=f"🏰 地下城 Dungeon | {uname}",
+            description=(
+                f"❤️ HP: {player['hp']}/{player['max_hp']}  |  ⚔️ ATK: {player['atk']}  |  🛡️ DEF: {player['def']}\n"
+                f"Lv.{player['level']}  |  入场费 Entry: **{cost_text}**\n"
+                f"每日免费 1 次 / 1 free daily (额外 extra: 🪙 {EXTRA_RUN_COST})"
+            ),
+            color=0x8E44AD,
         )
+        embed.add_field(
+            name="📜 楼层信息 / Floors",
+            value=(
+                "**1F 阴暗洞穴 Dark Cave** — Lv.1-5\n"
+                "**2F 亡灵墓穴 Undead Tomb** — Lv.5-10\n"
+                "**3F 烈焰深渊 Fire Abyss** — Lv.10-15\n"
+                "**4F 风暴之巅 Storm Peak** — Lv.15-20\n"
+                "**5F 魔王宫殿 Demon Lord's Palace** — Lv.20+ 👑"
+            ),
+            inline=False,
+        )
+        embed.set_footer(text="选择楼层开始探索 / Select a floor to begin exploring!")
+        view = DungeonView(interaction.guild, uid, uname)
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=embed, view=view)
 
     async def _back_callback(self, interaction: discord.Interaction):
         if self.main_view:

@@ -843,6 +843,7 @@ class MMORPGMainView(discord.ui.View):
                 description="Your backpack is empty!\n背包空空如也！Visit the Shop to buy items.",
                 color=0x95A5A6,
             )
+            view = _BackOnlyView(self.uid, main_view=self)
         else:
             lines = []
             for row in rows:
@@ -856,7 +857,7 @@ class MMORPGMainView(discord.ui.View):
                 description="\n".join(lines),
                 color=0x95A5A6,
             )
-        view = _BackOnlyView(self.uid, main_view=self)
+            view = PotionBagView(self.uid, rows, main_view=self)
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
@@ -934,6 +935,32 @@ class MMORPGMainView(discord.ui.View):
         except discord.InteractionResponded:
             await interaction.followup.edit_message(embed=embed, view=view)
 
+    @discord.ui.button(label="Cosmetics 外观", emoji="🎨", style=discord.ButtonStyle.success, row=4, custom_id="mmorpg_main:cosmetics")
+    async def cosmetics_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(
+            title="🎨 Cosmetics Shop / 外观商店",
+            description=(
+                "Buy cosmetic titles to show off!\n"
+                "购买外观称号来展示个性！\n\n"
+                "Available items / 可购买物品:\n"
+                "👑 王者皇冠 (King's Crown) — 🪙 5000\n"
+                "🎭 忍者面具 (Ninja Mask) — 🪙 3000\n"
+                "👼 天使翅膀 (Angel Wings) — 🪙 4000\n"
+                "😈 恶魔之角 (Demon Horns) — 🪙 4000\n"
+                "🌈 彩虹披风 (Rainbow Cape) — 🪙 3500\n"
+                "🛡️ 黄金铠甲 (Golden Armor) — 🪙 6000\n"
+                "🌑 暗影斗篷 (Shadow Cloak) — 🪙 4500\n"
+                "🔥 火焰光环 (Fire Aura) — 🪙 5500"
+            ),
+            color=0xFF69B4,
+        )
+        embed.set_footer(text="/gmpt-shop buy <item> to purchase | 使用 /gmpt-shop buy <物品> 购买")
+        view = _BackOnlyView(self.uid, main_view=self)
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
 
 class _BackOnlyView(discord.ui.View):
     """Simple view with just a Back button for panels that only display info."""
@@ -944,6 +971,227 @@ class _BackOnlyView(discord.ui.View):
 
     @discord.ui.button(label="Back 返回", emoji="🔙", style=discord.ButtonStyle.secondary, row=4, custom_id="back_only:back")
     async def back_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = build_main_embed(self.uid, interaction.user.display_name)
+        try:
+            await interaction.response.edit_message(embed=embed, view=self.main_view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=self.main_view)
+
+
+# ══════════════════════════════════════════════════════════════
+# PotionBagView — Backpack with Use buttons per potion
+# ══════════════════════════════════════════════════════════════
+class PotionBagView(discord.ui.View):
+    """Backpack view with Use buttons for each potion."""
+    def __init__(self, uid: str, potion_rows: list, main_view: MMORPGMainView):
+        super().__init__(timeout=300)
+        self.uid = uid
+        self.main_view = main_view
+        self._potions = {row["item_name"]: row for row in potion_rows}
+        self._build()
+
+    def _build(self):
+        self.clear_items()
+        for idx, (potion_key, row) in enumerate(self._potions.items()):
+            p = POTION_CATALOG.get(potion_key, {})
+            emoji = p.get("emoji", "🧪")
+            cn = p.get("name_cn", potion_key)
+            btn = discord.ui.Button(
+                label=f"Use {cn}",
+                emoji=emoji,
+                style=discord.ButtonStyle.primary,
+                row=idx // 3,
+                custom_id=f"potbag_use:{potion_key}",
+            )
+            btn.callback = self._make_use_callback(potion_key)
+            self.add_item(btn)
+
+        if self.main_view:
+            back_btn = discord.ui.Button(
+                label="Back 返回", emoji="🔙",
+                style=discord.ButtonStyle.secondary,
+                row=4, custom_id="potbag_back",
+            )
+            back_btn.callback = self._back_callback
+            self.add_item(back_btn)
+
+    def _make_use_callback(self, potion_key: str):
+        async def cb(interaction: discord.Interaction):
+            await self._use_potion(interaction, potion_key)
+        return cb
+
+    async def _use_potion(self, interaction: discord.Interaction, potion_key: str):
+        """Consume 1 potion from inventory."""
+        uid = self.uid
+
+        if potion_key not in POTION_CATALOG:
+            await interaction.response.send_message("Potion not found / 药水不存在", ephemeral=True)
+            return
+
+        p = POTION_CATALOG[potion_key]
+
+        # Re-check inventory
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT quantity FROM user_inventory WHERE user_id = ? AND item_name = ? AND item_type = 'potion'",
+                (uid, potion_key),
+            )
+            inv_row = cur.fetchone()
+
+        if not inv_row or inv_row["quantity"] <= 0:
+            await interaction.response.send_message(
+                f"You don't have **{p['name_cn']}** in your bag / 背包中没有此药水！",
+                ephemeral=True,
+            )
+            return
+
+        user_level = _get_user_level(uid)
+        if user_level < p["min_level"]:
+            await interaction.response.send_message(
+                f"Level too low / 等级不足！Requires Lv.{p['min_level']}, you are Lv.{user_level}",
+                ephemeral=True,
+            )
+            return
+
+        # Defer for animation
+        await interaction.response.defer()
+
+        # Consume 1
+        if inv_row["quantity"] > 1:
+            with get_db_ctx() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "UPDATE user_inventory SET quantity = quantity - 1 WHERE user_id = ? AND item_name = ? AND item_type = 'potion'",
+                    (uid, potion_key),
+                )
+                conn.commit()
+        else:
+            with get_db_ctx() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "DELETE FROM user_inventory WHERE user_id = ? AND item_name = ? AND item_type = 'potion'",
+                    (uid, potion_key),
+                )
+                conn.commit()
+
+        # Apply effect
+        effect_type = p["effect_type"]
+        effect_value = p["effect_value"]
+
+        if effect_type == "heal_hp":
+            stats = _get_user_stats(uid)
+            cur_hp = stats["hp"]
+            max_hp = stats["max_hp"]
+            new_hp = min(cur_hp + effect_value, max_hp)
+            with get_db_ctx() as conn:
+                cur = conn.cursor()
+                cur.execute("UPDATE users SET hp = ? WHERE discord_id = ?", (new_hp, uid))
+                conn.commit()
+            embed = discord.Embed(
+                title=f"{p['emoji']} {p['name_cn']} / {p['name_en']}",
+                description=f"Restored **{new_hp - cur_hp}** HP / 恢复了 **{new_hp - cur_hp}** HP！\n{cur_hp} → {new_hp} / {max_hp}",
+                color=0xE74C3C,
+            )
+
+        elif effect_type == "heal_mp":
+            stats = _get_user_stats(uid)
+            cur_mp = stats["mp"]
+            max_mp = stats["max_mp"]
+            new_mp = min(cur_mp + effect_value, max_mp)
+            with get_db_ctx() as conn:
+                cur = conn.cursor()
+                cur.execute("UPDATE users SET mp = ? WHERE discord_id = ?", (new_mp, uid))
+                conn.commit()
+            embed = discord.Embed(
+                title=f"{p['emoji']} {p['name_cn']} / {p['name_en']}",
+                description=f"Restored **{new_mp - cur_mp}** MP / 恢复了 **{new_mp - cur_mp}** MP！\n{cur_mp} → {new_mp} / {max_mp}",
+                color=0x3498DB,
+            )
+
+        elif effect_type in ("buff_atk", "buff_def", "buff_spd", "buff_crit", "buff_exp"):
+            expires = datetime.datetime.now() + datetime.timedelta(minutes=p["duration"])
+            buff_type_map = {
+                "buff_atk": "atk_up", "buff_def": "def_up",
+                "buff_spd": "spd_up", "buff_crit": "crit_up", "buff_exp": "exp_up",
+            }
+            buff_type = buff_type_map.get(effect_type, effect_type)
+            with get_db_ctx() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO active_buffs (user_id, buff_type, value, expires_at) VALUES (?, ?, ?, ?)",
+                    (uid, buff_type, effect_value, expires.isoformat()),
+                )
+                conn.commit()
+            embed = discord.Embed(
+                title=f"{p['emoji']} {p['name_cn']} / {p['name_en']}",
+                description=f"{p['effect_cn']}\n{p['effect_en']}\n\nDuration / 持续: **{p['duration']}** turns/minutes",
+                color=0xE67E22,
+            )
+
+        elif effect_type == "revive":
+            stats = _get_user_stats(uid)
+            if stats["hp"] > 0:
+                with get_db_ctx() as conn:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) VALUES (?, ?, ?, 1, 'potion')",
+                        (uid, p["id"], potion_key),
+                    )
+                    conn.commit()
+                await interaction.followup.send(
+                    "You're still alive! Revival potion only usable when HP=0.\n你还活着！复活药水只能在 HP=0 时使用。",
+                    ephemeral=True,
+                )
+                return
+            max_hp = stats["max_hp"]
+            max_mp = stats["max_mp"]
+            restore_hp = max(1, int(max_hp * effect_value / 100))
+            with get_db_ctx() as conn:
+                cur = conn.cursor()
+                cur.execute("UPDATE users SET hp = ?, mp = ? WHERE discord_id = ?", (restore_hp, max_mp, uid))
+                conn.commit()
+            embed = discord.Embed(
+                title=f"{p['emoji']} {p['name_cn']} / {p['name_en']}",
+                description=f"Revived! HP restored to **{restore_hp}**/{max_hp}, MP fully restored!\n复活成功！HP 恢复到 **{restore_hp}**/{max_hp}，MP 全满！",
+                color=0x2ECC71,
+            )
+
+        else:
+            embed = discord.Embed(
+                title=f"{p['emoji']} {p['name_cn']} / {p['name_en']}",
+                description=f"Used successfully / 使用成功！",
+                color=0x95A5A6,
+            )
+
+        # Refresh the bag view with remaining potions
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT item_name, quantity FROM user_inventory WHERE user_id = ? AND item_type = 'potion' AND quantity > 0 ORDER BY item_name",
+                (uid,),
+            )
+            rows = cur.fetchall()
+
+        if not rows:
+            lines = ["Your backpack is empty!\n背包空空如也！"]
+        else:
+            lines = []
+            for row_data in rows:
+                pp = POTION_CATALOG.get(row_data["item_name"], {})
+                lines.append(f"{pp.get('emoji', '🧪')} **{pp.get('name_cn', row_data['item_name'])} / {pp.get('name_en', row_data['item_name'])}** x{row_data['quantity']}")
+
+        bag_embed = discord.Embed(
+            title="🎒 Backpack / 背包",
+            description="\n".join(lines),
+            color=0x95A5A6,
+        )
+
+        new_view = PotionBagView(uid, rows, main_view=self.main_view)
+        await interaction.followup.edit_message(interaction.message.id, embed=bag_embed, view=new_view)
+        await interaction.followup.send(embed=embed)
+
+    async def _back_callback(self, interaction: discord.Interaction):
         embed = build_main_embed(self.uid, interaction.user.display_name)
         try:
             await interaction.response.edit_message(embed=embed, view=self.main_view)

@@ -759,6 +759,36 @@ def _run_migrations(cursor):
     except sqlite3.OperationalError:
         pass
 
+    # MMORPG stats columns (spd, crit, acc, eva) — fallback migration
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN spd INTEGER DEFAULT 5")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN crit_rate INTEGER DEFAULT 5")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN accuracy INTEGER DEFAULT 90")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN evasion INTEGER DEFAULT 3")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN boss_kills INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN pvp_wins INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN dungeon_clears INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
 
 def _seed_default_vc(cursor):
     """Seed default voice channel IDs for match auto-assign (INSERT OR IGNORE)."""
