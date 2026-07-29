@@ -58,6 +58,8 @@ MMORPG_COGS = {
     "cogs.mmorpg_pvp",
     "cogs.mmorpg_equipment",
     "cogs.mmorpg_class",
+    "cogs.mmorpg_stats",
+    "cogs.mmorpg_titles",
     "cogs.daily_quest",
     "cogs.dungeon",
     "cogs.achievements",
