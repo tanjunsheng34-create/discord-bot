@@ -82,7 +82,7 @@ def _consume_potion(uid: str, potion_name: str) -> dict | None:
     with get_db_ctx() as conn:
         cur = conn.cursor()
         cur.execute(
-            "SELECT id, quantity FROM user_inventory WHERE user_id = ? AND item_name = ? AND item_type = 'potion'",
+            "SELECT quantity FROM user_inventory WHERE user_id = ? AND item_name = ? AND item_type = 'potion'",
             (uid, potion_name),
         )
         inv_row = cur.fetchone()
@@ -90,11 +90,11 @@ def _consume_potion(uid: str, potion_name: str) -> dict | None:
         return None
     if inv_row["quantity"] > 1:
         with get_db_ctx() as conn:
-            conn.cursor().execute("UPDATE user_inventory SET quantity = quantity - 1 WHERE id = ?", (inv_row["id"],))
+            conn.cursor().execute("UPDATE user_inventory SET quantity = quantity - 1 WHERE user_id = ? AND item_name = ? AND item_type = 'potion'", (uid, potion_name))
             conn.commit()
     else:
         with get_db_ctx() as conn:
-            conn.cursor().execute("DELETE FROM user_inventory WHERE id = ?", (inv_row["id"],))
+            conn.cursor().execute("DELETE FROM user_inventory WHERE user_id = ? AND item_name = ? AND item_type = 'potion'", (uid, potion_name))
             conn.commit()
     return POTION_CATALOG.get(potion_name)
 

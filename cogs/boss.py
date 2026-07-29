@@ -951,7 +951,7 @@ class BossCog(CogBase):
         with get_db_ctx() as conn:
             cur = conn.cursor()
             cur.execute(
-                "SELECT id, quantity FROM user_inventory WHERE user_id = ? AND item_name = ? AND item_type = 'potion'",
+                "SELECT quantity FROM user_inventory WHERE user_id = ? AND item_name = ? AND item_type = 'potion'",
                 (uid, name),
             )
             inv_row = cur.fetchone()
@@ -972,12 +972,12 @@ class BossCog(CogBase):
         if inv_row["quantity"] > 1:
             with get_db_ctx() as conn:
                 cur = conn.cursor()
-                cur.execute("UPDATE user_inventory SET quantity = quantity - 1 WHERE id = ?", (inv_row["id"],))
+                cur.execute("UPDATE user_inventory SET quantity = quantity - 1 WHERE user_id = ? AND item_name = ? AND item_type = 'potion'", (uid, name))
                 conn.commit()
         else:
             with get_db_ctx() as conn:
                 cur = conn.cursor()
-                cur.execute("DELETE FROM user_inventory WHERE id = ?", (inv_row["id"],))
+                cur.execute("DELETE FROM user_inventory WHERE user_id = ? AND item_name = ? AND item_type = 'potion'", (uid, name))
                 conn.commit()
 
         # Apply effect to in-memory player
