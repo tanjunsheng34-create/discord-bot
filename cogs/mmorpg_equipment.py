@@ -98,12 +98,49 @@ def _roll_equipment(slot: str, min_level: int = 1) -> dict:
 class EquipmentView(discord.ui.View):
     """装备面板 / Equipment panel with slot buttons."""
 
-    def __init__(self, guild, user_id: str, user_name: str):
+    def __init__(self, uid_or_guild, user_id: str = None, user_name: str = None, main_view=None):
         super().__init__(timeout=180)
-        self.guild = guild
-        self.uid = user_id
-        self.uname = user_name
+        # Support two calling conventions:
+        # 1. New: EquipmentView(uid, main_view=mv)
+        # 2. Old: EquipmentView(guild, uid, uname)
+        if user_id is None:
+            self.uid = str(uid_or_guild)
+            self.uname = None
+            self.main_view = user_id  # passed as second arg
+        else:
+            self.uid = str(user_id)
+            self.uname = user_name
+            self.main_view = main_view
+        self.guild = uid_or_guild if user_id is not None else None
         self._build()
+
+    def build_main_embed(self):
+        equipped = _get_equipped(self.uid)
+        total_stats = _get_equip_stats(self.uid)
+        embed = discord.Embed(
+            title="⚔️ 装备面板 / Equipment Panel",
+            description="点击下方槽位按钮查看装备详情 / Click a slot button to view equipment",
+            color=0xE67E22,
+        )
+        for slot in EQUIP_SLOTS:
+            eq = equipped.get(slot)
+            if eq:
+                q = QUALITIES.get(eq["quality"], QUALITIES["normal"])
+                embed.add_field(
+                    name=f"{eq['emoji'] if eq.get('emoji') else q['label'].split()[0]} {EQUIP_SLOT_LABELS_CN[slot]}",
+                    value=f"{eq['name']}\n+{eq['stat_value']} {eq['stat'].upper()}",
+                    inline=True,
+                )
+            else:
+                embed.add_field(
+                    name=f"⬜ {EQUIP_SLOT_LABELS_CN[slot]}",
+                    value="未装备 / Empty",
+                    inline=True,
+                )
+        embed.add_field(name="\u200b", value="\u200b", inline=False)
+        stats_text = f"ATK:{total_stats['atk']} DEF:{total_stats['def']} HP:{total_stats['hp']} Crit:{total_stats['crit']} SPD:{total_stats['spd']}"
+        embed.set_footer(text=f"Total Stats: {stats_text}")
+        return embed
 
     def _build(self):
         self.clear_items()
@@ -123,6 +160,36 @@ class EquipmentView(discord.ui.View):
             )
             btn.callback = self._make_slot_callback(slot)
             self.add_item(btn)
+
+        if self.main_view:
+            back_btn = discord.ui.Button(
+                label="Back to MMORPG / 返回", style=discord.ButtonStyle.danger,
+                row=1, emoji="🏠", custom_id="eq_back",
+            )
+            back_btn.callback = self._back_callback
+            self.add_item(back_btn)
+
+    async def _back_callback(self, interaction: discord.Interaction):
+        if self.main_view:
+            from cogs.mmorpg_shop import _get_user_stats, _get_balance
+            uid = str(self.uid)
+            stats = _get_user_stats(uid)
+            bal = _get_balance(uid)
+            embed = discord.Embed(
+                title="MMORPG Main Panel / MMORPG 主面板",
+                description=(
+                    f"❤️ HP: **{stats['hp']}/{stats['max_hp']}**  "
+                    f"🔮 MP: **{stats['mp']}/{stats['max_mp']}**\n"
+                    f"⚔️ ATK: **{stats['attack']}**  🛡️ DEF: **{stats['defense']}**  "
+                    f"⭐ Lv.**{stats['level']}**  🪙 **{bal:,}**\n\n"
+                    f"Click a button below / 点击下方按钮："
+                ),
+                color=0x9B59B6,
+            )
+            try:
+                await interaction.response.edit_message(embed=embed, view=self.main_view)
+            except discord.InteractionResponded:
+                await interaction.edit_original_response(embed=embed, view=self.main_view)
 
     def _make_slot_callback(self, slot: str):
         async def cb(interaction: discord.Interaction):

@@ -833,6 +833,23 @@ async def buy_item(interaction: discord.Interaction, uid: str, item_id: int, bro
                     conn2.commit()
                     result_msg += f"\n🎯 Mode pick activated! Next match you can choose the game mode. / 自选模式已激活！下场比赛可选择模式。"
 
+                elif item_type.startswith("cosm_"):
+                    # 外观 Cosmetics：存入背包 + 购买动画
+                    cur2.execute(
+                        "INSERT INTO user_inventory (user_id, item_id, quantity) VALUES (?,?,1) "
+                        "ON CONFLICT(user_id, item_id) DO UPDATE SET quantity = quantity + 1",
+                        (uid, item_id),
+                    )
+                    conn2.commit()
+                    # shop-log 通知
+                    if _bot:
+                        try:
+                            shop_ch = _bot.get_channel(SHOP_LOG_CHANNEL_ID)
+                            if shop_ch:
+                                await shop_ch.send(f"{btn_i.user.mention} 购买了外观 [{item['name']}] — 花费 {item['price']} coins")
+                        except Exception as e:
+                            log_error("economy", "confirm", e)
+
                 else:
                     # 兜底：存入背包
                     cur2.execute(
@@ -842,8 +859,29 @@ async def buy_item(interaction: discord.Interaction, uid: str, item_id: int, bro
                     )
                     conn2.commit()
 
+            # 外观购买动画（3秒：旋转放大 + 闪光）
+            cosmetic_emoji = ""
+            if item_type.startswith("cosm_"):
+                try:
+                    from utils.animations import cosmetic_purchase_animation, cosmetic_emoji_for
+                    cosmetic_emoji = cosmetic_emoji_for(item_type)
+                    await cosmetic_purchase_animation(
+                        btn_i, cosmetic_emoji, item["name"]
+                    )
+                except Exception as e:
+                    log_error("economy", "cosmetic_animation", e)
+
             for child in self.children: child.disabled = True
-            await btn_i.edit_original_response(content=result_msg, view=self)
+            if item_type.startswith("cosm_"):
+                # Animation already showed the result embed; add result text + disabled buttons
+                embed = discord.Embed(
+                    title="✅ 购买成功 / Purchased!",
+                    description=f"# {cosmetic_emoji} {item['name']}\n\n{result_msg}",
+                    color=0x2ECC71,
+                )
+                await btn_i.edit_original_response(embed=embed, view=self)
+            else:
+                await btn_i.edit_original_response(content=result_msg, view=self)
 
             # 成就检查
             check_achievement(uid, "在商店购买")

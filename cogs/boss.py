@@ -1201,3 +1201,101 @@ class BossCog(CogBase):
 
 async def setup(bot):
     await bot.add_cog(BossCog(bot))
+
+
+# ══════════════════════════════════════════════════════════════
+# Boss Lobby View — Interactive Boss hub
+# ══════════════════════════════════════════════════════════════
+class BossLobbyView(discord.ui.View):
+    """Boss大厅面板 / Boss lobby panel."""
+
+    def __init__(self, user_id: str, main_view=None):
+        super().__init__(timeout=300)
+        self.uid = user_id
+        self.main_view = main_view
+        self._build()
+
+    def build_main_embed(self):
+        bal = get_balance(self.uid)
+        embed = discord.Embed(
+            title="🐉 Boss Raid / Boss 团战",
+            description=(
+                "与其他玩家组队挑战强大的Boss！\n"
+                "Team up with others to defeat powerful bosses!\n\n"
+                f"🪙 你的余额 / Your balance: **{bal:,}**"
+            ),
+            color=0xC0392B,
+        )
+        embed.add_field(
+            name="🏰 副本列表 / Dungeons",
+            value="查看可用Boss副本：`/gmpt-boss dungeon`",
+            inline=False,
+        )
+        embed.add_field(
+            name="⚔️ 创建/加入房间",
+            value="创建房间：`/gmpt-boss create`\n加入房间：`/gmpt-boss join`\n邀请成员：`/gmpt-boss invite`",
+            inline=False,
+        )
+        embed.set_footer(text="Boss 战消耗技能和药水，请做好准备！")
+        return embed
+
+    def _build(self):
+        self.clear_items()
+        dungeon_btn = discord.ui.Button(
+            label="🏰 Dungeons / 副本", style=discord.ButtonStyle.primary,
+            row=0, custom_id="boss_dungeon",
+        )
+        dungeon_btn.callback = self._dungeon_info_callback
+        self.add_item(dungeon_btn)
+
+        status_btn = discord.ui.Button(
+            label="📊 Status / 战况", style=discord.ButtonStyle.secondary,
+            row=0, custom_id="boss_status",
+        )
+        status_btn.callback = self._status_info_callback
+        self.add_item(status_btn)
+
+        if self.main_view:
+            back_btn = discord.ui.Button(
+                label="Back to MMORPG / 返回", style=discord.ButtonStyle.danger,
+                row=1, emoji="🏠", custom_id="boss_back",
+            )
+            back_btn.callback = self._back_callback
+            self.add_item(back_btn)
+
+    async def _dungeon_info_callback(self, interaction: discord.Interaction):
+        await interaction.response.send_message(
+            "🏰 **Boss 副本 / Dungeons:**\n"
+            "在聊天中使用 `/gmpt-boss dungeon` 查看所有可用Boss\n"
+            "Use `/gmpt-boss create` 创建房间后邀请队友！",
+            ephemeral=True,
+        )
+
+    async def _status_info_callback(self, interaction: discord.Interaction):
+        await interaction.response.send_message(
+            "📊 使用 `/gmpt-boss status` 查看当前Boss战况\n"
+            "Use `/gmpt-boss leaderboard` 查看排行榜",
+            ephemeral=True,
+        )
+
+    async def _back_callback(self, interaction: discord.Interaction):
+        if self.main_view:
+            from cogs.mmorpg_shop import _get_user_stats
+            uid = str(self.uid)
+            stats = _get_user_stats(uid)
+            bal = get_balance(uid)
+            embed = discord.Embed(
+                title="MMORPG Main Panel / MMORPG 主面板",
+                description=(
+                    f"❤️ HP: **{stats['hp']}/{stats['max_hp']}**  "
+                    f"🔮 MP: **{stats['mp']}/{stats['max_mp']}**\n"
+                    f"⚔️ ATK: **{stats['attack']}**  🛡️ DEF: **{stats['defense']}**  "
+                    f"⭐ Lv.**{stats['level']}**  🪙 **{bal:,}**\n\n"
+                    f"Click a button below / 点击下方按钮："
+                ),
+                color=0x9B59B6,
+            )
+            try:
+                await interaction.response.edit_message(embed=embed, view=self.main_view)
+            except discord.InteractionResponded:
+                await interaction.edit_original_response(embed=embed, view=self.main_view)

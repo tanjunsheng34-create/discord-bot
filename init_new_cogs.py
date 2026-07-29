@@ -243,6 +243,15 @@ def init_all_new_tables():
         except Exception:
             pass
 
+        # ── daily_quest.py: Daily quests (schema 与 cogs/daily_quest.py 保持一致) ──
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS daily_quests (
+                user_id TEXT PRIMARY KEY,
+                quests_json TEXT,
+                reset_ts INTEGER
+            )
+        """)
+
         conn.commit()
 
     logger.info("[InitNewCogs] All new tables created successfully.")
@@ -257,6 +266,7 @@ def init_all_new_tables():
         "tod_custom_questions",
         "boss_dungeon_cooldowns", "boss_kill_stats", "boss_player_kills",
         "player_skills", "potions", "active_buffs",
+        "daily_quests",
     ]
     logger.info(f"[InitNewCogs] Tables: {', '.join(tables)}")
     return True

@@ -163,6 +163,42 @@ async def _handle_job_xp(uid: str, interaction: discord.Interaction):
 
 # ════ Money Effect & Helper Functions ════
 
+def _add_global_xp(uid: str, income: int) -> int:
+    """Add MMORPG EXP based on job income. Returns EXP gained.
+
+    Success (profit): exp = max(1, income // 5)
+    Failure (loss):   exp = max(1, abs(income) // 10)
+    Level up every 1000 XP.
+    """
+    if income > 0:
+        exp = max(1, income // 5)
+    else:
+        exp = max(1, abs(income) // 10)
+
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT xp, level FROM users WHERE discord_id = ?",
+            (uid,),
+        )
+        row = cur.fetchone()
+        old_xp = row["xp"] if row else 0
+        old_level = row["level"] if row else 1
+        new_xp = old_xp + exp
+
+        new_level = old_level
+        while new_xp >= new_level * 1000:
+            new_xp -= new_level * 1000
+            new_level += 1
+
+        cur.execute(
+            "UPDATE users SET xp = ?, level = ? WHERE discord_id = ?",
+            (new_xp, new_level, uid),
+        )
+        conn.commit()
+    return exp
+
+
 def _money_effect(amount: int) -> str:
     """Return money visual effect based on amount."""
     if amount <= 0:
@@ -590,10 +626,11 @@ class EconomyJobsView(discord.ui.View):
         "adventurer": "🗡️",
     }
 
-    def __init__(self, guild=None, dashboard_view=None):
+    def __init__(self, guild=None, dashboard_view=None, main_view=None):
         super().__init__(timeout=300)
         self.guild = guild
-        self.dashboard_view = dashboard_view  # optional ref for back-to-dashboard
+        self.dashboard_view = dashboard_view
+        self.main_view = main_view  # MMORPG Main Panel reference
         self._build_buttons()
 
     def _build_buttons(self):
@@ -666,6 +703,7 @@ class EconomyJobsView(discord.ui.View):
         bal_before = get_balance(uid)
         results = []  # list of {job, label, earned, skipped, cd, error}
         total_earned = 0
+        exp_total = 0
 
         for i, job in enumerate(all_jobs):
             # Check cooldown
@@ -754,6 +792,8 @@ class EconomyJobsView(discord.ui.View):
                     "skipped": False,
                 })
                 total_earned += earned
+                exp_gain = _add_global_xp(uid, earned)
+                exp_total += exp_gain
             except Exception as e:
                 logger.error(f"Work All error on {job}: {e}")
                 results.append({
@@ -793,6 +833,7 @@ class EconomyJobsView(discord.ui.View):
 
         summary_lines = [f"## 全部打工完成！ / Work All Complete!\n"]
         summary_lines.append(f"💰 总收入变动: {'+' if net_change >= 0 else ''}🪙 {net_change:,}")
+        summary_lines.append(f"⭐ 获得 EXP: +{exp_total}")
         summary_lines.append(f"💼 最终余额: 🪙 {bal_after:,}\n")
         summary_lines.append("─── 明细 / Details ───")
 
@@ -846,7 +887,14 @@ class EconomyJobsView(discord.ui.View):
         return cb
 
     async def _back_callback(self, interaction: discord.Interaction):
-        if self.dashboard_view:
+        if self.main_view:
+            from cogs.mmorpg_shop import build_main_embed
+            embed = build_main_embed(str(interaction.user.id), interaction.user.display_name)
+            try:
+                await interaction.response.edit_message(embed=embed, view=self.main_view)
+            except discord.InteractionResponded:
+                await interaction.edit_original_response(embed=embed, view=self.main_view)
+        elif self.dashboard_view:
             self.dashboard_view.category = 0
             self.dashboard_view.build_page_buttons()
             embed = self.dashboard_view._build_page_embed()

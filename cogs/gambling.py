@@ -1129,5 +1129,129 @@ class NumberGuessModal(discord.ui.Modal, title="猜数字 / Number Guessing"):
             await interaction.edit_original_response(embed=embed, view=self._view)
 
 
+# ══════════════════════════════════════════════════════════════
+# GamblingLobbyView — Unified gambling lobby for MMORPG Main Panel
+# ══════════════════════════════════════════════════════════════
+class GamblingLobbyView(discord.ui.View):
+    """Lobby panel for all gambling games. Linked from MMORPG Main Panel."""
+    def __init__(self, uid: str, main_view=None):
+        super().__init__(timeout=None)
+        self.uid = uid
+        self.main_view = main_view
+
+    @discord.ui.button(label="Roulette 轮盘赌", emoji="🎡", style=discord.ButtonStyle.primary, row=0)
+    async def roulette_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.gambling import RouletteView
+        from database import get_db_ctx
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT score FROM users WHERE discord_id = ?", (self.uid,))
+            row = cur.fetchone()
+        bal = row["score"] if row else 0
+        view = RouletteView(bot=None, user_id=int(self.uid) if self.uid.isdigit() else 0)
+        embed = discord.Embed(
+            title="🎡 Roulette / 轮盘赌",
+            description=f"Your Balance / 余额: 🪙 **{bal:,}**\n\nBet on RED/BLACK/GREEN!\n红色1:1 黑色1:1 绿色1:14",
+            color=0xE74C3C,
+        )
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Crash 爆爆乐", emoji="💥", style=discord.ButtonStyle.danger, row=0)
+    async def crash_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.gambling import CrashView
+        from database import get_db_ctx
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT score FROM users WHERE discord_id = ?", (self.uid,))
+            row = cur.fetchone()
+        bal = row["score"] if row else 0
+        view = CrashView(bot=None, user_id=int(self.uid) if self.uid.isdigit() else 0)
+        embed = discord.Embed(
+            title="💥 Crash / 爆爆乐",
+            description=f"Your Balance / 余额: 🪙 **{bal:,}**\n\nCash out before it crashes!\n在崩盘前提现！",
+            color=0xFF5722,
+        )
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Scratch 刮刮乐", emoji="💳", style=discord.ButtonStyle.success, row=0)
+    async def scratch_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.gambling import ScratchView
+        from database import get_db_ctx
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT score FROM users WHERE discord_id = ?", (self.uid,))
+            row = cur.fetchone()
+        bal = row["score"] if row else 0
+        view = ScratchView(bot=None, user_id=int(self.uid) if self.uid.isdigit() else 0)
+        embed = discord.Embed(
+            title="💳 Scratch Card / 刮刮乐",
+            description=f"Your Balance / 余额: 🪙 **{bal:,}**\n\nScratch and win!\n刮开赢大奖！",
+            color=0xF1C40F,
+        )
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="High-Low 猜大小", emoji="🔺", style=discord.ButtonStyle.secondary, row=1)
+    async def highlow_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.gambling import HighLowView
+        from database import get_db_ctx
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT score FROM users WHERE discord_id = ?", (self.uid,))
+            row = cur.fetchone()
+        bal = row["score"] if row else 0
+        view = HighLowView(bot=None, user_id=int(self.uid) if self.uid.isdigit() else 0)
+        embed = discord.Embed(
+            title="🔺 High-Low / 猜大小",
+            description=f"Your Balance / 余额: 🪙 **{bal:,}**\n\nGuess higher or lower!\n猜下一张牌更大还是更小！",
+            color=0x3498DB,
+        )
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Guess 猜数字", emoji="🎯", style=discord.ButtonStyle.secondary, row=1)
+    async def guess_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.gambling import NumberGuessView
+        from database import get_db_ctx
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT score FROM users WHERE discord_id = ?", (self.uid,))
+            row = cur.fetchone()
+        bal = row["score"] if row else 0
+        view = NumberGuessView(bot=None, user_id=int(self.uid) if self.uid.isdigit() else 0)
+        embed = discord.Embed(
+            title="🎯 Number Guess / 猜数字",
+            description=f"Your Balance / 余额: 🪙 **{bal:,}**\n\nGuess the hidden number!\n猜出隐藏的数字！",
+            color=0x9B59B6,
+        )
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Back 返回", emoji="🔙", style=discord.ButtonStyle.danger, row=2)
+    async def back_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.main_view:
+            from cogs.mmorpg_shop import build_main_embed
+            embed = build_main_embed(self.uid, interaction.user.display_name)
+            try:
+                await interaction.response.edit_message(embed=embed, view=self.main_view)
+            except discord.InteractionResponded:
+                await interaction.followup.edit_message(embed=embed, view=self.main_view)
+        else:
+            embed = discord.Embed(title="Back", description="Main panel not available.", color=0xFF0000)
+            await interaction.response.edit_message(embed=embed, view=None)
+
+
 async def setup(bot):
     await bot.add_cog(Gambling(bot))

@@ -753,6 +753,12 @@ def _run_migrations(cursor):
     except sqlite3.OperationalError:
         pass
 
+    # mmorpg_class — user's MMORPG class selection
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN mmorpg_class TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
+
 
 def _seed_default_vc(cursor):
     """Seed default voice channel IDs for match auto-assign (INSERT OR IGNORE)."""

@@ -60,6 +60,7 @@ MMORPG_COGS = {
     "cogs.mmorpg_class",
     "cogs.daily_quest",
     "cogs.dungeon",
+    "cogs.achievements",
 }
 COMMUNITY_COGS = {
     "cogs.pets",
@@ -224,22 +225,23 @@ class GMPTBot(commands.Bot):
                 except Exception as e:
                     logger.error(f"[{self.bot_role}] Global sync failed: {e}")
         else:
-            # Non-full roles: clear all stale Discord commands, then skip sync
+            # Non-full roles: clear all stale Discord commands, then push empty tree
             guild_id = os.getenv("GUILD_ID")
             if guild_id:
                 try:
                     guild_obj = discord.Object(id=int(guild_id))
                     self.tree.clear_commands(guild=guild_obj)
-                    logger.info(f"({self.bot_role}) Cleared stale commands from guild")
+                    await self.tree.sync(guild=guild_obj)
+                    logger.info(f"({self.bot_role}) Cleared + synced empty tree to guild {guild_id}")
                 except Exception as e:
                     logger.warning(f"({self.bot_role}) Failed to clear guild commands: {e}")
             else:
                 try:
                     self.tree.clear_commands(guild=None)
-                    logger.info(f"({self.bot_role}) Cleared stale global commands")
+                    await self.tree.sync()
+                    logger.info(f"({self.bot_role}) Cleared + synced empty tree globally")
                 except Exception as e:
                     logger.warning(f"({self.bot_role}) Failed to clear global commands: {e}")
-            logger.info(f"({self.bot_role}) Skipped sync (Only full role syncs)")
 
     async def on_ready(self):
         bot_role = self.bot_role

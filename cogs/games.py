@@ -29,7 +29,7 @@ def _get_user_or_create(uid: str, uname: str):
             "INSERT INTO users (discord_id, username) VALUES (?,?) ON CONFLICT(discord_id) DO NOTHING",
             (uid, uname),
         )
-        cur.execute("SELECT score, id FROM users WHERE discord_id=?", (uid,))
+        cur.execute("SELECT score FROM users WHERE discord_id=?", (uid,))
         row = cur.fetchone()
     return row
 

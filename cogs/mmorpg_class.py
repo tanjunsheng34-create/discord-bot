@@ -150,16 +150,20 @@ def _set_class(uid: str, class_key: str):
 def _get_balance(uid: str) -> int:
     with get_db_ctx() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT coins FROM users WHERE discord_id = ?", (uid,))
+        cur.execute("SELECT score FROM users WHERE discord_id = ?", (uid,))
         row = cur.fetchone()
-    return row[0] if row else 0
+    return row["score"] if row else 0
 
 
 def _add_coins(uid: str, amount: int, reason: str = ""):
     with get_db_ctx() as conn:
         conn.execute(
-            "UPDATE users SET coins = coins + ? WHERE discord_id = ?",
+            "UPDATE users SET score = score + ? WHERE discord_id = ?",
             (amount, uid),
+        )
+        conn.execute(
+            "INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+            (uid, amount, reason),
         )
         conn.commit()
 
@@ -171,10 +175,66 @@ def _add_coins(uid: str, amount: int, reason: str = ""):
 class ClassSelectView(discord.ui.View):
     """View with buttons for each class."""
 
-    def __init__(self, user_id: str, current_class: str | None):
+    COST_CHANGE = 500
+
+    def __init__(self, user_id: str, current_class: str | None, balance: int = None, main_view=None):
         super().__init__(timeout=120)
         self.user_id = user_id
         self.current_class = current_class
+        self.balance = balance if balance is not None else _get_balance(user_id)
+        self.main_view = main_view
+        self._build()
+
+    def build_main_embed(self):
+        embed = discord.Embed(
+            title="MMORPG Class System / MMORPG 职业系统",
+            description="点击下方按钮选择职业 / Click a button to choose your class",
+            color=0x9B59B6,
+        )
+        if self.current_class:
+            cd = CLASS_DEFS.get(self.current_class)
+            if cd:
+                embed.add_field(
+                    name=f"当前职业 / Current: {cd['emoji']} {cd['name_cn']} / {cd['name_en']}",
+                    value=f"被动: {cd['passive_cn']}\n技能: {cd['skill_cn']}",
+                    inline=False,
+                )
+        else:
+            embed.add_field(
+                name="未选择 / None selected",
+                value="首次选择免费 / First choice is free!\n更换职业: 500G / Change class: 500G",
+                inline=False,
+            )
+        embed.set_footer(text=f"余额 / Balance: {self.balance:,}G")
+        return embed
+
+    def _build(self):
+        self.clear_items()
+
+        row = 0
+        for key, cd in CLASS_DEFS.items():
+            is_current = self.current_class == key
+            label = f"{cd['emoji']} {cd['name_cn']} / {cd['name_en']}"
+            if is_current:
+                label += " ✅"
+            btn = discord.ui.Button(
+                label=label,
+                style=discord.ButtonStyle.success if is_current else discord.ButtonStyle.primary,
+                row=row // 3,
+                disabled=is_current,
+                custom_id=f"class_{key}",
+            )
+            btn.callback = self._make_class_callback(key)
+            self.add_item(btn)
+            row += 1
+
+        if self.main_view:
+            back_btn = discord.ui.Button(
+                label="Back to MMORPG / 返回", style=discord.ButtonStyle.danger,
+                row=2, emoji="🏠", custom_id="cls_back",
+            )
+            back_btn.callback = self._back_callback
+            self.add_item(back_btn)
 
     async def _interaction_check(self, interaction: discord.Interaction) -> bool:
         if str(interaction.user.id) != self.user_id:
@@ -184,25 +244,62 @@ class ClassSelectView(discord.ui.View):
             return False
         return True
 
-    @discord.ui.button(label="选择 Class / Choose", style=discord.ButtonStyle.success,
-                       row=3, emoji="✅")
-    async def choose_btn(self, interaction: discord.Interaction, button):
-        # Show instruction for using /gmpt-class choose
-        embed = discord.Embed(
-            title="Class Selection / 职业选择",
-            description=(
-                "请使用命令选择职业 / Use command to choose:\n\n"
-                "`/gmpt-class choose <class>`\n\n"
-                "示例 / Example: `/gmpt-class choose mage`\n\n"
-                "Al valid keys: `warrior`, `mage`, `assassin`, `priest`, `paladin`, `archer`"
-            ),
-            color=0x9B59B6,
-        )
-        embed.set_footer(text="首次免费 / First choice free | 更换 Change: 500G")
-        try:
-            await interaction.response.edit_message(embed=embed, view=self)
-        except discord.InteractionResponded:
-            await interaction.edit_original_response(embed=embed, view=self)
+    def _make_class_callback(self, class_key: str):
+        async def cb(interaction: discord.Interaction):
+            cd = CLASS_DEFS[class_key]
+            cost = self.COST_CHANGE if self.current_class else 0
+
+            if cost > 0 and self.balance < cost:
+                await interaction.response.send_message(
+                    f"❌ 余额不足！需要 🪙 **{cost}**G，你只有 **{self.balance}**G\n"
+                    f"Need 🪙 **{cost}**G, you have **{self.balance}**G",
+                    ephemeral=True,
+                )
+                return
+
+            if cost > 0:
+                _add_coins(self.user_id, -cost, f"Change class to {class_key}")
+
+            _set_class(self.user_id, class_key)
+            self.current_class = class_key
+            self.balance = _get_balance(self.user_id)
+            self._build()
+
+            embed = self.build_main_embed()
+            try:
+                await interaction.message.edit(embed=embed, view=self)
+            except (discord.NotFound, discord.HTTPException):
+                pass
+
+            changetext = f"花费 🪙 **{cost}**G" if cost > 0 else "免费 / Free"
+            await interaction.response.send_message(
+                f"✅ 职业切换成功！{changetext}\n"
+                f"New class: {cd['emoji']} **{cd['name_cn']} / {cd['name_en']}**",
+                ephemeral=True,
+            )
+        return cb
+
+    async def _back_callback(self, interaction: discord.Interaction):
+        if self.main_view:
+            from cogs.mmorpg_shop import _get_user_stats
+            uid = str(self.user_id)
+            stats = _get_user_stats(uid)
+            bal = _get_balance(uid)
+            embed = discord.Embed(
+                title="MMORPG Main Panel / MMORPG 主面板",
+                description=(
+                    f"❤️ HP: **{stats['hp']}/{stats['max_hp']}**  "
+                    f"🔮 MP: **{stats['mp']}/{stats['max_mp']}**\n"
+                    f"⚔️ ATK: **{stats['attack']}**  🛡️ DEF: **{stats['defense']}**  "
+                    f"⭐ Lv.**{stats['level']}**  🪙 **{bal:,}**\n\n"
+                    f"Click a button below / 点击下方按钮："
+                ),
+                color=0x9B59B6,
+            )
+            try:
+                await interaction.response.edit_message(embed=embed, view=self.main_view)
+            except discord.InteractionResponded:
+                await interaction.edit_original_response(embed=embed, view=self.main_view)
 
 
 # ══════════════════════════════════════════════════════════════

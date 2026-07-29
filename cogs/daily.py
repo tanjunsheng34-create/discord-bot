@@ -455,8 +455,8 @@ class Daily(CogBase):
                         easter_egg_msg = egg["msg"]
                     elif egg_type == "ticket":
                         cur.execute(
-                            "INSERT INTO user_inventory (discord_id, item_name, quantity) VALUES (?, 'lottery_ticket', ?) "
-                            "ON CONFLICT(discord_id, item_name) DO UPDATE SET quantity = quantity + ?",
+                            "INSERT INTO user_inventory (user_id, item_id, item_name, quantity) VALUES (?, 0, 'lottery_ticket', ?) "
+                            "ON CONFLICT(user_id, item_id) DO UPDATE SET quantity = quantity + ?",
                             (uid, egg_val, egg_val),
                         )
                         easter_egg_msg = egg["msg"]

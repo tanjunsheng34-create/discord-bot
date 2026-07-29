@@ -13,8 +13,9 @@ logger = logging.getLogger(__name__)
 class LeaderboardView(discord.ui.View):
     """排行榜按钮面板 / Leaderboard button panel."""
 
-    def __init__(self):
+    def __init__(self, main_view=None):
         super().__init__(timeout=120)
+        self.main_view = main_view
 
     async def _get_top(self, query: str, params: tuple, label: str, color: int, field_name: str, unit: str = ""):
         with get_db_ctx() as conn:
@@ -100,6 +101,14 @@ class LeaderboardView(discord.ui.View):
 
     @discord.ui.button(label="◀ 返回 / Back", style=discord.ButtonStyle.danger, row=1)
     async def back_btn(self, interaction: discord.Interaction, button):
+        if self.main_view:
+            from cogs.mmorpg_shop import build_main_embed
+            embed = build_main_embed(str(interaction.user.id), interaction.user.display_name)
+            try:
+                await interaction.response.edit_message(embed=embed, view=self.main_view)
+            except discord.InteractionResponded:
+                await interaction.edit_original_response(embed=embed, view=self.main_view)
+            return
         await interaction.response.defer()
         try:
             from cogs.dashboard import DashboardView

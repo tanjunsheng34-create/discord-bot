@@ -291,10 +291,19 @@ class Pets(CogBase):
 class PetPanelView(discord.ui.View):
     """宠物系统按钮面板 — 点击按钮操作宠物。"""
 
-    def __init__(self, guild=None, dashboard_view=None):
+    def __init__(self, user_id_or_guild=None, guild=None, dashboard_view=None, main_view=None):
         super().__init__(timeout=300)
-        self.guild = guild
-        self.dashboard_view = dashboard_view
+        # Support both old calling conventions and new main_view
+        if isinstance(user_id_or_guild, discord.Guild) or guild is not None or dashboard_view is not None:
+            self.guild = user_id_or_guild if isinstance(user_id_or_guild, discord.Guild) else guild
+            self.dashboard_view = dashboard_view
+            self.main_view = main_view
+        else:
+            # New convention: PetPanelView(uid, main_view=mv)
+            self.uid = str(user_id_or_guild)
+            self.guild = None
+            self.dashboard_view = None
+            self.main_view = main_view
         self._build_buttons()
 
     def _build_buttons(self):
@@ -320,7 +329,15 @@ class PetPanelView(discord.ui.View):
         self.add_item(back_btn)
 
     async def _back_callback(self, interaction: discord.Interaction):
-        if self.dashboard_view:
+        if self.main_view:
+            from cogs.mmorpg_shop import build_main_embed
+            uid = getattr(self, 'uid', str(interaction.user.id))
+            embed = build_main_embed(uid, interaction.user.display_name)
+            try:
+                await interaction.response.edit_message(embed=embed, view=self.main_view)
+            except discord.InteractionResponded:
+                await interaction.edit_original_response(embed=embed, view=self.main_view)
+        elif self.dashboard_view:
             self.dashboard_view.category = 0
             self.dashboard_view.build_page_buttons()
             embed = self.dashboard_view._build_page_embed()

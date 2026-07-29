@@ -7581,7 +7581,6 @@ class DashboardView(discord.ui.View):
                 bal = _get_balance(muid)
                 if bal < amt:
                     return await modal_interaction.response.send_message(f"金币不足 / Insufficient coins. 余额: 🪙 {bal}", ephemeral=True)
-                _add_coins(muid, -amt, "Roulette bet / 轮盘赌下注")
                 view = RouletteColorView(muid, amt, modal_interaction.user.display_name)
                 embed = discord.Embed(title="🎡 轮盘 / Roulette", description=f"下注 🪙 {amt}\n请选择颜色 / Pick a color!", color=0xE74C3C)
                 await modal_interaction.response.send_message(embed=embed, view=view)

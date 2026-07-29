@@ -322,5 +322,145 @@ class Skills(CogBase):
         )
 
 
+# ══════════════════════════════════════════════════════════════
+# Skill Shop View — Interactive skill learning panel
+# ══════════════════════════════════════════════════════════════
+class SkillShopView(discord.ui.View):
+    """技能商店面板 / Skill shop panel with Buy buttons."""
+
+    def __init__(self, user_id: str, main_view=None):
+        super().__init__(timeout=180)
+        self.uid = user_id
+        self.main_view = main_view
+        self._build()
+
+    def build_main_embed(self):
+        learned = _get_learned_skills(self.uid)
+        user_level = _get_user_level(self.uid)
+        bal = _get_balance(self.uid)
+
+        embed = discord.Embed(
+            title="⚔️ 技能商店 / Skill Shop",
+            description=f"你的等级 / Your Lv: **{user_level}** | 余额 / Balance: 🪙 **{bal:,}**",
+            color=0xE67E22,
+        )
+
+        for sid, sdef in SKILLS.items():
+            is_learned = sid in learned
+            prefix = "✅" if is_learned else ("🔒" if user_level < sdef["min_level"] else "🛒")
+            embed.add_field(
+                name=f"{sdef['emoji']} {sdef['name']} / {sdef.get('name_en', sid)} {prefix}",
+                value=(
+                    f"{sdef['description']}\n"
+                    f"🪙 **{sdef['price']:,}** | Lv.{sdef['min_level']}+ | "
+                    f"MP: {sdef.get('mp_cost', '—')}"
+                ),
+                inline=False,
+            )
+
+        embed.set_footer(text="已学技能装备: /gmpt-skill equip | Tip: 最多装备4个技能")
+        return embed
+
+    def _build(self):
+        self.clear_items()
+        learned = _get_learned_skills(self.uid)
+        user_level = _get_user_level(self.uid)
+
+        for i, (sid, sdef) in enumerate(SKILLS.items()):
+            is_learned = sid in learned
+            locked = user_level < sdef["min_level"]
+            disabled = is_learned or locked
+
+            style = discord.ButtonStyle.success
+            if is_learned:
+                style = discord.ButtonStyle.secondary
+            elif locked:
+                style = discord.ButtonStyle.secondary
+
+            label = f"{sdef['emoji']} {sdef['name']} 🪙{sdef['price']:,}"[:80]
+            if is_learned:
+                label = f"{sdef['emoji']} {sdef['name']} (已学)"[:80]
+            elif locked:
+                label = f"🔒 {sdef['name']} Lv.{sdef['min_level']}"[:80]
+
+            btn = discord.ui.Button(
+                label=label,
+                style=style,
+                row=i // 2,
+                custom_id=f"skill_{sid}",
+                emoji=sdef["emoji"],
+                disabled=disabled,
+            )
+            btn.callback = self._make_learn_callback(sid)
+            self.add_item(btn)
+
+        if self.main_view:
+            back_btn = discord.ui.Button(
+                label="Back to MMORPG / 返回", style=discord.ButtonStyle.danger,
+                row=4, emoji="🏠", custom_id="skill_back",
+            )
+            back_btn.callback = self._back_callback
+            self.add_item(back_btn)
+
+    def _make_learn_callback(self, skill_id: str):
+        async def cb(interaction: discord.Interaction):
+            sdef = SKILLS[skill_id]
+            uid = str(interaction.user.id)
+            user_level = _get_user_level(uid)
+            if user_level < sdef["min_level"]:
+                return await interaction.response.send_message(
+                    f"等级不足 Need Lv.{sdef['min_level']} / You are Lv.{user_level}", ephemeral=True)
+            if skill_id in _get_learned_skills(uid):
+                return await interaction.response.send_message(
+                    f"已学会该技能 Already learned!", ephemeral=True)
+            bal = _get_balance(uid)
+            if bal < sdef["price"]:
+                return await interaction.response.send_message(
+                    f"金币不足 Insufficient coins. Need 🪙 {sdef['price']:,}, you have 🪙 {bal:,}", ephemeral=True)
+
+            _add_coins(uid, -sdef["price"], f"Learn skill / 学习技能: {sdef['name']}")
+            with get_db_ctx() as conn:
+                conn.execute(
+                    "INSERT INTO player_skills (user_id, skill_id, level, equipped) VALUES (?, ?, 1, 0)",
+                    (uid, skill_id),
+                )
+                conn.commit()
+
+            self._build()
+            try:
+                await interaction.message.edit(embed=self.build_main_embed(), view=self)
+            except (discord.NotFound, discord.HTTPException):
+                pass
+
+            new_bal = _get_balance(uid)
+            await interaction.response.send_message(
+                f"✅ 学会了 {sdef['emoji']} **{sdef['name']}**！余额 / Balance: 🪙 {new_bal:,}",
+                ephemeral=True,
+            )
+        return cb
+
+    async def _back_callback(self, interaction: discord.Interaction):
+        if self.main_view:
+            from cogs.mmorpg_shop import _get_user_stats, _get_balance
+            uid = str(self.uid)
+            stats = _get_user_stats(uid)
+            bal = _get_balance(uid)
+            embed = discord.Embed(
+                title="MMORPG Main Panel / MMORPG 主面板",
+                description=(
+                    f"❤️ HP: **{stats['hp']}/{stats['max_hp']}**  "
+                    f"🔮 MP: **{stats['mp']}/{stats['max_mp']}**\n"
+                    f"⚔️ ATK: **{stats['attack']}**  🛡️ DEF: **{stats['defense']}**  "
+                    f"⭐ Lv.**{stats['level']}**  🪙 **{bal:,}**\n\n"
+                    f"Click a button below / 点击下方按钮："
+                ),
+                color=0x9B59B6,
+            )
+            try:
+                await interaction.response.edit_message(embed=embed, view=self.main_view)
+            except discord.InteractionResponded:
+                await interaction.edit_original_response(embed=embed, view=self.main_view)
+
+
 async def setup(bot):
     await bot.add_cog(Skills(bot))

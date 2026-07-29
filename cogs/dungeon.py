@@ -325,3 +325,96 @@ class Dungeon(CogBase):
 
 async def setup(bot):
     await bot.add_cog(Dungeon(bot))
+
+
+# ══════════════════════════════════════════════════════════════
+# Dungeon Lobby View — Interactive Dungeon hub
+# ══════════════════════════════════════════════════════════════
+class DungeonLobbyView(discord.ui.View):
+    """地下城大厅面板 / Dungeon lobby panel."""
+
+    def __init__(self, user_id: str, main_view=None):
+        super().__init__(timeout=300)
+        self.uid = user_id
+        self.main_view = main_view
+        self._build()
+
+    def build_main_embed(self):
+        bal = get_balance(self.uid)
+
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            today = time.strftime("%Y-%m-%d")
+            cur.execute(
+                "SELECT daily_used FROM dungeon_daily WHERE user_id = ? AND date = ?",
+                (self.uid, today),
+            )
+            row = cur.fetchone()
+        used_today = row["daily_used"] if row else 0
+        free_left = "1 次免费" if used_today == 0 else "已用完 (used)"
+
+        embed = discord.Embed(
+            title="🏰 Dungeon / 地下城",
+            description=(
+                "5 层随机怪物，奖励随层数递增！\n"
+                "5 floors, rewards increase with depth!\n\n"
+                f"🆓 今日免费 / Free today: **{free_left}**\n"
+                f"💵 额外探索 / Extra: **200G**\n"
+                f"🪙 余额 / Balance: **{bal:,}**"
+            ),
+            color=0x8E44AD,
+        )
+        embed.add_field(
+            name="⚔️ 开始探索 / Start",
+            value="使用 `/gmpt-dungeon explore` 进入地下城",
+            inline=False,
+        )
+        embed.set_footer(text="每日免费 1 次，额外每次 200G")
+        return embed
+
+    def _build(self):
+        self.clear_items()
+        explore_btn = discord.ui.Button(
+            label="⚔️ Explore / 探索", style=discord.ButtonStyle.success,
+            row=0, emoji="🏰", custom_id="dungeon_explore",
+        )
+        explore_btn.callback = self._explore_info_callback
+        self.add_item(explore_btn)
+
+        if self.main_view:
+            back_btn = discord.ui.Button(
+                label="Back to MMORPG / 返回", style=discord.ButtonStyle.danger,
+                row=1, emoji="🏠", custom_id="dungeon_back",
+            )
+            back_btn.callback = self._back_callback
+            self.add_item(back_btn)
+
+    async def _explore_info_callback(self, interaction: discord.Interaction):
+        await interaction.response.send_message(
+            "🏰 **进入地下城 / Enter Dungeon:**\n"
+            "在聊天中使用 `/gmpt-dungeon explore` 开始探索！\n"
+            "Use `/gmpt-dungeon explore` to start your dungeon run!",
+            ephemeral=True,
+        )
+
+    async def _back_callback(self, interaction: discord.Interaction):
+        if self.main_view:
+            from cogs.mmorpg_shop import _get_user_stats
+            uid = str(self.uid)
+            stats = _get_user_stats(uid)
+            bal = get_balance(uid)
+            embed = discord.Embed(
+                title="MMORPG Main Panel / MMORPG 主面板",
+                description=(
+                    f"❤️ HP: **{stats['hp']}/{stats['max_hp']}**  "
+                    f"🔮 MP: **{stats['mp']}/{stats['max_mp']}**\n"
+                    f"⚔️ ATK: **{stats['attack']}**  🛡️ DEF: **{stats['defense']}**  "
+                    f"⭐ Lv.**{stats['level']}**  🪙 **{bal:,}**\n\n"
+                    f"Click a button below / 点击下方按钮："
+                ),
+                color=0x9B59B6,
+            )
+            try:
+                await interaction.response.edit_message(embed=embed, view=self.main_view)
+            except discord.InteractionResponded:
+                await interaction.edit_original_response(embed=embed, view=self.main_view)

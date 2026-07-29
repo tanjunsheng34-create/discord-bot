@@ -183,10 +183,36 @@ def _init_daily_quest_db():
 class DailyQuestView(discord.ui.View):
     """每日任务面板 / Daily quest panel."""
 
-    def __init__(self, user_id: str):
+    def __init__(self, user_id: str, main_view=None):
         super().__init__(timeout=180)
         self.uid = user_id
+        self.main_view = main_view
         self._build()
+
+    def build_main_embed(self):
+        quests = _get_or_create_quests(self.uid)
+        embed = discord.Embed(
+            title=f"📅 每日任务 / Daily Quests",
+            description="每天 UTC+8 午夜刷新 / Resets daily at UTC+8 midnight",
+            color=0x2ECC71,
+        )
+        for i, q in enumerate(quests):
+            info = QUEST_TYPES[q["type"]]
+            progress = q["progress"]
+            target = q["target"]
+            pct = int(progress / target * 10) if target > 0 else 0
+            bar = "█" * pct + "░" * (10 - pct)
+            status = "✅ 已完成" if q["claimed"] else ("🎁 可领取" if progress >= target else "⏳ 进行中")
+            embed.add_field(
+                name=f"{info['emoji']} {info['cn']} {info['en']}",
+                value=(
+                    f"[{bar}] {progress}/{target}\n"
+                    f"🪙 {q['reward_coins']} | ✨ {q['reward_exp']} EXP\n"
+                    f"状态 Status: {status}"
+                ),
+                inline=True,
+            )
+        return embed
 
     def _build(self):
         self.clear_items()
@@ -216,6 +242,36 @@ class DailyQuestView(discord.ui.View):
             btn.callback = self._make_claim_callback(i)
             self.add_item(btn)
 
+        if self.main_view:
+            back_btn = discord.ui.Button(
+                label="Back to MMORPG / 返回", style=discord.ButtonStyle.danger,
+                row=3, emoji="🏠", custom_id="dq_back",
+            )
+            back_btn.callback = self._back_callback
+            self.add_item(back_btn)
+
+    async def _back_callback(self, interaction: discord.Interaction):
+        if self.main_view:
+            from cogs.mmorpg_shop import _get_user_stats, _get_balance
+            uid = str(self.uid)
+            stats = _get_user_stats(uid)
+            bal = _get_balance(uid)
+            embed = discord.Embed(
+                title="MMORPG Main Panel / MMORPG 主面板",
+                description=(
+                    f"❤️ HP: **{stats['hp']}/{stats['max_hp']}**  "
+                    f"🔮 MP: **{stats['mp']}/{stats['max_mp']}**\n"
+                    f"⚔️ ATK: **{stats['attack']}**  🛡️ DEF: **{stats['defense']}**  "
+                    f"⭐ Lv.**{stats['level']}**  🪙 **{bal:,}**\n\n"
+                    f"Click a button below / 点击下方按钮："
+                ),
+                color=0x9B59B6,
+            )
+            try:
+                await interaction.response.edit_message(embed=embed, view=self.main_view)
+            except discord.InteractionResponded:
+                await interaction.edit_original_response(embed=embed, view=self.main_view)
+
     def _make_claim_callback(self, idx: int):
         async def cb(interaction: discord.Interaction):
             reward = _claim_quest(self.uid, idx)
@@ -225,8 +281,12 @@ class DailyQuestView(discord.ui.View):
                     f"Quest complete! Earned 🪙 **{reward['coins']}** coins + **{reward['exp']}** EXP!",
                     ephemeral=True,
                 )
-                # Rebuild view
+                # Rebuild view and refresh panel message
                 self._build()
+                try:
+                    await interaction.message.edit(embed=self.build_main_embed(), view=self)
+                except (discord.NotFound, discord.HTTPException):
+                    pass
             else:
                 await interaction.response.send_message(
                     "❌ 任务未完成或已领取 / Quest not complete or already claimed",
@@ -242,7 +302,7 @@ class DailyQuest(CogBase):
         super().__init__(bot)
         _init_daily_quest_db()
 
-    @app_commands.command(name="gmpt-daily", description="📅 每日任务 / Daily quests")
+    @app_commands.command(name="gmpt-dailyquest", description="📅 每日任务 / Daily quests")
     async def daily_cmd(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
         uname = interaction.user.display_name

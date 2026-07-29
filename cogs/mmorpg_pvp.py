@@ -821,5 +821,89 @@ class PVPCog(CogBase):
         return embed
 
 
+# ══════════════════════════════════════════════════════════════
+# PVP Lobby View — Interactive PVP hub
+# ══════════════════════════════════════════════════════════════
+class PVPLobbyView(discord.ui.View):
+    """PVP大厅面板 / PVP lobby panel."""
+
+    def __init__(self, user_id: str, main_view=None):
+        super().__init__(timeout=300)
+        self.uid = user_id
+        self.main_view = main_view
+        self._build()
+
+    def build_main_embed(self):
+        bal = get_balance(self.uid)
+        embed = discord.Embed(
+            title="🏆 PVP Arena / PVP 对战",
+            description=(
+                "挑战其他玩家，赢取荣誉与金币！\n"
+                "Challenge other players, earn glory and coins!\n\n"
+                f"🪙 你的余额 / Your balance: **{bal:,}**"
+            ),
+            color=0xE74C3C,
+        )
+        embed.add_field(
+            name="⚔️ 挑战玩家 / Challenge",
+            value="在聊天中使用 `/gmpt-pvp challenge @玩家 <赌注>` 发起挑战\nUse `/gmpt-pvp challenge @player <bet>` in chat",
+            inline=False,
+        )
+        embed.add_field(
+            name="📋 活跃挑战 / Active Challenges",
+            value="查看是否有等待接受的挑战 / Check for pending challenges",
+            inline=False,
+        )
+        embed.set_footer(text="PVP 消耗技能和药水，请做好准备！")
+        return embed
+
+    def _build(self):
+        self.clear_items()
+        challenge_btn = discord.ui.Button(
+            label="⚔️ Challenge / 挑战", style=discord.ButtonStyle.primary,
+            row=0, custom_id="pvp_challenge",
+        )
+        challenge_btn.callback = self._challenge_info_callback
+        self.add_item(challenge_btn)
+
+        if self.main_view:
+            back_btn = discord.ui.Button(
+                label="Back to MMORPG / 返回", style=discord.ButtonStyle.danger,
+                row=1, emoji="🏠", custom_id="pvp_back",
+            )
+            back_btn.callback = self._back_callback
+            self.add_item(back_btn)
+
+    async def _challenge_info_callback(self, interaction: discord.Interaction):
+        await interaction.response.send_message(
+            "⚔️ **发起挑战 / Challenge:**\n"
+            "在聊天中 `@` 你要挑战的玩家：`/gmpt-pvp challenge @player <赌注>`\n"
+            "对方会用按钮接受或拒绝 / Opponent accepts/declines via buttons",
+            ephemeral=True,
+        )
+
+    async def _back_callback(self, interaction: discord.Interaction):
+        if self.main_view:
+            from cogs.mmorpg_shop import _get_user_stats
+            uid = str(self.uid)
+            stats = _get_user_stats(uid)
+            bal = get_balance(uid)
+            embed = discord.Embed(
+                title="MMORPG Main Panel / MMORPG 主面板",
+                description=(
+                    f"❤️ HP: **{stats['hp']}/{stats['max_hp']}**  "
+                    f"🔮 MP: **{stats['mp']}/{stats['max_mp']}**\n"
+                    f"⚔️ ATK: **{stats['attack']}**  🛡️ DEF: **{stats['defense']}**  "
+                    f"⭐ Lv.**{stats['level']}**  🪙 **{bal:,}**\n\n"
+                    f"Click a button below / 点击下方按钮："
+                ),
+                color=0x9B59B6,
+            )
+            try:
+                await interaction.response.edit_message(embed=embed, view=self.main_view)
+            except discord.InteractionResponded:
+                await interaction.edit_original_response(embed=embed, view=self.main_view)
+
+
 async def setup(bot):
     await bot.add_cog(PVPCog(bot))
