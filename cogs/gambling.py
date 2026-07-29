@@ -475,6 +475,99 @@ class Gambling(CogBase):
         await interaction.response.send_message(embed=embed, view=view)
         view.message = await interaction.original_response()
 
+    # ══════════════════════════════════════════════════════════
+    # /gmpt-gamble slot — 🎰 老虎机 / Slot Machine
+    # ══════════════════════════════════════════════════════════
+    @gmpt_gamble_group.command(name="slot", description="🎰 老虎机 / Slot Machine — 3连10x 双连3x")
+    @app_commands.describe(bet="下注金额 / Bet amount")
+    @app_commands.checks.cooldown(1, 5, key=lambda i: (i.guild_id, i.user.id))
+    async def slot_cmd(self, interaction: discord.Interaction, bet: int):
+        """🎰 老虎机."""
+        uid = str(interaction.user.id)
+        if bet < 10:
+            return await interaction.response.send_message(
+                "最低下注 10 金币 / Min bet 10 coins.", ephemeral=True)
+        balance = get_balance(uid)
+        if balance < bet:
+            return await interaction.response.send_message(
+                f"❌ 余额不足！你的余额: {balance:,}G / Insufficient balance! Your balance: {balance:,}G",
+                ephemeral=True)
+        add_coins(uid, -bet, "老虎机下注 / Slot bet")
+        view = SlotView(uid, interaction.user.display_name, bet)
+        embed = discord.Embed(
+            title="🎰 老虎机 / Slot Machine",
+            description=(
+                f"下注 / Bet: 🪙 **{bet:,}**\n\n"
+                "点击 Spin 旋转！三连 10x，双连 3x！\n"
+                "Click Spin! Triple 10x, Double 3x!\n\n"
+                f"🍒🍋🍊🍇💎7️⃣⭐"
+            ),
+            color=0xF1C40F,
+        )
+        await interaction.response.send_message(embed=embed, view=view)
+
+    # ══════════════════════════════════════════════════════════
+    # /gmpt-gamble dice — 🎲 掷骰子 / Dice Roll
+    # ══════════════════════════════════════════════════════════
+    @gmpt_gamble_group.command(name="dice", description="🎲 掷骰子 / Dice Roll — 猜大小2x 猜7点3x 猜数字5x")
+    @app_commands.describe(bet="下注金额 / Bet amount")
+    @app_commands.checks.cooldown(1, 5, key=lambda i: (i.guild_id, i.user.id))
+    async def dice_cmd(self, interaction: discord.Interaction, bet: int):
+        """🎲 掷骰子."""
+        uid = str(interaction.user.id)
+        if bet < 10:
+            return await interaction.response.send_message(
+                "最低下注 10 金币 / Min bet 10 coins.", ephemeral=True)
+        balance = get_balance(uid)
+        if balance < bet:
+            return await interaction.response.send_message(
+                f"❌ 余额不足！你的余额: {balance:,}G / Insufficient balance! Your balance: {balance:,}G",
+                ephemeral=True)
+        add_coins(uid, -bet, "骰子下注 / Dice bet")
+        view = DiceRollView(uid, interaction.user.display_name, bet)
+        embed = discord.Embed(
+            title="🎲 掷骰子 / Dice Roll",
+            description=(
+                f"下注 / Bet: 🪙 **{bet:,}**\n\n"
+                "🔺 大 Big (8-12) — **2x**\n"
+                "🔻 小 Small (2-6) — **2x**\n"
+                "🎲 7点 — **3x**\n"
+                "🎯 精确数字 (2-12) — **5x**"
+            ),
+            color=0x3498DB,
+        )
+        await interaction.response.send_message(embed=embed, view=view)
+
+    # ══════════════════════════════════════════════════════════
+    # /gmpt-gamble coinflip — 🪙 硬币翻转 / Coin Flip
+    # ══════════════════════════════════════════════════════════
+    @gmpt_gamble_group.command(name="coinflip", description="🪙 硬币翻转 / Coin Flip — 猜正反面1:1")
+    @app_commands.describe(bet="下注金额 / Bet amount")
+    @app_commands.checks.cooldown(1, 5, key=lambda i: (i.guild_id, i.user.id))
+    async def coinflip_cmd(self, interaction: discord.Interaction, bet: int):
+        """🪙 掷硬币."""
+        uid = str(interaction.user.id)
+        if bet < 10:
+            return await interaction.response.send_message(
+                "最低下注 10 金币 / Min bet 10 coins.", ephemeral=True)
+        balance = get_balance(uid)
+        if balance < bet:
+            return await interaction.response.send_message(
+                f"❌ 余额不足！你的余额: {balance:,}G / Insufficient balance! Your balance: {balance:,}G",
+                ephemeral=True)
+        add_coins(uid, -bet, "硬币下注 / Coin flip bet")
+        view = CoinFlipView(uid, interaction.user.display_name, bet)
+        embed = discord.Embed(
+            title="🪙 硬币翻转 / Coin Flip",
+            description=(
+                f"下注 / Bet: 🪙 **{bet:,}**\n\n"
+                "猜正面还是反面？1:1 赔率！\n"
+                "Guess Heads or Tails? 1:1 payout!"
+            ),
+            color=0xF1C40F,
+        )
+        await interaction.response.send_message(embed=embed, view=view)
+
 
 # ══════════════════════════════════════════════════════════════
 # Crash View
@@ -1130,10 +1223,283 @@ class NumberGuessModal(discord.ui.Modal, title="猜数字 / Number Guessing"):
 
 
 # ══════════════════════════════════════════════════════════════
+# 🎰 老虎机 / Slot Machine (Task D)
+# ══════════════════════════════════════════════════════════════
+
+SLOT_EMOJI_LIST = ["🍒", "🍋", "🍊", "🍇", "💎", "7️⃣", "⭐"]
+
+
+class SlotView(discord.ui.View):
+    """Slot machine game: 3 reels with spin button."""
+
+    def __init__(self, user_id: str, user_name: str, bet: int):
+        super().__init__(timeout=60)
+        self.user_id = user_id
+        self.user_name = user_name
+        self.bet = bet
+        self.spinning = False
+
+    async def _interaction_check(self, interaction: discord.Interaction) -> bool:
+        if str(interaction.user.id) != self.user_id:
+            await interaction.response.send_message(
+                "Not your game / 这不是你的游戏", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="🎰 Spin! 旋转！", style=discord.ButtonStyle.primary, row=0)
+    async def spin_btn(self, interaction: discord.Interaction, button):
+        if self.spinning:
+            return await interaction.response.send_message(
+                "Already spinning! / 正在旋转中！", ephemeral=True)
+
+        self.spinning = True
+        button.disabled = True
+        await interaction.response.edit_message(view=self)
+
+        try:
+            await interaction.response.defer()
+        except discord.InteractionResponded:
+            pass
+
+        # Roll 3 reels
+        c1 = random.choice(SLOT_EMOJI_LIST)
+        c2 = random.choice(SLOT_EMOJI_LIST)
+        c3 = random.choice(SLOT_EMOJI_LIST)
+
+        from utils.animations import slot_spin_animation
+        await slot_spin_animation(interaction, [c1, c2, c3])
+
+        uid = self.user_id
+
+        # Payout logic
+        if c1 == c2 == c3:
+            multiplier = 10
+            profit = self.bet * multiplier
+            add_coins(uid, profit, f"老虎机三连 x{multiplier} / Slot triple match")
+            result_text = f"🎉 三连！/ TRIPLE! x{multiplier}"
+            color = 0xF1C40F
+        elif c1 == c2 or c2 == c3 or c1 == c3:
+            multiplier = 3
+            profit = self.bet * multiplier
+            add_coins(uid, profit, f"老虎机双连 x{multiplier} / Slot double match")
+            result_text = f"✨ 双连！/ DOUBLE! x{multiplier}"
+            color = 0x2ECC71
+        else:
+            profit = 0
+            result_text = "😢 没有匹配 / No match"
+            color = 0xE74C3C
+
+        bal = get_balance(uid)
+        embed = discord.Embed(
+            title="🎰 老虎机 / Slot Machine",
+            description=(
+                f"| {c1} | {c2} | {c3} |\n\n"
+                f"# {result_text}\n"
+                f"下注 / Bet: 🪙 {self.bet:,}\n"
+                f"奖金 / Payout: 🪙 {profit:,}\n"
+                f"余额 / Balance: **{bal:,}**"
+            ),
+            color=color,
+        )
+        await interaction.edit_original_response(embed=embed, view=self)
+
+
+# ══════════════════════════════════════════════════════════════
+# 🎲 掷骰子 / Dice Roll (Task D)
+# ══════════════════════════════════════════════════════════════
+
+class DiceRollView(discord.ui.View):
+    """Dice roll betting: guess Big/Small or exact number."""
+
+    def __init__(self, user_id: str, user_name: str, bet: int):
+        super().__init__(timeout=60)
+        self.user_id = user_id
+        self.user_name = user_name
+        self.bet = bet
+
+    async def _interaction_check(self, interaction: discord.Interaction) -> bool:
+        if str(interaction.user.id) != self.user_id:
+            await interaction.response.send_message(
+                "Not your game / 这不是你的游戏", ephemeral=True)
+            return False
+        return True
+
+    async def _do_roll(self, interaction: discord.Interaction, guess: str, number: int = 0):
+        try:
+            await interaction.response.defer()
+        except discord.InteractionResponded:
+            pass
+
+        d1 = random.randint(1, 6)
+        d2 = random.randint(1, 6)
+        total = d1 + d2
+        is_big = total >= 8
+        is_small = total <= 6
+        is_seven = total == 7
+
+        from utils.animations import dice_roll_animation
+        await dice_roll_animation(interaction, d1, d2)
+
+        uid = self.user_id
+
+        if guess == "seven" and is_seven:
+            profit = self.bet * 3
+            add_coins(uid, profit, "掷骰子猜中7点 / Dice roll win (7)")
+            result = f"🎯 猜中7点！x3!"
+            color = 0xF1C40F
+        elif guess == "number" and total == number:
+            profit = self.bet * 5
+            add_coins(uid, profit, f"掷骰子猜中数字{number} / Dice roll exact {number}")
+            result = f"🎯 猜中精确数字 {number}！x5!"
+            color = 0xF1C40F
+        elif guess == "big" and is_big:
+            profit = self.bet * 2
+            add_coins(uid, profit, "掷骰子猜大赢 / Dice roll win (Big)")
+            result = "📈 开大！猜中!"
+            color = 0x2ECC71
+        elif guess == "small" and is_small:
+            profit = self.bet * 2
+            add_coins(uid, profit, "掷骰子猜小赢 / Dice roll win (Small)")
+            result = "📉 开小！猜中!"
+            color = 0x2ECC71
+        elif guess == "number" and total != number and number > 0:
+            profit = 0
+            result = f"❌ 没猜中 {number}，实际 {total}"
+            color = 0xE74C3C
+        else:
+            profit = 0
+            result = f"❌ 猜错了！实际 {total}"
+            color = 0xE74C3C
+
+        bal = get_balance(uid)
+        size_label = "大 Big" if is_big else ("小 Small" if is_small else "7点 Seven")
+        embed = discord.Embed(
+            title="🎲 掷骰子 / Dice Roll",
+            description=(
+                f"🎲 结果 / Result: **{d1} + {d2} = {total}** ({size_label})\n\n"
+                f"# {result}\n"
+                f"下注 / Bet: 🪙 {self.bet:,}\n"
+                f"奖金 / Payout: 🪙 {profit:,}\n"
+                f"余额 / Balance: **{bal:,}**"
+            ),
+            color=color,
+        )
+        for child in self.children:
+            child.disabled = True
+        await interaction.edit_original_response(embed=embed, view=self)
+
+    @discord.ui.button(label="🔺 Big 大 (8-12)", style=discord.ButtonStyle.success, row=0)
+    async def big_btn(self, interaction: discord.Interaction, button):
+        await self._do_roll(interaction, "big")
+
+    @discord.ui.button(label="🔻 Small 小 (2-6)", style=discord.ButtonStyle.danger, row=0)
+    async def small_btn(self, interaction: discord.Interaction, button):
+        await self._do_roll(interaction, "small")
+
+    @discord.ui.button(label="🎯 猜具体数字 (x5)", style=discord.ButtonStyle.primary, row=0)
+    async def number_btn(self, interaction: discord.Interaction, button):
+        await interaction.response.send_modal(DiceNumberModal(self))
+
+    @discord.ui.button(label="🎲 押7点 (x3)", style=discord.ButtonStyle.secondary, row=0)
+    async def seven_btn(self, interaction: discord.Interaction, button):
+        await self._do_roll(interaction, "seven")
+
+
+class DiceNumberModal(discord.ui.Modal, title="猜具体数字 / Pick Number (2-12)"):
+    number_input = discord.ui.TextInput(
+        label="数字 / Number (2-12)",
+        placeholder="Enter 2-12",
+        max_length=2,
+    )
+
+    def __init__(self, view: DiceRollView):
+        super().__init__()
+        self._view = view
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            num = int(self.number_input.value)
+        except ValueError:
+            return await interaction.response.send_message(
+                "请输入数字 2-12 / Please enter 2-12.", ephemeral=True)
+        if num < 2 or num > 12:
+            return await interaction.response.send_message(
+                "请输入数字 2-12 / Please enter 2-12.", ephemeral=True)
+        await self._view._do_roll(interaction, "number", num)
+
+
+# ══════════════════════════════════════════════════════════════
+# 🪙 硬币翻转 / Coin Flip (Task D)
+# ══════════════════════════════════════════════════════════════
+
+class CoinFlipView(discord.ui.View):
+    """Coin flip: guess heads or tails, 1:1 payout."""
+
+    def __init__(self, user_id: str, user_name: str, bet: int):
+        super().__init__(timeout=60)
+        self.user_id = user_id
+        self.user_name = user_name
+        self.bet = bet
+
+    async def _interaction_check(self, interaction: discord.Interaction) -> bool:
+        if str(interaction.user.id) != self.user_id:
+            await interaction.response.send_message(
+                "Not your game / 这不是你的游戏", ephemeral=True)
+            return False
+        return True
+
+    async def _do_flip(self, interaction: discord.Interaction, guess: str):
+        try:
+            await interaction.response.defer()
+        except discord.InteractionResponded:
+            pass
+
+        result = random.choice(["heads", "tails"])
+        from utils.animations import coin_flip_animation
+        await coin_flip_animation(interaction, result)
+
+        uid = self.user_id
+        if guess == result:
+            profit = self.bet * 2
+            add_coins(uid, profit, "硬币翻转猜中 / Coin flip win")
+            result_text = f"🎉 猜中了！/ Correct! +{profit:,}"
+            color = 0x2ECC71
+        else:
+            profit = 0
+            result_text = "❌ 猜错了！/ Wrong!"
+            color = 0xE74C3C
+
+        bal = get_balance(uid)
+        result_label = "🪙 正面 Heads!" if result == "heads" else "🪙 反面 Tails!"
+        embed = discord.Embed(
+            title="🪙 硬币翻转 / Coin Flip",
+            description=(
+                f"结果 / Result: **{result_label}**\n"
+                f"你的选择 / Your guess: **{'正面 Heads' if guess == 'heads' else '反面 Tails'}**\n\n"
+                f"# {result_text}\n"
+                f"下注 / Bet: 🪙 {self.bet:,}\n"
+                f"余额 / Balance: **{bal:,}**"
+            ),
+            color=color,
+        )
+        for child in self.children:
+            child.disabled = True
+        await interaction.edit_original_response(embed=embed, view=self)
+
+    @discord.ui.button(label="🪙 Heads 正面", style=discord.ButtonStyle.primary, row=0)
+    async def heads_btn(self, interaction: discord.Interaction, button):
+        await self._do_flip(interaction, "heads")
+
+    @discord.ui.button(label="🪙 Tails 反面", style=discord.ButtonStyle.secondary, row=0)
+    async def tails_btn(self, interaction: discord.Interaction, button):
+        await self._do_flip(interaction, "tails")
+
+
+# ══════════════════════════════════════════════════════════════
 # GamblingLobbyView — Unified gambling lobby for MMORPG Main Panel
 # ══════════════════════════════════════════════════════════════
 class GamblingLobbyView(discord.ui.View):
-    """Lobby panel for all gambling games. Linked from MMORPG Main Panel."""
+    """Lobby panel for all gambling games. Players enter via slash commands."""
     def __init__(self, uid: str, main_view=None):
         super().__init__(timeout=None)
         self.uid = uid
@@ -1141,105 +1507,103 @@ class GamblingLobbyView(discord.ui.View):
 
     @discord.ui.button(label="Roulette 轮盘赌", emoji="🎡", style=discord.ButtonStyle.primary, row=0)
     async def roulette_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from cogs.gambling import RouletteView
-        from database import get_db_ctx
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT score FROM users WHERE discord_id = ?", (self.uid,))
-            row = cur.fetchone()
-        bal = row["score"] if row else 0
-        view = RouletteView(bot=None, user_id=int(self.uid) if self.uid.isdigit() else 0)
-        embed = discord.Embed(
-            title="🎡 Roulette / 轮盘赌",
-            description=f"Your Balance / 余额: 🪙 **{bal:,}**\n\nBet on RED/BLACK/GREEN!\n红色1:1 黑色1:1 绿色1:14",
-            color=0xE74C3C,
-        )
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
+        bal = get_balance(self.uid)
+        await interaction.response.send_message(
+            f"🎡 **轮盘赌 Roulette**\n"
+            f"余额 / Balance: 🪙 **{bal:,}**\n\n"
+            f"使用 `/gmpt-gamble roulette <bet>` 开始游戏！\n"
+            f"Use `/gmpt-gamble roulette <bet>` to start!\n\n"
+            f"赔率 / Odds: 🔴红/⚫黑 2x | 🔢奇/偶 2x | 🎯单数字 36x",
+            ephemeral=True)
 
-    @discord.ui.button(label="Crash 爆爆乐", emoji="💥", style=discord.ButtonStyle.danger, row=0)
+    @discord.ui.button(label="Slot 老虎机", emoji="🎰", style=discord.ButtonStyle.primary, row=0)
+    async def slot_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        bal = get_balance(self.uid)
+        await interaction.response.send_message(
+            f"🎰 **老虎机 Slot Machine**\n"
+            f"余额 / Balance: 🪙 **{bal:,}**\n\n"
+            f"使用 `/gmpt-gamble slot <bet>` 开始游戏！\n"
+            f"Use `/gmpt-gamble slot <bet>` to start!\n\n"
+            f"赔率 / Odds: 三连 10x | 双连 3x",
+            ephemeral=True)
+
+    @discord.ui.button(label="Dice 掷骰子", emoji="🎲", style=discord.ButtonStyle.primary, row=0)
+    async def dice_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        bal = get_balance(self.uid)
+        await interaction.response.send_message(
+            f"🎲 **掷骰子 Dice Roll**\n"
+            f"余额 / Balance: 🪙 **{bal:,}**\n\n"
+            f"使用 `/gmpt-gamble dice <bet>` 开始游戏！\n"
+            f"Use `/gmpt-gamble dice <bet>` to start!\n\n"
+            f"赔率 / Odds: 大小 2x | 7点 3x | 精确数字 5x",
+            ephemeral=True)
+
+    @discord.ui.button(label="Coin 硬币翻转", emoji="🪙", style=discord.ButtonStyle.primary, row=1)
+    async def coin_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        bal = get_balance(self.uid)
+        await interaction.response.send_message(
+            f"🪙 **硬币翻转 Coin Flip**\n"
+            f"余额 / Balance: 🪙 **{bal:,}**\n\n"
+            f"使用 `/gmpt-gamble coinflip <bet>` 开始游戏！\n"
+            f"Use `/gmpt-gamble coinflip <bet>` to start!\n\n"
+            f"赔率 / Odds: 1:1",
+            ephemeral=True)
+
+    @discord.ui.button(label="Crash 爆爆乐", emoji="💥", style=discord.ButtonStyle.danger, row=1)
     async def crash_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from cogs.gambling import CrashView
-        from database import get_db_ctx
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT score FROM users WHERE discord_id = ?", (self.uid,))
-            row = cur.fetchone()
-        bal = row["score"] if row else 0
-        view = CrashView(bot=None, user_id=int(self.uid) if self.uid.isdigit() else 0)
-        embed = discord.Embed(
-            title="💥 Crash / 爆爆乐",
-            description=f"Your Balance / 余额: 🪙 **{bal:,}**\n\nCash out before it crashes!\n在崩盘前提现！",
-            color=0xFF5722,
-        )
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
+        bal = get_balance(self.uid)
+        await interaction.response.send_message(
+            f"💥 **Crash 爆爆乐**\n"
+            f"余额 / Balance: 🪙 **{bal:,}**\n\n"
+            f"使用 `/gmpt-gamble crash <bet>` 开始游戏！\n"
+            f"Use `/gmpt-gamble crash <bet>` to start!\n\n"
+            f"在崩盘前提现！Cash out before it crashes!",
+            ephemeral=True)
 
-    @discord.ui.button(label="Scratch 刮刮乐", emoji="💳", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="Scratch 刮刮乐", emoji="💳", style=discord.ButtonStyle.success, row=1)
     async def scratch_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from cogs.gambling import ScratchView
-        from database import get_db_ctx
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT score FROM users WHERE discord_id = ?", (self.uid,))
-            row = cur.fetchone()
-        bal = row["score"] if row else 0
-        view = ScratchView(bot=None, user_id=int(self.uid) if self.uid.isdigit() else 0)
-        embed = discord.Embed(
-            title="💳 Scratch Card / 刮刮乐",
-            description=f"Your Balance / 余额: 🪙 **{bal:,}**\n\nScratch and win!\n刮开赢大奖！",
-            color=0xF1C40F,
-        )
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
+        bal = get_balance(self.uid)
+        await interaction.response.send_message(
+            f"💳 **Scratch Card 刮刮乐 (50G)**\n"
+            f"余额 / Balance: 🪙 **{bal:,}**\n\n"
+            f"使用 `/gmpt-gamble scratch` 刮一张！\n"
+            f"Use `/gmpt-gamble scratch` to play!\n\n"
+            f"奖池 / Prizes: 💎x3=500 | 🍀x3=200 | ⭐x3=100",
+            ephemeral=True)
 
-    @discord.ui.button(label="High-Low 猜大小", emoji="🔺", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="High-Low 比大小", emoji="🔺", style=discord.ButtonStyle.secondary, row=2)
     async def highlow_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from cogs.gambling import HighLowView
-        from database import get_db_ctx
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT score FROM users WHERE discord_id = ?", (self.uid,))
-            row = cur.fetchone()
-        bal = row["score"] if row else 0
-        view = HighLowView(bot=None, user_id=int(self.uid) if self.uid.isdigit() else 0)
-        embed = discord.Embed(
-            title="🔺 High-Low / 猜大小",
-            description=f"Your Balance / 余额: 🪙 **{bal:,}**\n\nGuess higher or lower!\n猜下一张牌更大还是更小！",
-            color=0x3498DB,
-        )
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
+        bal = get_balance(self.uid)
+        await interaction.response.send_message(
+            f"🔺 **High-Low 比大小**\n"
+            f"余额 / Balance: 🪙 **{bal:,}**\n\n"
+            f"使用 `/gmpt-gamble highlow <bet>` 开始游戏！\n"
+            f"Use `/gmpt-gamble highlow <bet>` to start!\n\n"
+            f"赔率 / Odds: 猜中 2x | 平局退本",
+            ephemeral=True)
 
-    @discord.ui.button(label="Guess 猜数字", emoji="🎯", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Guess 猜数字", emoji="🎯", style=discord.ButtonStyle.secondary, row=2)
     async def guess_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from cogs.gambling import NumberGuessView
-        from database import get_db_ctx
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT score FROM users WHERE discord_id = ?", (self.uid,))
-            row = cur.fetchone()
-        bal = row["score"] if row else 0
-        view = NumberGuessView(bot=None, user_id=int(self.uid) if self.uid.isdigit() else 0)
-        embed = discord.Embed(
-            title="🎯 Number Guess / 猜数字",
-            description=f"Your Balance / 余额: 🪙 **{bal:,}**\n\nGuess the hidden number!\n猜出隐藏的数字！",
-            color=0x9B59B6,
-        )
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
+        bal = get_balance(self.uid)
+        await interaction.response.send_message(
+            f"🎯 **Number Guess 猜数字**\n"
+            f"余额 / Balance: 🪙 **{bal:,}**\n\n"
+            f"使用 `/gmpt-gamble guess <bet>` 开始游戏！\n"
+            f"Use `/gmpt-gamble guess <bet>` to start!\n\n"
+            f"赔率 / Odds: 完全猜中 10x | 差≤3 5x | 差≤10 2x",
+            ephemeral=True)
 
-    @discord.ui.button(label="Back 返回", emoji="🔙", style=discord.ButtonStyle.danger, row=2)
+    @discord.ui.button(label="Dice Duel 骰子对决", emoji="⚔️", style=discord.ButtonStyle.secondary, row=2)
+    async def duel_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        bal = get_balance(self.uid)
+        await interaction.response.send_message(
+            f"⚔️ **Dice Duel 骰子对决**\n"
+            f"余额 / Balance: 🪙 **{bal:,}**\n\n"
+            f"使用 `/gmpt-gamble diceduel <opponent> <bet>` 发起对决！\n"
+            f"Use `/gmpt-gamble diceduel <opponent> <bet>` to challenge!",
+            ephemeral=True)
+
+    @discord.ui.button(label="Back 返回", emoji="🔙", style=discord.ButtonStyle.danger, row=3)
     async def back_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.main_view:
             from cogs.mmorpg_shop import build_main_embed

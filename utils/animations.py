@@ -601,3 +601,258 @@ async def work_animation(
     
     await asyncio.sleep(0.4)
     return msg
+
+
+# ══════════════════════════════════════════════════════════════
+# Mini-Game Animations (Task C)
+# ══════════════════════════════════════════════════════════════
+
+SCRATCH_REVEAL_FRAMES = [
+    "💳 刮开中... 🟫🟫🟫",
+    "💳 刮开中... 🟫✨🟫",
+    "💳 刮开中... ✨🟫✨",
+]
+
+
+async def scratch_reveal_animation(interaction: discord.Interaction, result_emojis: str):
+    """Scratch card reveal animation: 3 frames → show result.
+    
+    Duration: ~2.0s (3 × 0.5s + 0.5s hold).
+    """
+    msg = await interaction.followup.send(SCRATCH_REVEAL_FRAMES[0])
+    for frame in SCRATCH_REVEAL_FRAMES[1:]:
+        await asyncio.sleep(0.5)
+        await msg.edit(content=frame)
+    await asyncio.sleep(0.5)
+    await msg.edit(content=f"💳 揭晓！{result_emojis}")
+
+
+RUSSIAN_ROULETTE_FRAMES = [
+    "🔫 转动转轮... 💨",
+    "🔫 转轮旋转中... 🌀",
+    "🔫 对准太阳穴... 😰",
+]
+
+
+async def russian_roulette_spin_animation(interaction: discord.Interaction, survived: bool):
+    """Russian roulette chamber spin animation.
+    
+    Duration: ~2.0s. Returns the followup message for further edits.
+    """
+    msg = await interaction.followup.send(RUSSIAN_ROULETTE_FRAMES[0])
+    for frame in RUSSIAN_ROULETTE_FRAMES[1:]:
+        await asyncio.sleep(0.5)
+        await msg.edit(content=frame)
+    await asyncio.sleep(0.5)
+    if survived:
+        await msg.edit(content="🔫 **啪！空弹！** 💨 你活下来了！")
+    else:
+        await msg.edit(content="🔫 **砰！！！** 💥 你死了...")
+    return msg
+
+
+SLOT_EMOJIS = ["🍒", "🍋", "🍊", "🍇", "💎", "7️⃣", "⭐"]
+
+
+async def slot_spin_animation(interaction: discord.Interaction, cols: list[str]):
+    """Slot machine spin animation: reels stop one by one.
+    
+    Duration: ~3.0s (3 × 0.8s + 0.6s).
+    Returns the followup message for further edits.
+    """
+    c1, c2, c3 = cols
+    msg = await interaction.followup.send(
+        f"🎰 旋转中...\n| 🔄 | 🔄 | 🔄 |"
+    )
+    await asyncio.sleep(0.8)
+    await msg.edit(content=f"🎰 第1列停！\n| {c1} | 🔄 | 🔄 |")
+    await asyncio.sleep(0.8)
+    await msg.edit(content=f"🎰 第2列停！\n| {c1} | {c2} | 🔄 |")
+    await asyncio.sleep(0.8)
+    await msg.edit(content=f"🎰 全部停止！\n| {c1} | {c2} | {c3} |")
+    await asyncio.sleep(0.6)
+    return msg
+
+
+DICE_FRAMES = [
+    ("🎲", "🎲"),
+    ("⚀", "⚃"),
+    ("⚁", "⚄"),
+    ("⚂", "⚅"),
+]
+
+
+DICE_FACE = {1: "⚀", 2: "⚁", 3: "⚂", 4: "⚃", 5: "⚄", 6: "⚅"}
+
+
+async def dice_roll_animation(interaction: discord.Interaction, d1: int, d2: int):
+    """Two dice roll animation: shake → reveal.
+    
+    Duration: ~2.0s.
+    Returns the followup message for further edits.
+    """
+    msg = await interaction.followup.send("🎲 掷骰子中... | ⚀ | ⚁ |")
+    await asyncio.sleep(0.5)
+    await msg.edit(content="🎲 骰子旋转... | ⚂ | ⚃ |")
+    await asyncio.sleep(0.5)
+    await msg.edit(content="🎲 即将揭晓... | ⚄ | ⚅ |")
+    await asyncio.sleep(0.5)
+    d1_face = DICE_FACE.get(d1, str(d1))
+    d2_face = DICE_FACE.get(d2, str(d2))
+    total = d1 + d2
+    await msg.edit(content=f"🎲 结果出来了！| {d1_face} | {d2_face} | = **{total}**")
+    await asyncio.sleep(0.5)
+    return msg
+
+
+COIN_FLIP_FRAMES = [
+    "🪙 硬币旋转中... 🌑",
+    "🪙 硬币翻转中... 🌓",
+    "🪙 即将落地... 🌕",
+]
+
+
+async def coin_flip_animation(interaction: discord.Interaction, result: str):
+    """Coin flip animation: spin → reveal heads/tails.
+    
+    Duration: ~2.0s.
+    Returns the followup message for further edits.
+    """
+    msg = await interaction.followup.send(COIN_FLIP_FRAMES[0])
+    for frame in COIN_FLIP_FRAMES[1:]:
+        await asyncio.sleep(0.5)
+        await msg.edit(content=frame)
+    await asyncio.sleep(0.5)
+    emoji = "🪙✨" if result == "heads" else "🪙💫"
+    label = "正面 Heads!" if result == "heads" else "反面 Tails!"
+    await msg.edit(content=f"{emoji} 硬币落地！**{label}**")
+    return msg
+
+
+# ══════════════════════════════════════════════════════════════
+# System Animations
+# ══════════════════════════════════════════════════════════════
+
+BOSS_DEFEAT_FRAMES = [
+    "👹 Boss 摇摇欲坠...",
+    "👹 Boss 发出最后的咆哮！",
+    "💥 Boss 爆炸了！",
+]
+
+
+async def boss_defeat_animation(interaction: discord.Interaction, boss_name: str, boss_emoji: str):
+    """Boss defeat animation: shake → roar → explode → loot.
+    
+    Duration: ~3.0s.
+    """
+    msg = await interaction.followup.send(f"{boss_emoji} **{boss_name}** 摇摇欲坠...")
+    await asyncio.sleep(0.7)
+    await msg.edit(content=f"{boss_emoji} **{boss_name}** 发出最后的咆哮！")
+    await asyncio.sleep(0.7)
+    await msg.edit(content=f"💥 **{boss_name}** 爆炸了！")
+    await asyncio.sleep(0.7)
+    await msg.edit(content=f"🎉 **{boss_name}** 被击败了！战利品掉落中...")
+    await asyncio.sleep(0.5)
+    return msg
+
+
+async def quest_complete_animation(interaction: discord.Interaction, quest_name: str):
+    """Daily quest completion animation.
+    
+    Duration: ~1.5s.
+    """
+    await interaction.followup.send(f"📋 任务完成！**{quest_name}**")
+    await asyncio.sleep(0.5)
+
+
+async def reward_claim_animation(interaction: discord.Interaction, coins: int, exp: int):
+    """Reward claim animation with particle effects.
+    
+    Duration: ~2.0s.
+    """
+    msg = await interaction.followup.send("🎁 领取奖励中...")
+    await asyncio.sleep(0.6)
+    await msg.edit(content=f"🎁 获得 🪙 **{coins:,}** 金币！✨")
+    await asyncio.sleep(0.6)
+    await msg.edit(content=f"🎁 获得 🪙 **{coins:,}** 金币 + ⚡ **{exp}** 经验值！")
+    await asyncio.sleep(0.6)
+    return msg
+
+
+async def equip_animation(interaction: discord.Interaction, item_name: str):
+    """Equipment equip animation.
+    
+    Duration: ~1.5s.
+    """
+    msg = await interaction.followup.send(f"⚔️ 装备中...")
+    await asyncio.sleep(0.5)
+    await msg.edit(content=f"⚔️ **{item_name}** 已装备！🛡️")
+    await asyncio.sleep(0.5)
+    return msg
+
+
+async def unequip_animation(interaction: discord.Interaction, item_name: str):
+    """Equipment unequip animation.
+    
+    Duration: ~1.5s.
+    """
+    msg = await interaction.followup.send(f"📦 卸下中...")
+    await asyncio.sleep(0.5)
+    await msg.edit(content=f"📦 **{item_name}** 已卸下！")
+    await asyncio.sleep(0.5)
+    return msg
+
+
+async def unlock_achievement_animation(interaction: discord.Interaction, ach_name: str, reward: int):
+    """Achievement unlock animation with celebration.
+    
+    Duration: ~2.5s.
+    """
+    msg = await interaction.followup.send("🌟 成就解锁中...")
+    await asyncio.sleep(0.6)
+    await msg.edit(content=f"🌟🌟 成就解锁中...")
+    await asyncio.sleep(0.6)
+    await msg.edit(content=f"🏆 **成就解锁！** {ach_name}")
+    await asyncio.sleep(0.6)
+    await msg.edit(content=f"🏆 **成就解锁！** {ach_name}\n🪙 +{reward:,} 奖励！")
+    await asyncio.sleep(0.5)
+    return msg
+
+
+async def insufficient_balance_animation(interaction: discord.Interaction, needed: int, have: int):
+    """Insufficient balance animation with shake effect.
+    
+    Duration: ~1.0s.
+    """
+    await interaction.followup.send(
+        f"💸 余额不足！需要 🪙 **{needed:,}**，你只有 🪙 **{have:,}**\n"
+        f"Insufficient balance! Need 🪙 **{needed:,}**, you have 🪙 **{have:,}**"
+    )
+
+
+async def dungeon_enter_animation(interaction: discord.Interaction, floor_name: str):
+    """Dungeon floor entrance animation.
+    
+    Duration: ~1.5s.
+    """
+    msg = await interaction.followup.send(f"🚪 进入 **{floor_name}**...")
+    await asyncio.sleep(0.5)
+    await msg.edit(content=f"🚪🚪 深入 **{floor_name}**...")
+    await asyncio.sleep(0.5)
+    await msg.edit(content=f"⚔️ 已到达 **{floor_name}**！准备战斗！")
+    await asyncio.sleep(0.5)
+    return msg
+
+
+async def chest_reward_animation(interaction: discord.Interaction, coins: int):
+    """Treasure chest reward animation.
+    
+    Duration: ~2.0s.
+    """
+    msg = await interaction.followup.send("📦 宝箱出现！")
+    await asyncio.sleep(0.5)
+    await msg.edit(content="📦✨ 打开宝箱中...")
+    await asyncio.sleep(0.5)
+    await msg.edit(content=f"🎁 宝箱打开！获得 🪙 **{coins:,}** 金币！")
+    await asyncio.sleep(0.5)
+    return msg
