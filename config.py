@@ -4,7 +4,11 @@ from typing import Optional
 
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load .env if present; silently skip if missing (Pterodactyl injects env vars directly).
+try:
+    load_dotenv()
+except Exception:
+    pass
 
 # UTC+8 timezone — single source of truth
 TZ_UTC8 = timezone(timedelta(hours=8))
