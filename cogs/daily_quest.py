@@ -252,11 +252,12 @@ class DailyQuestView(discord.ui.View):
         async def cb(interaction: discord.Interaction):
             reward = _claim_quest(self.uid, idx)
             if reward:
-                await interaction.response.send_message(
-                    f"🎉 任务完成！获得 🪙 **{reward['coins']}** 金币 + **{reward['exp']}** 经验！\n"
-                    f"Quest complete! Earned 🪙 **{reward['coins']}** coins + **{reward['exp']}** EXP!",
-                    ephemeral=True,
-                )
+                quests = _get_or_create_quests(self.uid)
+                quest_name = QUEST_TYPES[quests[idx]["type"]]["cn"]
+                import asyncio as _asyncio
+                from utils.animations import quest_claim_animation
+                await interaction.response.defer(ephemeral=True)
+                await quest_claim_animation(interaction, quest_name, reward['coins'], reward['exp'])
                 # Rebuild view and refresh panel message
                 self._build()
                 try:

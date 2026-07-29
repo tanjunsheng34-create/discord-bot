@@ -1089,10 +1089,15 @@ class PotionBrowseView(discord.ui.View):
                     (uid, p["id"], potion_key),
                 )
             new_bal = _get_balance(uid)
-            await interaction.response.send_message(
-                f"✅ 购买了 {p['emoji']} **{p['name_cn']}**! 余额 / Balance: 🪙 {new_bal:,}",
-                ephemeral=True,
-            )
+            import asyncio as _asyncio
+            from utils.animations import shop_purchase_animation
+            await interaction.response.defer(ephemeral=True)
+            await shop_purchase_animation(interaction, p["name_cn"], p["emoji"], p["price"], new_bal)
+            # Rebuild the category panel after purchase
+            try:
+                await interaction.message.edit(embed=self.build_embed(self.active_category), view=self)
+            except (discord.NotFound, discord.HTTPException):
+                pass
         return callback
 
     async def _back_callback(self, interaction: discord.Interaction):

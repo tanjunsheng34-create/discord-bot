@@ -367,7 +367,10 @@ class ClanPanelView(discord.ui.View):
                 with get_db_ctx() as conn:
                     conn.execute("DELETE FROM clan_members WHERE user_id=?", (uid,))
                     conn.commit()
-                await interaction.response.send_message(f"👋 已离开 **{row['name']}** / Left **{row['name']}**.")
+                import asyncio as _asyncio
+                from utils.animations import guild_action_animation
+                await interaction.response.defer(ephemeral=True)
+                await guild_action_animation(interaction, "leave")
                 return
 
             if action == "clan_info":
@@ -457,7 +460,12 @@ class ClanCreateModal(discord.ui.Modal, title="🏰 创建公会 / Create Clan")
         embed.add_field(name="👑 会长 / Owner", value=f"<@{uid}>", inline=True)
         embed.add_field(name="💰 创建费 / Cost", value=_format_coins(CLAN_CREATE_COST), inline=True)
         embed.add_field(name="📊 等级 / Level", value="1", inline=True)
-        await interaction.response.send_message(embed=embed)
+        import asyncio as _asyncio
+        from utils.animations import guild_action_animation
+        await interaction.response.defer()
+        await guild_action_animation(interaction, "create", clan_name)
+        # Send the embed as a followup too for detailed info
+        await interaction.followup.send(embed=embed)
 
 
 class ClanJoinModal(discord.ui.Modal, title="🚪 加入公会 / Join Clan"):
@@ -483,7 +491,10 @@ class ClanJoinModal(discord.ui.Modal, title="🚪 加入公会 / Join Clan"):
             cur.execute("INSERT INTO clan_members (clan_id, user_id) VALUES (?, ?)", (clan["id"], uid))
             conn.commit()
 
-        await interaction.response.send_message(f"✅ 你已加入 **{clan_name}**！/ Joined **{clan_name}**!")
+        import asyncio as _asyncio
+        from utils.animations import guild_action_animation
+        await interaction.response.defer()
+        await guild_action_animation(interaction, "join", clan_name)
 
 
 class ClanDonateModal(discord.ui.Modal, title="💰 捐赠公会 / Donate to Clan"):
@@ -527,7 +538,11 @@ class ClanDonateModal(discord.ui.Modal, title="💰 捐赠公会 / Donate to Cla
             color=0x2ECC71,
         )
         embed.add_field(name="📊 个人贡献 / Your Contrib", value=_format_coins(new_total), inline=True)
-        await interaction.response.send_message(embed=embed)
+        import asyncio as _asyncio
+        from utils.animations import guild_action_animation
+        await interaction.response.defer()
+        await guild_action_animation(interaction, "donate")
+        await interaction.followup.send(embed=embed)
 
 
 

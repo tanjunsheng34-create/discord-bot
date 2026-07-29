@@ -426,17 +426,17 @@ class SkillShopView(discord.ui.View):
                 )
                 conn.commit()
 
+            new_bal = _get_balance(uid)
+            import asyncio as _asyncio
+            from utils.animations import skill_learn_animation
+            await interaction.response.defer(ephemeral=True)
+            await skill_learn_animation(interaction, sdef['name'], sdef['emoji'], sdef['price'], new_bal)
+
             self._build()
             try:
                 await interaction.message.edit(embed=self.build_main_embed(), view=self)
             except (discord.NotFound, discord.HTTPException):
                 pass
-
-            new_bal = _get_balance(uid)
-            await interaction.response.send_message(
-                f"✅ 学会了 {sdef['emoji']} **{sdef['name']}**！余额 / Balance: 🪙 {new_bal:,}",
-                ephemeral=True,
-            )
         return cb
 
     async def _back_callback(self, interaction: discord.Interaction):

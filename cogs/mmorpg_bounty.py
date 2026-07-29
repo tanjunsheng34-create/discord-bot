@@ -257,7 +257,16 @@ class BountyPanelView(discord.ui.View):
                 ),
                 color=0x2ECC71,
             )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            import asyncio as _asyncio
+            from utils.animations import bounty_claim_animation
+            await interaction.response.defer(ephemeral=True)
+            await bounty_claim_animation(interaction, template[0], target['coins'], target['exp'])
+            # Rebuild view
+            self._build()
+            try:
+                await interaction.message.edit(embed=self.build_main_embed(), view=self)
+            except (discord.NotFound, discord.HTTPException):
+                pass
 
         return cb
 

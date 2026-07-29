@@ -856,3 +856,124 @@ async def chest_reward_animation(interaction: discord.Interaction, coins: int):
     await msg.edit(content=f"🎁 宝箱打开！获得 🪙 **{coins:,}** 金币！")
     await asyncio.sleep(0.5)
     return msg
+
+
+# ══════════════════════════════════════════════════════════════
+# MMORPG Panel Button Animations (added for full coverage)
+# ══════════════════════════════════════════════════════════════
+
+async def skill_learn_animation(interaction: discord.Interaction, skill_name: str,
+                                skill_emoji: str, cost: int, balance: int):
+    """Skill learn animation: 3 frames → result. Duration: ~2.0s."""
+    frames = [
+        f"📖 正在学习 {skill_emoji} {skill_name}...",
+        f"📖 钻研技能中...",
+        f"✨ {skill_emoji} 即将掌握！",
+    ]
+    msg = await interaction.followup.send(frames[0], ephemeral=True)
+    for frame in frames[1:]:
+        await asyncio.sleep(0.6)
+        await msg.edit(content=frame)
+    await asyncio.sleep(0.4)
+    await msg.edit(content=f"✅ 学会了 {skill_emoji} **{skill_name}**！余额 / Balance: 🪙 {balance:,}")
+    return msg
+
+
+async def quest_claim_animation(interaction: discord.Interaction, quest_name: str,
+                                coins: int, exp: int):
+    """Quest claim animation: 3 frames → result. Duration: ~2.0s."""
+    frames = [
+        f"📋 提交任务中...",
+        f"📋 结算奖励中...",
+        f"🎉 任务完成！",
+    ]
+    msg = await interaction.followup.send(frames[0], ephemeral=True)
+    for frame in frames[1:]:
+        await asyncio.sleep(0.6)
+        await msg.edit(content=frame)
+    await asyncio.sleep(0.4)
+    await msg.edit(content=f"🎉 **{quest_name}** 完成！获得 🪙 **{coins}** 金币 + ⚡ **{exp}** 经验！")
+    return msg
+
+
+async def bounty_claim_animation(interaction: discord.Interaction, bounty_name: str,
+                                 coins: int, exp: int):
+    """Bounty claim animation: 3 frames → result. Duration: ~2.0s."""
+    frames = [
+        f"📜 提交悬赏中...",
+        f"📜 验证完成度...",
+        f"🎯 悬赏达成！",
+    ]
+    msg = await interaction.followup.send(frames[0], ephemeral=True)
+    for frame in frames[1:]:
+        await asyncio.sleep(0.6)
+        await msg.edit(content=frame)
+    await asyncio.sleep(0.4)
+    await msg.edit(content=f"🎯 **{bounty_name}** 悬赏完成！获得 🪙 **{coins}** 金币 + ⚡ **{exp}** 经验！")
+    return msg
+
+
+async def guild_action_animation(interaction: discord.Interaction, action: str,
+                                 guild_name: str = ""):
+    """Guild action animation: 3 frames → result. Duration: ~2.0s.
+    
+    Args:
+        interaction: Discord interaction (must already be deferred)
+        action: One of 'create', 'join', 'leave', 'donate'
+        guild_name: Guild name (optional for leave)
+    """
+    action_frames = {
+        "create": [
+            f"🏰 筹备建会中...",
+            f"🏰 召集成员中...",
+            f"🏰 公会即将成立！",
+        ],
+        "join": [
+            f"🚶 申请加入中...",
+            f"🚶 审核通过中...",
+            f"🤝 即将加入！",
+        ],
+        "leave": [
+            f"🚪 正在离开...",
+            f"🚪 处理退会中...",
+            f"👋 退出公会...",
+        ],
+        "donate": [
+            f"💰 正在捐赠...",
+            f"💰 转入金库中...",
+            f"💎 捐赠完成！",
+        ],
+    }
+    result_texts = {
+        "create": f"🏰 **{guild_name}** 公会正式成立！",
+        "join": f"🤝 已加入 **{guild_name}**！",
+        "leave": f"👋 已离开公会！",
+        "donate": f"💎 捐赠成功！感谢你对公会的贡献！",
+    }
+    frames = action_frames.get(action, [f"⏳ 处理中...", f"⏳ 处理中...", f"✅ 完成！"])
+    result = result_texts.get(action, "✅ 操作完成！")
+    
+    msg = await interaction.followup.send(frames[0], ephemeral=True)
+    for frame in frames[1:]:
+        await asyncio.sleep(0.6)
+        await msg.edit(content=frame)
+    await asyncio.sleep(0.4)
+    await msg.edit(content=result)
+    return msg
+
+
+async def shop_purchase_animation(interaction: discord.Interaction, item_name: str,
+                                  item_emoji: str, price: int, balance: int):
+    """Shop purchase animation: 3 frames → result. Duration: ~2.0s."""
+    frames = [
+        f"🛒 正在选购 {item_emoji} {item_name}...",
+        f"💳 正在支付...",
+        f"✅ 购买成功！",
+    ]
+    msg = await interaction.followup.send(frames[0], ephemeral=True)
+    for frame in frames[1:]:
+        await asyncio.sleep(0.6)
+        await msg.edit(content=frame)
+    await asyncio.sleep(0.4)
+    await msg.edit(content=f"✅ 购买了 {item_emoji} **{item_name}**！余额 / Balance: 🪙 {balance:,}")
+    return msg
