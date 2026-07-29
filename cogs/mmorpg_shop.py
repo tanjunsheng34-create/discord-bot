@@ -329,11 +329,18 @@ class PotionShop(CogBase):
                 ephemeral=True,
             )
 
-        _add_coins(uid, -total_cost, f"Bought {p['name_en']} x{quantity} / 购买 {p['name_cn']} x{quantity}")
-
-        # Add to inventory
+        # Deduct coins and add to inventory in a single transaction
         with get_db_ctx() as conn:
             cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO users (discord_id, username) VALUES (?, '') ON CONFLICT(discord_id) DO NOTHING",
+                (uid,),
+            )
+            cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (-total_cost, uid))
+            cur.execute(
+                "INSERT INTO transactions (discord_id, amount, reason) VALUES (?, ?, ?)",
+                (uid, -total_cost, f"Bought {p['name_en']} x{quantity} / 购买 {p['name_cn']} x{quantity}"),
+            )
             cur.execute(
                 "SELECT quantity FROM user_inventory WHERE user_id = ? AND item_name = ? AND item_type = 'potion'",
                 (uid, potion_key),
@@ -1329,13 +1336,23 @@ class PotionBrowseView(discord.ui.View):
                 return await interaction.response.send_message(
                     f"等级不足 Need Lv.{p['min_level']} / You are Lv.{self.user_level}", ephemeral=True
                 )
-            _add_coins(uid, -p["price"], f"Buy potion / 购买药水: {p['name_en']}")
+            # Deduct coins and add to inventory in a single transaction
             with get_db_ctx() as conn:
+                conn.execute(
+                    "INSERT INTO users (discord_id, username) VALUES (?, '') ON CONFLICT(discord_id) DO NOTHING",
+                    (uid,),
+                )
+                conn.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (-p["price"], uid))
+                conn.execute(
+                    "INSERT INTO transactions (discord_id, amount, reason) VALUES (?, ?, ?)",
+                    (uid, -p["price"], f"Buy potion / 购买药水: {p['name_en']}"),
+                )
                 conn.execute(
                     "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) "
                     "VALUES (?, ?, ?, 1, 'potion')",
                     (uid, p["id"], potion_key),
                 )
+                conn.commit()
             new_bal = _get_balance(uid)
             import asyncio as _asyncio
             from utils.animations import shop_purchase_animation

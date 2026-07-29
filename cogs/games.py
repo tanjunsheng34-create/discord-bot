@@ -633,8 +633,8 @@ class RouletteColorView(discord.ui.View):
 
         from utils.animations import roulette_spin_animation
         await interaction.response.defer()
-        msg = await roulette_spin_animation(interaction, number, result_color)
-        await msg.edit(content=None, embed=embed, view=self)
+        await roulette_spin_animation(interaction, number, result_color)
+        await interaction.edit_original_response(content=None, embed=embed, view=self)
 
     async def on_timeout(self):
         if not self.finished:

@@ -8278,10 +8278,11 @@ class Dashboard(CogBase):
     async def cog_load(self):
         import aiohttp
         self.session = aiohttp.ClientSession()
-        # 启动定时赛事轮询
+        # 启动定时赛事轮询 — 仅 arena / full 角色，避免多实例重复创建赛事
         if not hasattr(self, '_scheduled_loop_started'):
             self._scheduled_loop_started = True
-            self.scheduled_event_loop.start()
+            if getattr(self.bot, 'bot_role', 'full') in ('arena', 'full'):
+                self.scheduled_event_loop.start()
 
     @tasks.loop(minutes=1)
     async def scheduled_event_loop(self):
