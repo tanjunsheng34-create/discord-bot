@@ -23,7 +23,7 @@ TIER_SCORE = {
     "GOLD": 2, "SILVER": 1, "BRONZE": 1, "IRON": 1, "UNRANKED": 1,
 }
 
-TOKEN: Optional[str] = os.getenv("DISCORD_TOKEN")
+TOKEN: Optional[str] = os.getenv("TOKEN_FULL") or os.getenv("DISCORD_TOKEN")
 
 # ── 多实例 TOKEN 字典 ──
 # 不设置 BOT_ROLE 时为多实例模式，每个角色独立 TOKEN
