@@ -199,6 +199,39 @@ def _add_global_xp(uid: str, income: int) -> int:
     return exp
 
 
+def _add_user_xp(uid: str, amount: int) -> tuple:
+    """Add a direct XP amount to user and handle level-ups.
+    Returns (xp_gained, did_level_up, old_level, new_level, level_ups_count).
+    Use this for quest rewards, dungeon XP, etc. where XP is pre-calculated.
+    """
+    from database import get_db_ctx as _gdc
+    with _gdc() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT xp, level FROM users WHERE discord_id = ?", (uid,))
+        row = cur.fetchone()
+        old_xp = row["xp"] if row else 0
+        old_level = row["level"] if row else 1
+
+        new_xp = old_xp + amount
+        new_level = old_level
+        level_ups = 0
+        xp_to_next = new_level * 1000
+
+        while new_xp >= xp_to_next:
+            new_xp -= xp_to_next
+            new_level += 1
+            level_ups += 1
+            xp_to_next = new_level * 1000
+
+        cur.execute(
+            "UPDATE users SET xp = ?, level = ? WHERE discord_id = ?",
+            (new_xp, new_level, uid),
+        )
+        conn.commit()
+
+    return (amount, level_ups > 0, old_level, new_level, level_ups)
+
+
 def _money_effect(amount: int) -> str:
     """Return money visual effect based on amount."""
     if amount <= 0:

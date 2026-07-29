@@ -102,12 +102,12 @@ def _save_dungeon_state(user_id: str, free_runs_used: int, reset_ts: int):
 
 
 def _get_player_stats(user_id: str) -> dict:
-    """Get player combat stats from MMORPG character + equipment."""
+    """Get player combat stats from users table + equipment."""
     from cogs.mmorpg_equipment import _get_equip_stats
     with get_db_ctx() as conn:
         cur = conn.cursor()
         cur.execute(
-            "SELECT level, hp, max_hp, atk, def, crit, spd FROM mmorpg_characters WHERE user_id=?",
+            "SELECT level, hp, max_hp, attack, defense FROM users WHERE discord_id=?",
             (user_id,),
         )
         row = cur.fetchone()
@@ -119,10 +119,10 @@ def _get_player_stats(user_id: str) -> dict:
         "level": row["level"],
         "hp": row["hp"],
         "max_hp": row["max_hp"],
-        "atk": row["atk"] + equip_stats.get("atk", 0),
-        "def": row["def"] + equip_stats.get("def", 0),
-        "crit": row["crit"] + equip_stats.get("crit", 0),
-        "spd": row["spd"] + equip_stats.get("spd", 0),
+        "atk": row["attack"] + equip_stats.get("atk", 0),
+        "def": row["defense"] + equip_stats.get("def", 0),
+        "crit": 5 + equip_stats.get("crit", 0),
+        "spd": 10 + equip_stats.get("spd", 0),
     }
 
 
@@ -238,14 +238,9 @@ class DungeonView(discord.ui.View):
             exp_earned = monster["exp"]
 
             add_coins(self.uid, coins_earned, f"地下城第{floor}层奖励 / Dungeon floor {floor} reward")
-            # Add exp
-            with get_db_ctx() as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    "UPDATE mmorpg_characters SET exp=exp+? WHERE user_id=?",
-                    (exp_earned, self.uid),
-                )
-                conn.commit()
+            # Add exp with level-up check
+            from cogs.economy_jobs import _add_user_xp
+            _, did_level, old_lv, new_lv, lv_ups = _add_user_xp(self.uid, exp_earned)
 
             bal = get_balance(self.uid)
             embed = discord.Embed(

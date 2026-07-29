@@ -680,6 +680,7 @@ def build_main_embed(uid: str, display_name: str = None) -> discord.Embed:
 
 # ══════════════════════════════════════════════════════════════
 # MMORPGMainView — Unified Control Panel (12 subsystems, 4×3)
+# Row 3: Bag + Stats + Titles&Achieve (Rank via /gmpt-leaderboard)
 # ══════════════════════════════════════════════════════════════
 class MMORPGMainView(discord.ui.View):
     def __init__(self, uid: str):

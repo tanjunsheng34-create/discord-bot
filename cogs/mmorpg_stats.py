@@ -79,6 +79,10 @@ class StatsView(discord.ui.View):
         self.uid = uid
         self.main_view = main_view
 
+    def build_embed(self) -> discord.Embed:
+        """Build stats embed for main panel integration."""
+        return build_stats_embed(self.uid)
+
     async def _interaction_check(self, interaction: discord.Interaction) -> bool:
         if str(interaction.user.id) != self.uid:
             await interaction.response.send_message("Not your panel / 不是你的面板", ephemeral=True)

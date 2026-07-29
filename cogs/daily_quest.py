@@ -151,21 +151,9 @@ def _claim_quest(user_id: str, quest_index: int) -> dict:
 
 
 def _add_quest_exp(user_id: str, exp: int):
-    """Add exp to user's xp column in users table."""
-    with get_db_ctx() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT xp FROM users WHERE user_id=?",
-            (user_id,),
-        )
-        row = cur.fetchone()
-        if row:
-            new_exp = (row["xp"] or 0) + exp
-            cur.execute(
-                "UPDATE users SET xp=? WHERE user_id=?",
-                (new_exp, user_id),
-            )
-            conn.commit()
+    """Add exp to user's xp column in users table, with level-up check."""
+    from cogs.economy_jobs import _add_user_xp
+    _add_user_xp(user_id, exp)
 
 
 def _init_daily_quest_db():

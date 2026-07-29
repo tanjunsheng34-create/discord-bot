@@ -248,6 +248,50 @@ def build_titles_embed(uid: str) -> discord.Embed:
     return embed
 
 
+class TitlesHubView(discord.ui.View):
+    """Hub panel: pick Titles or Achievements, then Back."""
+
+    def __init__(self, uid: str, main_view=None):
+        super().__init__(timeout=None)
+        self.uid = uid
+        self.main_view = main_view
+
+    async def _interaction_check(self, interaction: discord.Interaction) -> bool:
+        if str(interaction.user.id) != self.uid:
+            await interaction.response.send_message("Not your panel / 不是你的面板", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Titles 称号", emoji="🏷️", style=discord.ButtonStyle.primary, row=0)
+    async def titles_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = build_titles_embed(self.uid)
+        view = TitlesView(self.uid, main_view=self.main_view)
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Achievements 成就", emoji="🏆", style=discord.ButtonStyle.primary, row=0)
+    async def achievements_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.achievements import AchievementsView
+        view = AchievementsView(uid=self.uid, main_view=self.main_view)
+        embed = await view._get_achievements_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Back 返回", emoji="🔙", style=discord.ButtonStyle.secondary, row=1)
+    async def back_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.main_view:
+            from cogs.mmorpg_shop import build_main_embed
+            embed = build_main_embed(self.uid, interaction.user.display_name)
+            try:
+                await interaction.response.edit_message(embed=embed, view=self.main_view)
+            except discord.InteractionResponded:
+                await interaction.followup.edit_message(embed=embed, view=self.main_view)
+
+
 class MMORPGTitles(CogBase):
     """称号系统 / Titles System"""
 
