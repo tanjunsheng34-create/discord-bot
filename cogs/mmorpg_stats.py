@@ -228,7 +228,7 @@ class MMORPGStats(CogBase):
                     cur.execute(f"ALTER TABLE users ADD COLUMN {col} {col_def}")
             conn.commit()
 
-    @app_commands.command(name="gmpt-stats", description="\U0001f4ca View detailed character stats / 查看详细角色属性")
+    @app_commands.command(name="gmpt-mmorpg-stats", description="\U0001f4ca View detailed character stats / 查看详细角色属性")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
     async def stats_cmd(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)

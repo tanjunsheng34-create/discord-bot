@@ -281,7 +281,7 @@ class Dungeon(CogBase):
     """地下城系统 / Dungeon System"""
 
     def __init__(self, bot):
-        super().__init__(bot)
+        super().__init__()
         _init_dungeon_db()
 
     @app_commands.command(name="gmpt-dungeon", description="🏰 地下城副本 / Dungeon — explore and fight monsters!")
