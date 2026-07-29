@@ -60,6 +60,8 @@ MMORPG_COGS = {
     "cogs.mmorpg_class",
     "cogs.mmorpg_stats",
     "cogs.mmorpg_titles",
+    "cogs.mmorpg_bounty",
+    "cogs.clans",
     "cogs.daily_quest",
     "cogs.dungeon",
     "cogs.achievements",
