@@ -194,9 +194,8 @@ class GMPTBot(commands.Bot):
 
         # ── Sync slash commands ──
         if self.bot_role == "full":
-            # full: clear all stale commands first, then sync
+            # full: clear all stale commands (sync happens in on_ready)
             guild_id = os.getenv("GUILD_ID")
-            guild_obj = None
             if guild_id:
                 try:
                     guild_obj = discord.Object(id=int(guild_id))
@@ -210,20 +209,7 @@ class GMPTBot(commands.Bot):
                     logger.info(f"[{self.bot_role}] Cleared old global commands")
                 except Exception as e:
                     logger.warning(f"[{self.bot_role}] Failed to clear global commands: {e}")
-            # Now register and sync
-            if guild_obj:
-                try:
-                    self.tree.copy_global_to(guild=guild_obj)
-                    synced = await self.tree.sync(guild=guild_obj)
-                    logger.info(f"[{self.bot_role}] Synced {len(synced)} commands to guild {guild_id}")
-                except Exception as e:
-                    logger.error(f"[{self.bot_role}] Guild sync failed for GUILD_ID={guild_id}: {e}")
-            else:
-                try:
-                    synced = await self.tree.sync()
-                    logger.info(f"[{self.bot_role}] Synced {len(synced)} global commands")
-                except Exception as e:
-                    logger.error(f"[{self.bot_role}] Global sync failed: {e}")
+            # Note: sync is deferred to on_ready (avoids double-sync)
         else:
             # Non-full roles: clear all stale Discord commands, then push empty tree
             guild_id = os.getenv("GUILD_ID")
@@ -500,23 +486,10 @@ async def setup_hook(self):
 
     # ── Sync slash commands ──
     # 只有 full 实例负责 sync，避免多实例命令重复
+    # Note: sync is deferred to on_ready (avoids double-sync with GMPTBot.on_ready)
     bot_role = os.getenv("BOT_ROLE", "full")
     if bot_role == "full":
-        guild_id = GUILD_ID
-        if guild_id:
-            try:
-                guild = discord.Object(id=int(guild_id))
-                self.tree.copy_global_to(guild=guild)
-                synced = await self.tree.sync(guild=guild)
-                logger.info(f"Synced {len(synced)} commands to guild {guild_id}")
-            except Exception as e:
-                logger.error(f"Guild sync failed for GUILD_ID={guild_id}: {e}")
-        else:
-            try:
-                synced = await self.tree.sync()
-                logger.info(f"Synced {len(synced)} global commands")
-            except Exception as e:
-                logger.error(f"Global sync failed: {e}")
+        logger.info(f"Single-instance {bot_role} sync deferred to on_ready")
     else:
         logger.info(f"Single-instance {bot_role} skipped sync (only full role syncs)")
 

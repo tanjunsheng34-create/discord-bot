@@ -278,353 +278,6 @@ class PotionShop(CogBase):
         await interaction.response.send_message(embed=embed, view=view)
 
 
-# ══════════════════════════════════════════════════════════════
-# build_main_embed — reusable embed builder for sub-panel Back buttons
-# ══════════════════════════════════════════════════════════════
-def build_main_embed(uid: str, display_name: str = None) -> discord.Embed:
-    """Build the MMORPG main panel embed. Compatible with sub-panel Back callbacks."""
-    stats = _get_user_stats(uid)
-    bal = _get_balance(uid)
-    xp = _get_xp(uid)
-
-    from cogs.mmorpg_class import _get_class, CLASS_DEFS
-    current_key = _get_class(uid)
-    if current_key and current_key in CLASS_DEFS:
-        cd = CLASS_DEFS[current_key]
-        class_emoji = cd["emoji"]
-        class_name = f"{cd['name_cn']} / {cd['name_en']}"
-    else:
-        class_emoji = "🧑"
-        class_name = "未选择 / None"
-
-    hp_pct = stats["hp"] / max(stats["max_hp"], 1)
-    mp_pct = stats["mp"] / max(stats["max_mp"], 1)
-    hp_bar = "█" * max(1, int(hp_pct * 8)) + "░" * max(0, 8 - int(hp_pct * 8))
-    mp_bar = "█" * max(1, int(mp_pct * 8)) + "░" * max(0, 8 - int(mp_pct * 8))
-
-    panel_lines = [
-        "```ansi",
-        "        \u001b[1;33m\uD83D\uDEE1\uFE0F\u001b[0m",
-        "      \u001b[1;33m\u2694\uFE0F\u001b[0m  \u001b[1;35m\uD83D\uDC51\u001b[0m  \u001b[1;33m\u2694\uFE0F\u001b[0m",
-        "    \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501",
-        f"    {class_emoji}  {class_name}  Lv.{stats['level']}",
-        "    \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501",
-        "```",
-    ]
-
-    embed = discord.Embed(
-        title="\u250C\u2500\u2500\u2500\u2500\u2500 GMPT MMORPG \u2500\u2500\u2500\u2500\u2500\u2510",
-        description="\n".join(panel_lines),
-        color=0x9B59B6,
-    )
-    embed.add_field(
-        name=f"\u2764\uFE0F HP [{hp_bar}]",
-        value=f"**{stats['hp']}/{stats['max_hp']}**",
-        inline=True,
-    )
-    embed.add_field(
-        name=f"\uD83D\uDD2E MP [{mp_bar}]",
-        value=f"**{stats['mp']}/{stats['max_mp']}**",
-        inline=True,
-    )
-    embed.add_field(
-        name="\uD83D\uDCB0 Coins",
-        value=f"\uD83E\uDE99 **{bal:,}**",
-        inline=True,
-    )
-    embed.add_field(
-        name="\u2694\uFE0F ATK",
-        value=f"**{stats['attack']}**",
-        inline=True,
-    )
-    embed.add_field(
-        name="\uD83D\uDEE1\uFE0F DEF",
-        value=f"**{stats['defense']}**",
-        inline=True,
-    )
-    embed.add_field(
-        name="\u2B50 EXP",
-        value=f"\u2B50 **{xp:,}**",
-        inline=True,
-    )
-    if display_name:
-        embed.set_footer(text=f"{display_name}  |  /gmpt-mmorpg")
-    return embed
-
-
-# ══════════════════════════════════════════════════════════════
-# MMORPGMainView — Unified Control Panel (14 subsystems)
-# ══════════════════════════════════════════════════════════════
-class MMORPGMainView(discord.ui.View):
-    def __init__(self, uid: str):
-        super().__init__(timeout=None)
-        self.uid = uid
-
-    # ── Row 0: Work + Shop ──
-    @discord.ui.button(label="Work 打工", emoji="⚒️", style=discord.ButtonStyle.primary, row=0, custom_id="mmorpg_main:work")
-    async def work_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from cogs.economy_jobs import EconomyJobsView
-        view = EconomyJobsView(self.uid, main_view=self)
-        embed = discord.Embed(
-            title="⚒️ Work / 打工",
-            description="Choose a job to earn coins and EXP!\n选择工作来赚取金币和经验！",
-            color=0xF39C12,
-        )
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
-
-    @discord.ui.button(label="Shop 商店", emoji="🏪", style=discord.ButtonStyle.primary, row=0, custom_id="mmorpg_main:shop")
-    async def shop_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from cogs.mmorpg_shop import PotionBrowseView
-        user_level = _get_user_level(self.uid)
-        view = PotionBrowseView(POTION_CATALOG, user_level, self.uid, main_view=self)
-        embed = view.build_embed("recovery")
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
-
-    # ── Row 1: Boss + Dungeon ──
-    @discord.ui.button(label="Boss", emoji="⚔️", style=discord.ButtonStyle.danger, row=1, custom_id="mmorpg_main:boss")
-    async def boss_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from cogs.boss import BossLobbyView
-        view = BossLobbyView(self.uid, main_view=self)
-        embed = discord.Embed(
-            title="⚔️ Boss Hunt / Boss 狩猎",
-            description="Fight epic bosses for rare loot!\n挑战史诗Boss获取稀有装备！",
-            color=0xE74C3C,
-        )
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
-
-    @discord.ui.button(label="Dungeon 副本", emoji="🏰", style=discord.ButtonStyle.danger, row=1, custom_id="mmorpg_main:dungeon")
-    async def dungeon_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from cogs.dungeon import DungeonLobbyView
-        view = DungeonLobbyView(self.uid, main_view=self)
-        embed = discord.Embed(
-            title="🏰 Dungeon / 副本",
-            description="Explore dungeons for treasures!\n探索副本寻找宝藏！",
-            color=0x3498DB,
-        )
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
-
-    # ── Row 2: PVP + Quest ──
-    @discord.ui.button(label="PVP", emoji="⚔️", style=discord.ButtonStyle.success, row=2, custom_id="mmorpg_main:pvp")
-    async def pvp_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        try:
-            from cogs.mmorpg_pvp import PVPView
-            view = PVPView(self.uid, main_view=self)
-        except (ImportError, AttributeError):
-            embed = discord.Embed(
-                title="⚔️ PVP Arena / PVP竞技场",
-                description="PVP coming soon!\nPVP功能即将开放！",
-                color=0xE67E22,
-            )
-            view = MMORPGMainView(self.uid)
-            await interaction.response.edit_message(embed=embed, view=view)
-            return
-        embed = discord.Embed(
-            title="⚔️ PVP Arena / PVP竞技场",
-            description="Challenge other players!\n挑战其他玩家！",
-            color=0xE67E22,
-        )
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
-
-    @discord.ui.button(label="Quest 任务", emoji="📋", style=discord.ButtonStyle.success, row=2, custom_id="mmorpg_main:quest")
-    async def quest_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from cogs.daily_quest import DailyQuestView
-        view = DailyQuestView(self.uid, main_view=self)
-        embed = discord.Embed(
-            title="📋 Daily Quests / 每日任务",
-            description="Complete quests for rewards!\n完成任务获取奖励！",
-            color=0x2ECC71,
-        )
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
-
-    # ── Row 3: Equipment + Skills ──
-    @discord.ui.button(label="Equip 装备", emoji="🛡️", style=discord.ButtonStyle.secondary, row=3, custom_id="mmorpg_main:equip")
-    async def equip_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from cogs.mmorpg_equipment import EquipmentView
-        view = EquipmentView(self.uid, main_view=self)
-        embed = discord.Embed(
-            title="🛡️ Equipment / 装备",
-            description="Manage your gear!\n管理你的装备！",
-            color=0x7F8C8D,
-        )
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
-
-    @discord.ui.button(label="Skills 技能", emoji="🗡️", style=discord.ButtonStyle.secondary, row=3, custom_id="mmorpg_main:skills")
-    async def skills_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from cogs.mmorpg_skills import SkillShopView
-        view = SkillShopView(self.uid, main_view=self)
-        embed = discord.Embed(
-            title="🗡️ Skills / 技能",
-            description="Learn powerful skills!\n学习强力技能！",
-            color=0x9B59B6,
-        )
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
-
-    # ── Row 4: Inventory + Class ──
-    @discord.ui.button(label="Bag 背包", emoji="🎒", style=discord.ButtonStyle.secondary, row=4, custom_id="mmorpg_main:inv")
-    async def inv_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT item_name, quantity FROM user_inventory WHERE user_id = ? AND item_type = 'potion' AND quantity > 0 ORDER BY item_name",
-                (self.uid,),
-            )
-            rows = cur.fetchall()
-        if not rows:
-            embed = discord.Embed(
-                title="🎒 Backpack / 背包",
-                description="Your backpack is empty!\n背包空空如也！Visit the Shop to buy items.",
-                color=0x95A5A6,
-            )
-        else:
-            lines = []
-            for row in rows:
-                p = POTION_CATALOG.get(row["item_name"], {})
-                emoji = p.get("emoji", "🧪")
-                cn = p.get("name_cn", row["item_name"])
-                en = p.get("name_en", row["item_name"])
-                lines.append(f"{emoji} **{cn} / {en}** x{row['quantity']}")
-            embed = discord.Embed(
-                title="🎒 Backpack / 背包",
-                description="\n".join(lines),
-                color=0x95A5A6,
-            )
-        view = _BackOnlyView(self.uid, main_view=self)
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
-
-    @discord.ui.button(label="Class 职业", emoji="👤", style=discord.ButtonStyle.secondary, row=4, custom_id="mmorpg_main:class")
-    async def class_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from cogs.mmorpg_class import ClassSelectView
-        view = ClassSelectView(self.uid, main_view=self)
-        embed = discord.Embed(
-            title="👤 Class / 职业",
-            description="Choose your class!\n选择你的职业！",
-            color=0x8E44AD,
-        )
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
-
-    # ── Row 5: Economy + Gambling ──
-    @discord.ui.button(label="Econ 经济", emoji="💎", style=discord.ButtonStyle.primary, row=5, custom_id="mmorpg_main:econ")
-    async def econ_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from cogs.economy import MainMenuView
-        view = MainMenuView(self.uid, self.uid)
-        embed = discord.Embed(
-            title="💎 Economy / 经济系统",
-            description="Bank, transfer, invest!\n银行、转账、投资！",
-            color=0x1ABC9C,
-        )
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
-
-    @discord.ui.button(label="Gamble 赌博", emoji="🎰", style=discord.ButtonStyle.primary, row=5, custom_id="mmorpg_main:gamble")
-    async def gamble_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from cogs.gambling import GamblingLobbyView
-        view = GamblingLobbyView(self.uid, main_view=self)
-        embed = discord.Embed(
-            title="🎰 Gambling / 赌博",
-            description="Try your luck!\n试试你的运气！",
-            color=0xFF5722,
-        )
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
-
-    # ── Row 6: Cosmetics + Leaderboard ──
-    @discord.ui.button(label="Pet 外观", emoji="🎨", style=discord.ButtonStyle.success, row=6, custom_id="mmorpg_main:pet")
-    async def pet_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        try:
-            from cogs.pets import PetPanelView
-            view = PetPanelView(self.uid, main_view=self)
-        except (ImportError, AttributeError):
-            embed = discord.Embed(
-                title="🎨 Pets / 宠物外观",
-                description="Pet system coming soon!\n宠物系统即将开放！",
-                color=0xE91E63,
-            )
-            view = _BackOnlyView(self.uid, main_view=self)
-            await interaction.response.edit_message(embed=embed, view=view)
-            return
-        embed = discord.Embed(
-            title="🎨 Pets / 宠物外观",
-            description="Hatch and raise pets!\n孵化培养宠物！",
-            color=0xE91E63,
-        )
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
-
-    @discord.ui.button(label="Rank 排行", emoji="📊", style=discord.ButtonStyle.success, row=6, custom_id="mmorpg_main:rank")
-    async def rank_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from cogs.leaderboard import LeaderboardView
-        view = LeaderboardView(main_view=self)
-        embed = discord.Embed(
-            title="📊 Leaderboard / 排行榜",
-            description="Top players ranking!\n玩家排行榜！",
-            color=0xF1C40F,
-        )
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
-
-    @discord.ui.button(label="Achieve 成就", emoji="🏅", style=discord.ButtonStyle.success, row=6, custom_id="mmorpg_main:achievements")
-    async def achievements_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from cogs.achievements import AchievementsView
-        view = AchievementsView(uid=self.uid, main_view=self)
-        embed = await view._get_achievements_embed()
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
-
-
-class _BackOnlyView(discord.ui.View):
-    """Simple view with just a Back button for panels that only display info."""
-    def __init__(self, uid: str, main_view: MMORPGMainView):
-        super().__init__(timeout=None)
-        self.uid = uid
-        self.main_view = main_view
-
-    @discord.ui.button(label="Back 返回", emoji="🔙", style=discord.ButtonStyle.secondary, row=4, custom_id="back_only:back")
-    async def back_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = build_main_embed(self.uid, interaction.user.display_name)
-        try:
-            await interaction.response.edit_message(embed=embed, view=self.main_view)
-        except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=self.main_view)
     potionshop_group = app_commands.Group(
         name="gmpt-potionshop",
         description="NPC Potion Shop / NPC 药水商店",
@@ -945,143 +598,358 @@ class _BackOnlyView(discord.ui.View):
                 choices.append(app_commands.Choice(name=display, value=r["item_name"]))
         return choices[:25]
 
+# ══════════════════════════════════════════════════════════════
+# build_main_embed — reusable embed builder for sub-panel Back buttons
+# ══════════════════════════════════════════════════════════════
+def build_main_embed(uid: str, display_name: str = None) -> discord.Embed:
+    """Build the MMORPG main panel embed. Compatible with sub-panel Back callbacks."""
+    stats = _get_user_stats(uid)
+    bal = _get_balance(uid)
+    xp = _get_xp(uid)
+
+    from cogs.mmorpg_class import _get_class, CLASS_DEFS
+    current_key = _get_class(uid)
+    if current_key and current_key in CLASS_DEFS:
+        cd = CLASS_DEFS[current_key]
+        class_emoji = cd["emoji"]
+        class_name = f"{cd['name_cn']} / {cd['name_en']}"
+    else:
+        class_emoji = "🧑"
+        class_name = "未选择 / None"
+
+    hp_pct = stats["hp"] / max(stats["max_hp"], 1)
+    mp_pct = stats["mp"] / max(stats["max_mp"], 1)
+    hp_bar = "█" * max(1, int(hp_pct * 8)) + "░" * max(0, 8 - int(hp_pct * 8))
+    mp_bar = "█" * max(1, int(mp_pct * 8)) + "░" * max(0, 8 - int(mp_pct * 8))
+
+    panel_lines = [
+        "```ansi",
+        "        \u001b[1;33m\uD83D\uDEE1\uFE0F\u001b[0m",
+        "      \u001b[1;33m\u2694\uFE0F\u001b[0m  \u001b[1;35m\uD83D\uDC51\u001b[0m  \u001b[1;33m\u2694\uFE0F\u001b[0m",
+        "    \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501",
+        f"    {class_emoji}  {class_name}  Lv.{stats['level']}",
+        "    \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501",
+        "```",
+    ]
+
+    embed = discord.Embed(
+        title="\u250C\u2500\u2500\u2500\u2500\u2500 GMPT MMORPG \u2500\u2500\u2500\u2500\u2500\u2510",
+        description="\n".join(panel_lines),
+        color=0x9B59B6,
+    )
+    embed.add_field(
+        name=f"\u2764\uFE0F HP [{hp_bar}]",
+        value=f"**{stats['hp']}/{stats['max_hp']}**",
+        inline=True,
+    )
+    embed.add_field(
+        name=f"\uD83D\uDD2E MP [{mp_bar}]",
+        value=f"**{stats['mp']}/{stats['max_mp']}**",
+        inline=True,
+    )
+    embed.add_field(
+        name="\uD83D\uDCB0 Coins",
+        value=f"\uD83E\uDE99 **{bal:,}**",
+        inline=True,
+    )
+    embed.add_field(
+        name="\u2694\uFE0F ATK",
+        value=f"**{stats['attack']}**",
+        inline=True,
+    )
+    embed.add_field(
+        name="\uD83D\uDEE1\uFE0F DEF",
+        value=f"**{stats['defense']}**",
+        inline=True,
+    )
+    # EXP progress bar: 1000 XP per level
+    xp_for_level = 1000
+    xp_progress = xp % xp_for_level
+    xp_pct = xp_progress / xp_for_level
+    xp_bar = "█" * max(1, int(xp_pct * 10)) + "░" * max(0, 10 - int(xp_pct * 10))
+    embed.add_field(
+        name=f"\u2B50 EXP [{xp_bar}]",
+        value=f"\u2B50 **{xp_progress:,}** / {xp_for_level:,} (Total: **{xp:,}**)",
+        inline=True,
+    )
+    if display_name:
+        embed.set_footer(text=f"{display_name}  |  /gmpt-mmorpg")
+    return embed
+
 
 # ══════════════════════════════════════════════════════════════
-# MMORPG Main Panel View / MMORPG 主面板
+# MMORPGMainView — Unified Control Panel (14 subsystems)
 # ══════════════════════════════════════════════════════════════
 class MMORPGMainView(discord.ui.View):
-    def __init__(self, user_id: str):
-        super().__init__(timeout=180)
-        self.user_id = user_id
+    def __init__(self, uid: str):
+        super().__init__(timeout=None)
+        self.uid = uid
 
-    async def _interaction_check(self, interaction: discord.Interaction) -> bool:
-        if str(interaction.user.id) != self.user_id:
-            await interaction.response.send_message(
-                "Not your panel / 这不是你的面板", ephemeral=True
-            )
-            return False
-        return True
-
-    def _build_sub_embed(self, title: str, color: int, desc: str) -> discord.Embed:
-        embed = discord.Embed(title=title, color=color)
-        embed.description = desc
-        embed.set_footer(text="Use /gmpt-mmorpg to return to main panel / 使用 /gmpt-mmorpg 回到主面板")
-        return embed
-
-    # Row 0: Potion Shop, Skills, PVP, Boss
-    @discord.ui.button(label="Potion Shop / 药水商店", style=discord.ButtonStyle.primary, row=0, emoji="🧪")
-    async def shop_btn(self, interaction: discord.Interaction, button):
-        uid = str(interaction.user.id)
-        level = _get_user_level(uid)
-        import cogs.mmorpg_shop as ms
-        view = PotionBrowseView(ms.POTION_CATALOG, level, uid, main_view=self)
-        try:
-            await interaction.response.edit_message(embed=view.build_embed("recovery"), view=view)
-        except discord.InteractionResponded:
-            await interaction.edit_original_response(embed=view.build_embed("recovery"), view=view)
-
-    @discord.ui.button(label="Skills / 技能", style=discord.ButtonStyle.primary, row=0, emoji="⚔️")
-    async def skills_btn(self, interaction: discord.Interaction, button):
-        from cogs.mmorpg_skills import SkillShopView
-        uid = str(interaction.user.id)
-        view = SkillShopView(uid, main_view=self)
-        embed = view.build_main_embed()
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.edit_original_response(embed=embed, view=view)
-
-    @discord.ui.button(label="PVP Arena / PVP 对战", style=discord.ButtonStyle.primary, row=0, emoji="🏆")
-    async def pvp_btn(self, interaction: discord.Interaction, button):
-        from cogs.mmorpg_pvp import PVPLobbyView
-        uid = str(interaction.user.id)
-        view = PVPLobbyView(uid, main_view=self)
-        embed = view.build_main_embed()
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.edit_original_response(embed=embed, view=view)
-
-    @discord.ui.button(label="Boss Raid / Boss 战", style=discord.ButtonStyle.danger, row=0, emoji="🐉")
-    async def boss_btn(self, interaction: discord.Interaction, button):
-        from cogs.boss import BossLobbyView
-        uid = str(interaction.user.id)
-        view = BossLobbyView(uid, main_view=self)
-        embed = view.build_main_embed()
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.edit_original_response(embed=embed, view=view)
-
-    # Row 1: Dungeon, Equipment, Daily Quest, Class, Back
-    @discord.ui.button(label="Dungeon / 地下城", style=discord.ButtonStyle.secondary, row=1, emoji="🏰")
-    async def dungeon_btn(self, interaction: discord.Interaction, button):
-        from cogs.dungeon import DungeonLobbyView
-        uid = str(interaction.user.id)
-        view = DungeonLobbyView(uid, main_view=self)
-        embed = view.build_main_embed()
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.edit_original_response(embed=embed, view=view)
-
-    @discord.ui.button(label="Equipment / 装备", style=discord.ButtonStyle.secondary, row=1, emoji="🗡️")
-    async def equipment_btn(self, interaction: discord.Interaction, button):
-        from cogs.mmorpg_equipment import EquipmentView
-        uid = str(interaction.user.id)
-        view = EquipmentView(uid, main_view=self)
-        embed = view.build_main_embed()
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.edit_original_response(embed=embed, view=view)
-
-    @discord.ui.button(label="Daily Quest / 每日任务", style=discord.ButtonStyle.secondary, row=1, emoji="📋")
-    async def daily_quest_btn(self, interaction: discord.Interaction, button):
-        from cogs.daily_quest import DailyQuestView
-        uid = str(interaction.user.id)
-        view = DailyQuestView(uid, main_view=self)
-        embed = view.build_main_embed()
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.edit_original_response(embed=embed, view=view)
-
-    @discord.ui.button(label="Class / 职业", style=discord.ButtonStyle.secondary, row=1, emoji="🎭")
-    async def class_btn(self, interaction: discord.Interaction, button):
-        from cogs.mmorpg_class import ClassSelectView, _get_class
-        uid = str(interaction.user.id)
-        current_key = _get_class(uid)
-        bal = _get_balance(uid)
-        view = ClassSelectView(uid, current_key, bal, main_view=self)
-        embed = view.build_main_embed()
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.edit_original_response(embed=embed, view=view)
-
-    @discord.ui.button(label="Main Panel / 主面板", style=discord.ButtonStyle.success, row=1, emoji="🏠")
-    async def back_btn(self, interaction: discord.Interaction, button):
-        uid = str(interaction.user.id)
-        stats = _get_user_stats(uid)
-        bal = _get_balance(uid)
+    # ── Row 0: Work + Shop ──
+    @discord.ui.button(label="Work 打工", emoji="⚒️", style=discord.ButtonStyle.primary, row=0, custom_id="mmorpg_main:work")
+    async def work_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.economy_jobs import EconomyJobsView
+        view = EconomyJobsView(self.uid, main_view=self)
         embed = discord.Embed(
-            title="MMORPG Main Panel / MMORPG 主面板",
-            description=(
-                f"Welcome to GMPT MMORPG World / 欢迎来到 GMPT MMORPG 世界！\n\n"
-                f"❤️ HP: **{stats['hp']}/{stats['max_hp']}**  "
-                f"🔮 MP: **{stats['mp']}/{stats['max_mp']}**\n"
-                f"⚔️ ATK: **{stats['attack']}**  🛡️ DEF: **{stats['defense']}**  "
-                f"⭐ Lv.**{stats['level']}**  🪙 **{bal:,}**\n\n"
-                f"Click a button below / 点击下方按钮："
-            ),
+            title="⚒️ Work / 打工",
+            description="Choose a job to earn coins and EXP!\n选择工作来赚取金币和经验！",
+            color=0xF39C12,
+        )
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Shop 商店", emoji="🏪", style=discord.ButtonStyle.primary, row=0, custom_id="mmorpg_main:shop")
+    async def shop_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.mmorpg_shop import PotionBrowseView
+        user_level = _get_user_level(self.uid)
+        view = PotionBrowseView(POTION_CATALOG, user_level, self.uid, main_view=self)
+        embed = view.build_embed("recovery")
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    # ── Row 1: Boss + Dungeon ──
+    @discord.ui.button(label="Boss", emoji="⚔️", style=discord.ButtonStyle.danger, row=1, custom_id="mmorpg_main:boss")
+    async def boss_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.boss import BossLobbyView
+        view = BossLobbyView(self.uid, main_view=self)
+        embed = discord.Embed(
+            title="⚔️ Boss Hunt / Boss 狩猎",
+            description="Fight epic bosses for rare loot!\n挑战史诗Boss获取稀有装备！",
+            color=0xE74C3C,
+        )
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Dungeon 副本", emoji="🏰", style=discord.ButtonStyle.danger, row=1, custom_id="mmorpg_main:dungeon")
+    async def dungeon_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.dungeon import DungeonLobbyView
+        view = DungeonLobbyView(self.uid, main_view=self)
+        embed = discord.Embed(
+            title="🏰 Dungeon / 副本",
+            description="Explore dungeons for treasures!\n探索副本寻找宝藏！",
+            color=0x3498DB,
+        )
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    # ── Row 2: PVP + Quest ──
+    @discord.ui.button(label="PVP", emoji="⚔️", style=discord.ButtonStyle.success, row=2, custom_id="mmorpg_main:pvp")
+    async def pvp_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        try:
+            from cogs.mmorpg_pvp import PVPView
+            view = PVPView(self.uid, main_view=self)
+        except (ImportError, AttributeError):
+            embed = discord.Embed(
+                title="⚔️ PVP Arena / PVP竞技场",
+                description="PVP coming soon!\nPVP功能即将开放！",
+                color=0xE67E22,
+            )
+            view = MMORPGMainView(self.uid)
+            await interaction.response.edit_message(embed=embed, view=view)
+            return
+        embed = discord.Embed(
+            title="⚔️ PVP Arena / PVP竞技场",
+            description="Challenge other players!\n挑战其他玩家！",
+            color=0xE67E22,
+        )
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Quest 任务", emoji="📋", style=discord.ButtonStyle.success, row=2, custom_id="mmorpg_main:quest")
+    async def quest_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.daily_quest import DailyQuestView
+        view = DailyQuestView(self.uid, main_view=self)
+        embed = discord.Embed(
+            title="📋 Daily Quests / 每日任务",
+            description="Complete quests for rewards!\n完成任务获取奖励！",
+            color=0x2ECC71,
+        )
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    # ── Row 3: Equipment + Skills ──
+    @discord.ui.button(label="Equip 装备", emoji="🛡️", style=discord.ButtonStyle.secondary, row=3, custom_id="mmorpg_main:equip")
+    async def equip_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.mmorpg_equipment import EquipmentView
+        view = EquipmentView(self.uid, main_view=self)
+        embed = discord.Embed(
+            title="🛡️ Equipment / 装备",
+            description="Manage your gear!\n管理你的装备！",
+            color=0x7F8C8D,
+        )
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Skills 技能", emoji="🗡️", style=discord.ButtonStyle.secondary, row=3, custom_id="mmorpg_main:skills")
+    async def skills_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.mmorpg_skills import SkillShopView
+        view = SkillShopView(self.uid, main_view=self)
+        embed = discord.Embed(
+            title="🗡️ Skills / 技能",
+            description="Learn powerful skills!\n学习强力技能！",
             color=0x9B59B6,
         )
         try:
-            await interaction.response.edit_message(embed=embed, view=self)
+            await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
-            await interaction.edit_original_response(embed=embed, view=self)
+            await interaction.followup.edit_message(embed=embed, view=view)
 
+    # ── Row 4: Inventory + Class ──
+    @discord.ui.button(label="Bag 背包", emoji="🎒", style=discord.ButtonStyle.secondary, row=4, custom_id="mmorpg_main:inv")
+    async def inv_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT item_name, quantity FROM user_inventory WHERE user_id = ? AND item_type = 'potion' AND quantity > 0 ORDER BY item_name",
+                (self.uid,),
+            )
+            rows = cur.fetchall()
+        if not rows:
+            embed = discord.Embed(
+                title="🎒 Backpack / 背包",
+                description="Your backpack is empty!\n背包空空如也！Visit the Shop to buy items.",
+                color=0x95A5A6,
+            )
+        else:
+            lines = []
+            for row in rows:
+                p = POTION_CATALOG.get(row["item_name"], {})
+                emoji = p.get("emoji", "🧪")
+                cn = p.get("name_cn", row["item_name"])
+                en = p.get("name_en", row["item_name"])
+                lines.append(f"{emoji} **{cn} / {en}** x{row['quantity']}")
+            embed = discord.Embed(
+                title="🎒 Backpack / 背包",
+                description="\n".join(lines),
+                color=0x95A5A6,
+            )
+        view = _BackOnlyView(self.uid, main_view=self)
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Class 职业", emoji="👤", style=discord.ButtonStyle.secondary, row=4, custom_id="mmorpg_main:class")
+    async def class_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.mmorpg_class import ClassSelectView
+        view = ClassSelectView(self.uid, main_view=self)
+        embed = discord.Embed(
+            title="👤 Class / 职业",
+            description="Choose your class!\n选择你的职业！",
+            color=0x8E44AD,
+        )
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    # ── Row 5: Economy + Gambling ──
+    @discord.ui.button(label="Econ 经济", emoji="💎", style=discord.ButtonStyle.primary, row=5, custom_id="mmorpg_main:econ")
+    async def econ_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.economy import MainMenuView
+        view = MainMenuView(self.uid, self.uid)
+        embed = discord.Embed(
+            title="💎 Economy / 经济系统",
+            description="Bank, transfer, invest!\n银行、转账、投资！",
+            color=0x1ABC9C,
+        )
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Gamble 赌博", emoji="🎰", style=discord.ButtonStyle.primary, row=5, custom_id="mmorpg_main:gamble")
+    async def gamble_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.gambling import GamblingLobbyView
+        view = GamblingLobbyView(self.uid, main_view=self)
+        embed = discord.Embed(
+            title="🎰 Gambling / 赌博",
+            description="Try your luck!\n试试你的运气！",
+            color=0xFF5722,
+        )
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    # ── Row 6: Cosmetics + Leaderboard ──
+    @discord.ui.button(label="Pet 外观", emoji="🎨", style=discord.ButtonStyle.success, row=6, custom_id="mmorpg_main:pet")
+    async def pet_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        try:
+            from cogs.pets import PetPanelView
+            view = PetPanelView(self.uid, main_view=self)
+        except (ImportError, AttributeError):
+            embed = discord.Embed(
+                title="🎨 Pets / 宠物外观",
+                description="Pet system coming soon!\n宠物系统即将开放！",
+                color=0xE91E63,
+            )
+            view = _BackOnlyView(self.uid, main_view=self)
+            await interaction.response.edit_message(embed=embed, view=view)
+            return
+        embed = discord.Embed(
+            title="🎨 Pets / 宠物外观",
+            description="Hatch and raise pets!\n孵化培养宠物！",
+            color=0xE91E63,
+        )
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Rank 排行", emoji="📊", style=discord.ButtonStyle.success, row=6, custom_id="mmorpg_main:rank")
+    async def rank_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.leaderboard import LeaderboardView
+        view = LeaderboardView(main_view=self)
+        embed = discord.Embed(
+            title="📊 Leaderboard / 排行榜",
+            description="Top players ranking!\n玩家排行榜！",
+            color=0xF1C40F,
+        )
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Achieve 成就", emoji="🏅", style=discord.ButtonStyle.success, row=6, custom_id="mmorpg_main:achievements")
+    async def achievements_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.achievements import AchievementsView
+        view = AchievementsView(uid=self.uid, main_view=self)
+        embed = await view._get_achievements_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+
+class _BackOnlyView(discord.ui.View):
+    """Simple view with just a Back button for panels that only display info."""
+    def __init__(self, uid: str, main_view: MMORPGMainView):
+        super().__init__(timeout=None)
+        self.uid = uid
+        self.main_view = main_view
+
+    @discord.ui.button(label="Back 返回", emoji="🔙", style=discord.ButtonStyle.secondary, row=4, custom_id="back_only:back")
+    async def back_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = build_main_embed(self.uid, interaction.user.display_name)
+        try:
+            await interaction.response.edit_message(embed=embed, view=self.main_view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=self.main_view)
 
 # ══════════════════════════════════════════════════════════════
 # Potion Browse View — Categories with tabs
@@ -1217,9 +1085,9 @@ class PotionBrowseView(discord.ui.View):
             _add_coins(uid, -p["price"], f"Buy potion / 购买药水: {p['name_en']}")
             with get_db_ctx() as conn:
                 conn.execute(
-                    "INSERT INTO mmorpg_potions (user_id, potion_key, qty) VALUES (?, ?, 1) "
-                    "ON CONFLICT(user_id, potion_key) DO UPDATE SET qty = qty + 1",
-                    (uid, potion_key),
+                    "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) "
+                    "VALUES (?, ?, ?, 1, 'potion')",
+                    (uid, p["id"], potion_key),
                 )
             new_bal = _get_balance(uid)
             await interaction.response.send_message(

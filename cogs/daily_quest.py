@@ -151,18 +151,18 @@ def _claim_quest(user_id: str, quest_index: int) -> dict:
 
 
 def _add_quest_exp(user_id: str, exp: int):
-    """Add exp to user's MMORPG character."""
+    """Add exp to user's xp column in users table."""
     with get_db_ctx() as conn:
         cur = conn.cursor()
         cur.execute(
-            "SELECT exp, level FROM mmorpg_characters WHERE user_id=?",
+            "SELECT xp FROM users WHERE user_id=?",
             (user_id,),
         )
         row = cur.fetchone()
         if row:
-            new_exp = row["exp"] + exp
+            new_exp = (row["xp"] or 0) + exp
             cur.execute(
-                "UPDATE mmorpg_characters SET exp=? WHERE user_id=?",
+                "UPDATE users SET xp=? WHERE user_id=?",
                 (new_exp, user_id),
             )
             conn.commit()
@@ -252,21 +252,9 @@ class DailyQuestView(discord.ui.View):
 
     async def _back_callback(self, interaction: discord.Interaction):
         if self.main_view:
-            from cogs.mmorpg_shop import _get_user_stats, _get_balance
+            from cogs.mmorpg_shop import build_main_embed
             uid = str(self.uid)
-            stats = _get_user_stats(uid)
-            bal = _get_balance(uid)
-            embed = discord.Embed(
-                title="MMORPG Main Panel / MMORPG 主面板",
-                description=(
-                    f"❤️ HP: **{stats['hp']}/{stats['max_hp']}**  "
-                    f"🔮 MP: **{stats['mp']}/{stats['max_mp']}**\n"
-                    f"⚔️ ATK: **{stats['attack']}**  🛡️ DEF: **{stats['defense']}**  "
-                    f"⭐ Lv.**{stats['level']}**  🪙 **{bal:,}**\n\n"
-                    f"Click a button below / 点击下方按钮："
-                ),
-                color=0x9B59B6,
-            )
+            embed = build_main_embed(uid, interaction.user.display_name)
             try:
                 await interaction.response.edit_message(embed=embed, view=self.main_view)
             except discord.InteractionResponded:
