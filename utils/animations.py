@@ -977,3 +977,159 @@ async def shop_purchase_animation(interaction: discord.Interaction, item_name: s
     await asyncio.sleep(0.4)
     await msg.edit(content=f"✅ 购买了 {item_emoji} **{item_name}**！余额 / Balance: 🪙 {balance:,}")
     return msg
+
+
+# ══════════════════════════════════════════════════════════════
+# Dashboard Game Center Animations / 游戏中心动画
+# ══════════════════════════════════════════════════════════════
+
+HORSE_RACE_FRAMES = [
+    "🏇 赛马准备中... 🏁",
+    "🏇 马儿冲出起跑线！💨",
+    "🏇 冲刺中... 🏁✨",
+]
+
+
+async def horse_race_animation(interaction: discord.Interaction, horse_idx: int,
+                               horse_emoji: str, horse_name: str):
+    """Horse race animation: start → gallop → finish. Duration: ~2.2s.
+    Returns the followup message for further edits."""
+    msg = await interaction.followup.send(HORSE_RACE_FRAMES[0])
+    await asyncio.sleep(0.6)
+    await msg.edit(content=HORSE_RACE_FRAMES[1])
+    await asyncio.sleep(0.6)
+    await msg.edit(content=HORSE_RACE_FRAMES[2])
+    await asyncio.sleep(0.5)
+    await msg.edit(content=f"🏇 比赛结束！你选择了 {horse_emoji} **{horse_name}**")
+    await asyncio.sleep(0.5)
+    return msg
+
+
+CRASH_FRAMES = [
+    "📈 倍数上涨中... 1.0x",
+    "📈 持续攀升... 2.5x",
+    "📈 还在涨... 5.0x",
+]
+
+
+async def crash_countdown_animation(interaction: discord.Interaction, crash_point: float):
+    """Crash game countdown animation: rising → peak → crash. Duration: ~2.2s.
+    Returns the followup message for further edits."""
+    msg = await interaction.followup.send(CRASH_FRAMES[0])
+    await asyncio.sleep(0.6)
+    await msg.edit(content=CRASH_FRAMES[1])
+    await asyncio.sleep(0.6)
+    await msg.edit(content=CRASH_FRAMES[2])
+    await asyncio.sleep(0.5)
+    await msg.edit(content=f"📈 崩盘点 / Crash Point: **x{crash_point}**")
+    await asyncio.sleep(0.5)
+    return msg
+
+
+DICE_DUEL_FRAMES = [
+    "🎲 双方掷骰中... ⚀ vs ⚀",
+    "🎲 骰子旋转... ⚂ vs ⚃",
+    "🎲 即将揭晓... ⚄ vs ⚅",
+]
+
+
+async def dice_duel_animation(interaction: discord.Interaction, p1_name: str,
+                              p2_name: str, d1: int, d2: int):
+    """Dice duel animation: shake → reveal. Duration: ~2.2s.
+    Returns the followup message for further edits."""
+    d1_face = DICE_FACE.get(d1, str(d1))
+    d2_face = DICE_FACE.get(d2, str(d2))
+    msg = await interaction.followup.send(DICE_DUEL_FRAMES[0])
+    await asyncio.sleep(0.6)
+    await msg.edit(content=DICE_DUEL_FRAMES[1])
+    await asyncio.sleep(0.6)
+    await msg.edit(content=DICE_DUEL_FRAMES[2])
+    await asyncio.sleep(0.5)
+    await msg.edit(content=f"🎲 结果！{p1_name}: {d1_face}  vs  {p2_name}: {d2_face}")
+    await asyncio.sleep(0.5)
+    return msg
+
+
+GAME_INFO_FRAMES = [
+    "🎮 加载中... ⏳",
+    "🎮 正在准备... 📋",
+    "🎮 准备好了！✨",
+]
+
+
+async def game_info_animation(interaction: discord.Interaction, emoji: str, title: str):
+    """Generic animation for game info / instruction panels. Duration: ~2.2s.
+    Returns the followup message for further edits (embed replacement)."""
+    msg = await interaction.followup.send(f"{emoji} {title}\n" + GAME_INFO_FRAMES[0])
+    await asyncio.sleep(0.6)
+    await msg.edit(content=f"{emoji} {title}\n" + GAME_INFO_FRAMES[1])
+    await asyncio.sleep(0.6)
+    await msg.edit(content=f"{emoji} {title}\n" + GAME_INFO_FRAMES[2])
+    await asyncio.sleep(0.5)
+    await msg.edit(content=f"{emoji} **{title}** — 使用下方指令开始！")
+    await asyncio.sleep(0.5)
+    return msg
+
+
+# ══════════════════════════════════════════════════════════════
+# Tournament Animations / 比赛动画
+# ══════════════════════════════════════════════════════════════
+
+TOURNAMENT_CREATE_FRAMES = [
+    "🏆 创建比赛中... 📝",
+    "🏆 设置赛制中... ⚙️",
+    "🏆 比赛创建成功！🎉",
+]
+
+
+async def tournament_create_animation(interaction: discord.Interaction):
+    """Tournament creation animation. Duration: ~2.2s."""
+    msg = await interaction.followup.send(TOURNAMENT_CREATE_FRAMES[0])
+    await asyncio.sleep(0.6)
+    await msg.edit(content=TOURNAMENT_CREATE_FRAMES[1])
+    await asyncio.sleep(0.6)
+    await msg.edit(content=TOURNAMENT_CREATE_FRAMES[2])
+    await asyncio.sleep(0.5)
+    await msg.edit(content="🏆 **比赛创建成功！** 请查看下方详情。")
+    await asyncio.sleep(0.5)
+    return msg
+
+
+TOURNAMENT_START_FRAMES = [
+    "⚔️ 比赛即将开始... ⏳",
+    "⚔️ 选手准备中... 🛡️",
+    "⚔️ 比赛开始！🔥",
+]
+
+
+async def tournament_start_animation(interaction: discord.Interaction):
+    """Tournament start animation. Duration: ~2.2s."""
+    msg = await interaction.followup.send(TOURNAMENT_START_FRAMES[0])
+    await asyncio.sleep(0.6)
+    await msg.edit(content=TOURNAMENT_START_FRAMES[1])
+    await asyncio.sleep(0.6)
+    await msg.edit(content=TOURNAMENT_START_FRAMES[2])
+    await asyncio.sleep(0.5)
+    await msg.edit(content="⚔️ **比赛正式开始！** 祝各位选手好运！GLHF! 🍀")
+    await asyncio.sleep(0.5)
+    return msg
+
+
+TOURNAMENT_SETTLE_FRAMES = [
+    "🏆 结算中... 📊",
+    "🏆 统计战绩... 📋",
+    "🏆 颁发奖励... 🎁",
+]
+
+
+async def tournament_settle_animation(interaction: discord.Interaction):
+    """Tournament settlement animation. Duration: ~2.2s."""
+    msg = await interaction.followup.send(TOURNAMENT_SETTLE_FRAMES[0])
+    await asyncio.sleep(0.6)
+    await msg.edit(content=TOURNAMENT_SETTLE_FRAMES[1])
+    await asyncio.sleep(0.6)
+    await msg.edit(content=TOURNAMENT_SETTLE_FRAMES[2])
+    await asyncio.sleep(0.5)
+    await msg.edit(content="🏆 **比赛结算完成！** 请查看奖励详情。")
+    await asyncio.sleep(0.5)
+    return msg

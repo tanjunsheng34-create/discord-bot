@@ -489,7 +489,14 @@ class Tournament(CogBase):
                 guild=interaction.guild,
                 session=self.session,
             )
-            await interaction.followup.send(embed=embed, view=view)
+            # Tournament create animation
+            msg = await interaction.followup.send("🏆 加载中... ⏳")
+            await asyncio.sleep(0.5)
+            await msg.edit(content="🏆 正在创建赛事... 📋")
+            await asyncio.sleep(0.5)
+            await msg.edit(content="🏆 赛事创建成功！✨")
+            await asyncio.sleep(0.5)
+            await msg.edit(content=None, embed=embed, view=view)
 
         except Exception as e:
             logger.error(f"create tournament error: {e}", exc_info=True)
@@ -759,7 +766,10 @@ class Tournament(CogBase):
 
             embed.add_field(name="对阵表", value="\n".join(match_lines), inline=False)
             embed.set_footer(text=f"Tournament ID: {tournament_id} | 上报: /gmpt-tournament report tournament_id:{tournament_id}")
-        await interaction.edit_original_response(embed=embed, view=None)
+        # Tournament start animation
+        from utils.animations import tournament_start_animation
+        msg = await tournament_start_animation(interaction, t['name'])
+        await msg.edit(content=None, embed=embed, view=None)
 
     # =====================================================================
     # bracket
@@ -826,7 +836,15 @@ class Tournament(CogBase):
                 inline=False,
             )
 
-        await interaction.response.send_message(embed=embed)
+        # Tournament standings animation
+        await interaction.response.defer()
+        msg = await interaction.followup.send("🏆 加载中... ⏳")
+        await asyncio.sleep(0.5)
+        await msg.edit(content="🏆 正在生成排名... 📊")
+        await asyncio.sleep(0.5)
+        await msg.edit(content="🏆 排名生成完毕！✨")
+        await asyncio.sleep(0.5)
+        await msg.edit(content=None, embed=embed)
 
     # =====================================================================
     # standings
@@ -878,7 +896,15 @@ class Tournament(CogBase):
             )
 
         embed.description = "\n".join(lines)
-        await interaction.response.send_message(embed=embed)
+        # Tournament standings animation
+        await interaction.response.defer()
+        msg = await interaction.followup.send("🏆 加载中... ⏳")
+        await asyncio.sleep(0.5)
+        await msg.edit(content="🏆 正在生成排名... 📊")
+        await asyncio.sleep(0.5)
+        await msg.edit(content="🏆 排名生成完毕！✨")
+        await asyncio.sleep(0.5)
+        await msg.edit(content=None, embed=embed)
 
     # =====================================================================
     # report
@@ -1193,7 +1219,15 @@ class Tournament(CogBase):
                 inline=True,
             )
 
-        await interaction.response.send_message(embed=embed)
+        # Tournament standings animation
+        await interaction.response.defer()
+        msg = await interaction.followup.send("🏆 加载中... ⏳")
+        await asyncio.sleep(0.5)
+        await msg.edit(content="🏆 正在生成排名... 📊")
+        await asyncio.sleep(0.5)
+        await msg.edit(content="🏆 排名生成完毕！✨")
+        await asyncio.sleep(0.5)
+        await msg.edit(content=None, embed=embed)
 
     # =====================================================================
     # draft-roster
@@ -1249,7 +1283,15 @@ class Tournament(CogBase):
         if pick_lines:
             embed.add_field(name="选秀顺序 / Pick Order", value="\n".join(pick_lines), inline=False)
 
-        await interaction.response.send_message(embed=embed)
+        # Tournament standings animation
+        await interaction.response.defer()
+        msg = await interaction.followup.send("🏆 加载中... ⏳")
+        await asyncio.sleep(0.5)
+        await msg.edit(content="🏆 正在生成排名... 📊")
+        await asyncio.sleep(0.5)
+        await msg.edit(content="🏆 排名生成完毕！✨")
+        await asyncio.sleep(0.5)
+        await msg.edit(content=None, embed=embed)
 
     # =====================================================================
     # draft-cancel
