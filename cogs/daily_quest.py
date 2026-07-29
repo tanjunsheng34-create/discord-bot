@@ -276,7 +276,7 @@ class DailyQuest(CogBase):
     """每日任务 / Daily Quests"""
 
     def __init__(self, bot):
-        super().__init__(bot)
+        super().__init__()
         _init_daily_quest_db()
 
     @app_commands.command(name="gmpt-dailyquest", description="📅 每日任务 / Daily quests")

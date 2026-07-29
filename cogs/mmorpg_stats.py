@@ -205,7 +205,7 @@ class MMORPGStats(CogBase):
     """MMORPG Stats Panel / MMORPG 属性面板"""
 
     def __init__(self, bot):
-        super().__init__(bot)
+        super().__init__()
         self._init_stats_columns()
 
     def _init_stats_columns(self):

@@ -539,7 +539,7 @@ class MMORPGEquipment(CogBase):
     """装备系统 / Equipment System"""
 
     def __init__(self, bot):
-        super().__init__(bot)
+        super().__init__()
         _init_equipment_db()
 
     @app_commands.command(name="gmpt-equipment", description="⚔️ 装备面板 / Equipment panel")

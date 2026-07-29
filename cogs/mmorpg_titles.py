@@ -296,7 +296,7 @@ class MMORPGTitles(CogBase):
     """称号系统 / Titles System"""
 
     def __init__(self, bot):
-        super().__init__(bot)
+        super().__init__()
         _init_titles_db()
 
     @app_commands.command(name="gmpt-titles", description="\U0001f3c5 View your titles / 查看你的称号")

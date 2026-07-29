@@ -684,6 +684,13 @@ DICE_FRAMES = [
 
 DICE_FACE = {1: "⚀", 2: "⚁", 3: "⚂", 4: "⚃", 5: "⚄", 6: "⚅"}
 
+HR_FRAMES = [
+    "🐴 赛马比赛开始！| Race starting!",
+    "🐴 🏇 各就各位... | On your marks...",
+    "🐴 🏇 💨 马儿起跑！| And they're off!",
+    "🐴 🏇 💨 🏁 全力冲刺！| Sprinting!",
+]
+
 
 async def dice_roll_animation(interaction: discord.Interaction, d1: int, d2: int):
     """Two dice roll animation: shake → reveal.
