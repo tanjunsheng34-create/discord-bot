@@ -674,8 +674,85 @@ async def health_check():
             pass  # Health check is best-effort, expected to fail occasionally
 
 
+# =============================================================================
+# 清理旧 Bot 残留命令（GMPT-2/3/4）
+# =============================================================================
+async def clear_old_bot_commands():
+    """使用 Discord HTTP API 清空旧 Bot 的残留命令。
+
+    Pterodactyl Console 被 Bot 进程占用时无法手动执行 clear_old_bots.py，
+    此函数在 Bot 启动前自动执行，使用 aiohttp 直接调 HTTP API，
+    无需 discord.py Bot 实例，不会阻塞主进程。
+    """
+    import aiohttp
+
+    if not aiohttp:
+        logger.warning("[清理] aiohttp 未安装，跳过旧 Bot 命令清理")
+        return
+
+    guild_id = os.getenv("GUILD_ID", "")
+
+    OLD_BOTS: list[tuple[str, str]] = [
+        ("GMPT-2", os.getenv("TOKEN_ECONOMY", "")),
+        ("GMPT-3", os.getenv("TOKEN_COMMUNITY", "")),
+        ("GMPT-4", os.getenv("TOKEN_ARENA", "")),
+    ]
+
+    async with aiohttp.ClientSession() as session:
+        for label, token in OLD_BOTS:
+            if not token:
+                logger.info(f"[清理] {label}: TOKEN 未设置，跳过")
+                continue
+
+            try:
+                headers = {"Authorization": f"Bot {token}"}
+
+                # 1. GET /oauth2/applications/@me → 获取 application_id
+                async with session.get(
+                    "https://discord.com/api/v10/oauth2/applications/@me",
+                    headers=headers,
+                ) as resp:
+                    if resp.status != 200:
+                        logger.warning(
+                            f"[清理] {label}: 获取 application_id 失败 "
+                            f"(HTTP {resp.status})"
+                        )
+                        continue
+                    app_data = await resp.json()
+                    app_id = app_data["id"]
+
+                # 2. PUT /applications/{id}/commands body=[] → 清空全局命令
+                async with session.put(
+                    f"https://discord.com/api/v10/applications/{app_id}/commands",
+                    headers=headers,
+                    json=[],
+                ) as resp:
+                    global_status = resp.status
+
+                # 3. PUT /applications/{id}/guilds/{guild}/commands body=[] → 清空 guild 命令
+                guild_status = None
+                if guild_id:
+                    async with session.put(
+                        f"https://discord.com/api/v10/applications/{app_id}"
+                        f"/guilds/{guild_id}/commands",
+                        headers=headers,
+                        json=[],
+                    ) as resp:
+                        guild_status = resp.status
+
+                logger.info(
+                    f"[清理] {label}: app_id={app_id}, "
+                    f"global={global_status}, guild={guild_status or 'N/A'}"
+                )
+            except Exception as e:
+                logger.error(f"[清理] {label}: 异常 — {e}")
+
+
 async def main():
     """启动 Bot（单实例模式，加载全部 44 个 cog）。"""
+    # ── 清理旧 Bot 残留命令 ──
+    await clear_old_bot_commands()
+
     # 保活服务 + 备份循环
     asyncio.create_task(health_server())
     asyncio.create_task(health_check())
