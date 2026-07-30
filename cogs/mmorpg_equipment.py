@@ -386,7 +386,7 @@ class EquipmentView(discord.ui.View):
                     if success:
                         self._build()
                         await inter.response.edit_message(
-                            content=f"✅ Unequipped / 已卸下: **{EQUIP_SLOT_LABELS_CN[slot]}**", embed=None, view=None)
+                            embed=self.build_main_embed(), view=self)
                     else:
                         await inter.response.send_message(
                             "Unequip failed / 卸下失败", ephemeral=True)
@@ -798,18 +798,25 @@ def _apply_stat_delta(cur, user_id: str, stat_str: str, delta_str: str):
             cur.execute("UPDATE users SET hp = MIN(hp + ?, max_hp) WHERE discord_id = ?", (d_int, user_id))
 
 
-def _equip_item(user_id: str, item_name: str) -> bool:
+def _equip_item(user_id: str, item_name: str, item_id: str = None) -> bool:
     """Equip an item from inventory. Parses stat info from item_name.
     item_name format: 'Name|||stat_type:stat_value|||quality' or legacy plain name.
+    If item_id is provided, uses exact item_id match; otherwise falls back to LIKE.
     Returns True if successful."""
     with get_db_ctx() as conn:
         cur = conn.cursor()
-        # Find the item in inventory — use LIKE for partial match on the name part
-        search_name = item_name.split("|||")[0] if "|||" in item_name else item_name
-        cur.execute(
-            "SELECT item_id, item_name, item_type, quantity FROM user_inventory WHERE user_id=? AND item_name LIKE ?",
-            (user_id, f"%{search_name}%"),
-        )
+        # Find the item in inventory
+        if item_id:
+            cur.execute(
+                "SELECT item_id, item_name, item_type, quantity FROM user_inventory WHERE user_id=? AND item_id=?",
+                (user_id, item_id),
+            )
+        else:
+            search_name = item_name.split("|||")[0] if "|||" in item_name else item_name
+            cur.execute(
+                "SELECT item_id, item_name, item_type, quantity FROM user_inventory WHERE user_id=? AND item_name LIKE ?",
+                (user_id, f"%{search_name}%"),
+            )
         rows = cur.fetchall()
         if not rows:
             return False
@@ -881,18 +888,18 @@ def _unequip_item(user_id: str, slot: str) -> bool:
     with get_db_ctx() as conn:
         cur = conn.cursor()
         cur.execute(
-            "SELECT name, quality, stat, stat_value, emoji FROM user_equipment WHERE user_id=? AND slot=?",
+            "SELECT name, quality, stat, stat_value, emoji, item_id FROM user_equipment WHERE user_id=? AND slot=?",
             (user_id, slot),
         )
         eq = cur.fetchone()
         if not eq:
             return False
 
-        # Reconstruct encoded item_name: "Name|stat:val|quality"
-        encoded_name = f"{eq['name']}|{eq['stat']}:{eq['stat_value']}|{eq['quality']}"
+        # Reconstruct encoded item_name: "Name|||stat:val|||quality"
+        encoded_name = f"{eq['name']}|||{eq['stat']}:{eq['stat_value']}|||{eq['quality']}"
 
-        # Generate item_id
-        item_id = f"eq_{slot}_{eq['name'].split(' ')[0]}"
+        # Use the original item_id from user_equipment if available, else fallback
+        item_id = eq.get("item_id") or f"eq_{slot}_{eq['name'].split(' ')[0]}"
 
         # Delete from user_equipment
         cur.execute("DELETE FROM user_equipment WHERE user_id=? AND slot=?", (user_id, slot))
@@ -967,9 +974,9 @@ def _auto_equip_best(user_id: str) -> dict:
 
         # Parse stat_value from item_name
         _, stat_str, stat_val_str, quality = _parse_item_name(row["item_name"])
-        # For comparison, use the first stat value
+        # For comparison, sum all stat values (e.g. crit+hp for accessories)
         try:
-            primary_val = int(stat_val_str.split(",")[0].strip())
+            primary_val = sum(int(v.strip()) for v in stat_val_str.split(","))
         except (ValueError, AttributeError):
             primary_val = 0
 
@@ -1070,6 +1077,7 @@ def _init_equipment_db():
                 stat_value TEXT DEFAULT '0',
                 enhance_level INTEGER DEFAULT 0,
                 emoji TEXT DEFAULT '',
+                item_id TEXT DEFAULT '',
                 PRIMARY KEY (user_id, slot)
             )
         """)
@@ -1078,6 +1086,8 @@ def _init_equipment_db():
         cols = {r["name"] for r in cur.fetchall()}
         if "enhance_level" not in cols:
             cur.execute("ALTER TABLE user_equipment ADD COLUMN enhance_level INTEGER DEFAULT 0")
+        if "item_id" not in cols:
+            cur.execute("ALTER TABLE user_equipment ADD COLUMN item_id TEXT DEFAULT ''")
         conn.commit()
 
 
@@ -1139,8 +1149,9 @@ class EquipSelectView(discord.ui.View):
 
     async def _select_callback(self, interaction: discord.Interaction):
         item_name = interaction.data["values"][0]
+        item_id = getattr(self, "item_map", {}).get(item_name)
         try:
-            success = _equip_item(self.uid, item_name)
+            success = _equip_item(self.uid, item_name, item_id=item_id)
             if success:
                 display_name = _strip_stat_suffix(item_name)
                 logger.info(f"Equip success: uid={self.uid} item={item_name} -> parsed name={display_name}")
