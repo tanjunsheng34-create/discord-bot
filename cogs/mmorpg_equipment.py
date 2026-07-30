@@ -696,5 +696,51 @@ class MMORPGEquipment(CogBase):
         await interaction.response.send_message(embed=embed, view=view)
 
 
+class EquipSelectView(discord.ui.View):
+    """Select view for equipping items from inventory."""
+
+    def __init__(self, uid: str, main_view=None):
+        super().__init__(timeout=60)
+        self.uid = uid
+        self.main_view = main_view
+
+    async def _select_callback(self, interaction: discord.Interaction):
+        item_id = int(interaction.data["values"][0])
+        try:
+            with get_db_ctx() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT item_name FROM user_inventory WHERE item_id = ?",
+                    (item_id,),
+                )
+                row = cur.fetchone()
+            if not row:
+                return await interaction.response.send_message(
+                    "物品不存在 / Item not found", ephemeral=True
+                )
+
+            item_name = row["item_name"]
+            success = _equip_item(self.uid, item_name)
+            if success:
+                await interaction.response.edit_message(
+                    content=f"装备成功！/ Equipped: **{item_name}**",
+                    view=None,
+                )
+            else:
+                await interaction.response.send_message(
+                    "装备失败 / Equip failed", ephemeral=True
+                )
+        except Exception as e:
+            logger.error(
+                f"EquipSelectView error (uid={self.uid}): {e}", exc_info=True
+            )
+            try:
+                await interaction.response.send_message(
+                    "装备过程出错 / Error during equip", ephemeral=True
+                )
+            except Exception:
+                pass
+
+
 async def setup(bot):
     await bot.add_cog(MMORPGEquipment(bot))
