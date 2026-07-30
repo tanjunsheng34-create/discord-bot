@@ -1156,6 +1156,7 @@ class EconomyJobsView(discord.ui.View):
 
         elif job == "hunt":
             embed, hit_msg = await _do_hunt(self.guild, uname, uid)
+            _update_progress(uid, "kill")
             await _animate_job(interaction, [
                 f"🏹 {uname} 拉弓瞄准...",
                 f"🐗 发现猎物！",
@@ -1858,6 +1859,7 @@ class EconomyJobs(CogBase):
                 bonus_msg = f"\n🔥 **加班事件 / Overtime Bonus!** 🪙 +{bonus:,}"
 
             add_coins(uid, base, "打工收入 / Work income")
+            _update_progress(uid, "work")
             _update_cd(uid, "work")
             bal = get_balance(uid)
 

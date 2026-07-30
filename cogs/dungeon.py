@@ -243,6 +243,9 @@ class DungeonView(discord.ui.View):
             exp_earned = monster["exp"]
 
             add_coins(self.uid, coins_earned, f"地下城第{floor}层奖励 / Dungeon floor {floor} reward")
+            # Quest progress: kill
+            from cogs.daily_quest import _update_progress
+            _update_progress(self.uid, "kill")
             # Add exp with level-up check (now also grants stat growth on level-up)
             _, did_level, old_lv, new_lv, lv_ups = _add_user_xp(self.uid, exp_earned)
 

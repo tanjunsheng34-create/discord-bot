@@ -910,6 +910,9 @@ class BossCog(CogBase):
             total_earn = share + loot_total + mvp_bonus
             if total_earn > 0:
                 add_coins(pid, total_earn, f"Boss Raid Reward / Boss副本奖励: {room['boss']['name']} {room['difficulty']}")
+                # Quest progress: kill
+                from cogs.daily_quest import _update_progress
+                _update_progress(pid, "kill")
 
             # Record kill
             self._set_cooldown(pid, room["boss"]["name"], room["difficulty"])

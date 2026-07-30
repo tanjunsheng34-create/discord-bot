@@ -800,15 +800,11 @@ class MMORPGMainView(discord.ui.View):
     async def quest_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         from cogs.daily_quest import DailyQuestView
         view = DailyQuestView(self.uid, main_view=self)
-        embed = discord.Embed(
-            title="\U0001f4cb Daily Quests / 每日任务",
-            description="Complete quests for rewards!\n完成任务获取奖励！",
-            color=0x2ECC71,
-        )
+        embed = view.build_main_embed()
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
+            await interaction.edit_original_response(embed=embed, view=view)
 
     @discord.ui.button(label="Equip 装备", emoji="\U0001f6e1\uFE0F", style=discord.ButtonStyle.secondary, row=2, custom_id="mmorpg_main:equip")
     async def equip_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1438,6 +1434,15 @@ class ShopHubView(discord.ui.View):
         except discord.InteractionResponded:
             await interaction.followup.edit_message(embed=embed, view=view)
 
+    @discord.ui.button(label="🎰 Equipment Gacha 装备抽奖", style=discord.ButtonStyle.danger, row=0)
+    async def gacha_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        view = EquipmentGachaView(self.uid, main_view=self.main_view)
+        embed = view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=embed, view=view)
+
     @discord.ui.button(label="↩ Back 返回", emoji="↩", style=discord.ButtonStyle.secondary, row=1)
     async def back_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         uid = str(interaction.user.id)
@@ -1600,6 +1605,9 @@ class EquipmentShopView(discord.ui.View):
                     )
                     conn.commit()
                 new_bal = _get_balance(uid) or 0
+                # Quest progress
+                from cogs.daily_quest import _update_progress
+                _update_progress(uid, "buy")
                 await interaction.response.send_message(
                     f"✅ Purchased / 已购买: {item['emoji']} **{item['name']}** for 🪙 {item['price']:,}\n"
                     f"Remaining / 余额: 🪙 {new_bal:,}",
@@ -1643,3 +1651,199 @@ class EquipmentShopView(discord.ui.View):
 
 async def setup(bot):
     await bot.add_cog(PotionShop(bot))
+
+
+# ══════════════════════════════════════════════════════════════
+# EquipmentGachaView — Equipment Gacha / Lottery
+# ══════════════════════════════════════════════════════════════
+GACHA_POOL = {
+    "weapon": [
+        {"name": "新手木剑 Wooden Sword", "quality": "normal", "stat": "atk", "stat_value": 5, "emoji": "🗡️"},
+        {"name": "猎人之弓 Hunter Bow", "quality": "normal", "stat": "atk", "stat_value": 7, "emoji": "🏹"},
+        {"name": "魔法短杖 Magic Wand", "quality": "rare", "stat": "atk", "stat_value": 15, "emoji": "🪄"},
+        {"name": "龙牙匕首 Dragon Fang Dagger", "quality": "epic", "stat": "atk", "stat_value": 25, "emoji": "🗡️"},
+        {"name": "雷霆战斧 Thunder Axe", "quality": "legendary", "stat": "atk", "stat_value": 40, "emoji": "⚡"},
+    ],
+    "helmet": [
+        {"name": "布帽 Cloth Cap", "quality": "normal", "stat": "hp", "stat_value": 8, "emoji": "🎩"},
+        {"name": "鹿角盔 Antler Helm", "quality": "rare", "stat": "hp", "stat_value": 18, "emoji": "🦌"},
+        {"name": "王冠 Crown of Kings", "quality": "epic", "stat": "hp", "stat_value": 30, "emoji": "👑"},
+        {"name": "不死鸟之盔 Phoenix Crown", "quality": "legendary", "stat": "hp", "stat_value": 50, "emoji": "🔥"},
+    ],
+    "armor": [
+        {"name": "布衣 Cloth Robe", "quality": "normal", "stat": "def", "stat_value": 5, "emoji": "👘"},
+        {"name": "佣兵甲 Mercenary Plate", "quality": "rare", "stat": "def", "stat_value": 12, "emoji": "🛡️"},
+        {"name": "龙鳞甲 Dragonscale Mail", "quality": "epic", "stat": "def", "stat_value": 22, "emoji": "🐉"},
+        {"name": "暗影之铠 Shadow Plate", "quality": "legendary", "stat": "def", "stat_value": 35, "emoji": "🌑"},
+    ],
+    "leggings": [
+        {"name": "粗麻裤 Hemp Pants", "quality": "normal", "stat": "def", "stat_value": 4, "emoji": "👖"},
+        {"name": "暗影护腿 Shadow Greaves", "quality": "rare", "stat": "def", "stat_value": 10, "emoji": "👖"},
+        {"name": "雷神护腿 Thunder Greaves", "quality": "epic", "stat": "def", "stat_value": 18, "emoji": "⚡"},
+    ],
+    "boots": [
+        {"name": "草鞋 Straw Sandals", "quality": "normal", "stat": "spd", "stat_value": 4, "emoji": "👟"},
+        {"name": "风行者之靴 Windstride Boots", "quality": "rare", "stat": "spd", "stat_value": 10, "emoji": "👢"},
+        {"name": "影步之靴 Shadowstep Boots", "quality": "epic", "stat": "spd", "stat_value": 18, "emoji": "💨"},
+        {"name": "光速靴 Lightspeed Boots", "quality": "legendary", "stat": "spd", "stat_value": 30, "emoji": "⚡"},
+    ],
+    "accessory": [
+        {"name": "铜手镯 Copper Bangle", "quality": "normal", "stat": "crit", "stat_value": 3, "emoji": "💫"},
+        {"name": "月光石 Moonstone", "quality": "rare", "stat": "crit", "stat_value": 8, "emoji": "🌙"},
+        {"name": "贤者之石 Philosopher's Stone", "quality": "epic", "stat": "hp", "stat_value": 20, "emoji": "💎"},
+        {"name": "命运之轮 Wheel of Fate", "quality": "legendary", "stat": "crit", "stat_value": 25, "emoji": "☸️"},
+    ],
+}
+
+GACHA_QUALITY_WEIGHTS = {
+    "normal": 60,
+    "rare": 30,
+    "epic": 9,
+    "legendary": 1,
+}
+
+GACHA_SINGLE_COST = 100
+GACHA_TEN_COST = 900
+GACHA_TEN_GUARANTEED_RARE = True  # 10-pull guarantees at least 1 rare+
+
+
+class EquipmentGachaView(discord.ui.View):
+    """Equipment Gacha / Lottery View with single and 10-pull."""
+
+    def __init__(self, uid: str, main_view: MMORPGMainView):
+        super().__init__(timeout=300)
+        self.uid = uid
+        self.main_view = main_view
+
+    def build_embed(self) -> discord.Embed:
+        bal = _get_balance(self.uid) or 0
+        embed = discord.Embed(
+            title="🎰 Equipment Gacha / 装备抽奖",
+            description=(
+                "试试手气，抽取随机装备！\nTest your luck for random equipment!\n\n"
+                f"🎲 **Single Pull / 单抽**: 🪙 **{GACHA_SINGLE_COST:,}**\n"
+                f"🎰 **10-Pull / 十连抽**: 🪙 **{GACHA_TEN_COST:,}** (guaranteed Rare+ / 保底稀有)\n\n"
+                "Probability / 概率:\n"
+                "⚪ Normal 普通 60%  |  🔵 Rare 稀有 30%\n"
+                "🟣 Epic 史诗 9%  |  🟡 Legendary 传说 1%"
+            ),
+            color=0x9B59B6,
+        )
+        embed.set_footer(text=f"Your balance: 🪙 {bal:,}")
+        return embed
+
+    @discord.ui.button(label="🎲 Single Pull / 单抽", style=discord.ButtonStyle.primary, row=0)
+    async def single_pull_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._do_pull(interaction, 1)
+
+    @discord.ui.button(label="🎰 10-Pull / 十连抽", style=discord.ButtonStyle.danger, row=0)
+    async def ten_pull_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._do_pull(interaction, 10)
+
+    @discord.ui.button(label="↩ Back / 返回", style=discord.ButtonStyle.secondary, row=1)
+    async def back_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        uid = str(interaction.user.id)
+        embed = build_main_embed(uid, interaction.user.display_name)
+        view = MMORPGMainView(uid, uname=interaction.user.display_name, interaction=interaction)
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=embed, view=view)
+
+    async def _do_pull(self, interaction: discord.Interaction, count: int):
+        uid = str(interaction.user.id)
+        if uid != self.uid:
+            return await interaction.response.send_message("Not your gacha / 不是你的抽奖", ephemeral=True)
+
+        # Check balance
+        cost = GACHA_TEN_COST if count == 10 else GACHA_SINGLE_COST
+        bal = _get_balance(uid) or 0
+        if bal < cost:
+            return await interaction.response.send_message(
+                f"Insufficient coins! Need 🪙 {cost:,}, you have 🪙 {bal:,}\n金币不足！",
+                ephemeral=True,
+            )
+
+        # Deduct coins
+        from cogs.economy import add_coins as _add_coins
+        _add_coins(uid, -cost, f"装备抽奖{'十连' if count == 10 else '单抽'} / Equipment Gacha")
+
+        # Roll items
+        results = []
+        guaranteed_hit = False
+        for i in range(count):
+            slot = random.choice(list(GACHA_POOL.keys()))
+            quality = self._roll_quality()
+            # 10-pull guarantee: if no rare+ after 9, force rare+ on 10th
+            if count == 10 and i == 9 and not guaranteed_hit:
+                quality = random.choice(["rare", "epic", "legendary"])
+                quality = random.choices(["rare", "epic", "legendary"], weights=[80, 18, 2])[0]
+            if quality in ("rare", "epic", "legendary"):
+                guaranteed_hit = True
+
+            pool_items = GACHA_POOL[slot]
+            same_quality = [it for it in pool_items if it["quality"] == quality]
+            if not same_quality:
+                same_quality = [it for it in pool_items if it["quality"] == "normal"]
+            item = random.choice(same_quality)
+            results.append((slot, item))
+
+        # Write to inventory
+        with get_db_ctx() as conn:
+            conn.execute(
+                "INSERT INTO users (discord_id, username) VALUES (?, '') ON CONFLICT(discord_id) DO NOTHING",
+                (uid,),
+            )
+            for slot, item in results:
+                conn.execute(
+                    "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) "
+                    "VALUES (?, ?, ?, 1, 'equipment')",
+                    (uid, f"eq_gacha_{slot}_{item['name'].replace(' ', '_')}", item['name']),
+                )
+            conn.commit()
+
+        # Animated frames
+        uname = interaction.user.display_name
+        total_frames = 4  # will be extended dynamically
+        emoji_str = ""
+        for slot, item in results:
+            qe = QUALITY_EMOJI.get(item["quality"], "⚪")
+            emoji_str += f"\n{item['emoji']} {qe} **{item['name']}** [{EQUIPMENT_SHOP_SLOT_LABELS.get(slot, slot)}]"
+
+        new_bal = _get_balance(uid) or 0
+        result_embed = discord.Embed(
+            title=f"🎰 {'10-Pull' if count == 10 else 'Single Pull'} Results / 抽奖结果",
+            description=(
+                f"{uname} {'十连抽' if count == 10 else '单抽'}！\n"
+                f"Cost / 花费: 🪙 **{cost:,}**\n"
+                f"Remaining / 余额: 🪙 **{new_bal:,}**\n\n"
+                f"**Results / 结果:**{emoji_str}"
+            ),
+            color=0x9B59B6,
+        )
+
+        frames = [
+            f"🎰 {uname} 转动抽奖机...",
+            f"💫 光芒闪耀！",
+            f"✨ {'十连抽' if count == 10 else '单抽'} 结果揭晓！",
+            f"🎁 {uname} 获得了新装备！",
+        ]
+
+        try:
+            from utils.animations import play_animation
+            await play_animation(interaction, frames, result_embed)
+        except (ImportError, AttributeError):
+            try:
+                await interaction.response.edit_message(embed=result_embed, view=self)
+            except discord.InteractionResponded:
+                await interaction.edit_original_response(embed=result_embed, view=self)
+
+    @staticmethod
+    def _roll_quality() -> str:
+        roll = random.randint(1, 100)
+        cumulative = 0
+        for quality, weight in GACHA_QUALITY_WEIGHTS.items():
+            cumulative += weight
+            if roll <= cumulative:
+                return quality
+        return "normal"

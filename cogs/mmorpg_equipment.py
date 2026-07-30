@@ -171,7 +171,7 @@ class EquipmentView(discord.ui.View):
         self.clear_items()
         equipped = _get_equipped(self.uid)
 
-        for slot in EQUIP_SLOTS:
+        for i, slot in enumerate(EQUIP_SLOTS):
             eq = equipped.get(slot)
             if eq:
                 lvl = eq.get('enhance_level', 0)
@@ -181,16 +181,16 @@ class EquipmentView(discord.ui.View):
             btn = discord.ui.Button(
                 label=label,
                 style=discord.ButtonStyle.secondary if eq else discord.ButtonStyle.primary,
-                row=0,
+                row=i // 3,  # 3 per row: row 0 = weapon/helmet/armor, row 1 = leggings/boots/accessory
                 custom_id=f"eq_slot_{slot}",
             )
             btn.callback = self._make_slot_callback(slot)
             self.add_item(btn)
 
-        # Enhance button
+        # Enhance + Back on row 2
         enhance_btn = discord.ui.Button(
             label="Enhance 强化", emoji="🔨",
-            style=discord.ButtonStyle.success, row=1,
+            style=discord.ButtonStyle.success, row=2,
             custom_id="eq_enhance",
         )
         enhance_btn.callback = self._enhance_callback
@@ -199,7 +199,7 @@ class EquipmentView(discord.ui.View):
         if self.main_view:
             back_btn = discord.ui.Button(
                 label="Back to MMORPG / 返回", style=discord.ButtonStyle.danger,
-                row=1, emoji="🏠", custom_id="eq_back",
+                row=2, emoji="🏠", custom_id="eq_back",
             )
             back_btn.callback = self._back_callback
             self.add_item(back_btn)

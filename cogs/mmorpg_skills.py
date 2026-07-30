@@ -468,7 +468,7 @@ class SkillShopView(discord.ui.View):
                 "SELECT skill_id, equipped FROM player_skills WHERE user_id = ? AND skill_id IN ({})".format(
                     ",".join("?" * len(learned))
                 ),
-                (uid, *list(learned.keys())),
+                (uid, *learned),
             )
             rows = {r["skill_id"]: r["equipped"] for r in cur.fetchall()}
 
@@ -531,7 +531,7 @@ class SkillShopView(discord.ui.View):
 class SkillEquipView(discord.ui.View):
     """View for equipping / unequipping skills via multi-select dropdown."""
 
-    def __init__(self, uid: str, shop_view: SkillShopView, learned: dict):
+    def __init__(self, uid: str, shop_view: SkillShopView, learned: list):
         super().__init__(timeout=120)
         self.uid = uid
         self.shop_view = shop_view
