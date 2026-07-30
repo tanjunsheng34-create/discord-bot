@@ -65,6 +65,7 @@ MMORPG_COGS = {
     "cogs.daily_quest",
     "cogs.dungeon",
     "cogs.achievements",
+    "cogs.market",
 }
 COMMUNITY_COGS = {
     "cogs.pets",

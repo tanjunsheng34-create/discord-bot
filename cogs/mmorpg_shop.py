@@ -795,6 +795,20 @@ class MMORPGMainView(discord.ui.View):
         except discord.InteractionResponded:
             await interaction.followup.edit_message(embed=embed, view=view)
 
+    @discord.ui.button(label="Pets 宠物", emoji="🐾", style=discord.ButtonStyle.success, row=1, custom_id="mmorpg_main:pets")
+    async def pets_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.pets import PetPanelView
+        view = PetPanelView(self.uid, main_view=self)
+        embed = discord.Embed(
+            title="🐾 Pets / 宠物",
+            description="Adopt, feed and play with your pets!\n领养、喂养和与宠物玩耍！",
+            color=0x2ECC71,
+        )
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
     # ── Row 2: Quest + Equip + Skills ──
     @discord.ui.button(label="Quest 任务", emoji="\U0001f4cb", style=discord.ButtonStyle.success, row=2, custom_id="mmorpg_main:quest")
     async def quest_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -829,6 +843,16 @@ class MMORPGMainView(discord.ui.View):
             description="Learn powerful skills!\n学习强力技能！",
             color=0x9B59B6,
         )
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Achieve 成就", emoji="🏆", style=discord.ButtonStyle.secondary, row=2, custom_id="mmorpg_main:achievements")
+    async def achievements_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.achievements import AchievementsView
+        view = AchievementsView(self.uid, main_view=self)
+        embed = await view._get_achievements_embed()
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
@@ -889,6 +913,16 @@ class MMORPGMainView(discord.ui.View):
             description="View your titles and achievements!\n查看你的称号和成就！",
             color=0xF1C40F,
         )
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Market 市场", emoji="🏪", style=discord.ButtonStyle.secondary, row=3, custom_id="mmorpg_main:market")
+    async def market_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.market import MarketListView
+        view = MarketListView(self.uid, main_view=self)
+        embed = view.build_embed()
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
@@ -1588,6 +1622,7 @@ class EquipmentShopView(discord.ui.View):
                 )
 
             try:
+                item_id = f"eq_{slot}_{item['name'].split(' ')[0]}"
                 with get_db_ctx() as conn:
                     conn.execute(
                         "INSERT INTO users (discord_id, username) VALUES (?, '') ON CONFLICT(discord_id) DO NOTHING",
@@ -1598,11 +1633,24 @@ class EquipmentShopView(discord.ui.View):
                         "INSERT INTO transactions (discord_id, amount, reason) VALUES (?, ?, ?)",
                         (uid, -item["price"], f"Buy equipment / 购买装备: {item['name']}"),
                     )
-                    conn.execute(
-                        "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) "
-                        "VALUES (?, ?, ?, 1, 'equipment')",
-                        (uid, f"eq_{slot}_{item['name'].split(' ')[0]}", item['name']),
+                    # Check if user already owns this equipment
+                    cur = conn.cursor()
+                    cur.execute(
+                        "SELECT quantity FROM user_inventory WHERE user_id = ? AND item_id = ?",
+                        (uid, item_id),
                     )
+                    existing = cur.fetchone()
+                    if existing:
+                        conn.execute(
+                            "UPDATE user_inventory SET quantity = quantity + 1 WHERE user_id = ? AND item_id = ?",
+                            (uid, item_id),
+                        )
+                    else:
+                        conn.execute(
+                            "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) "
+                            "VALUES (?, ?, ?, 1, 'equipment')",
+                            (uid, item_id, item['name']),
+                        )
                     conn.commit()
                 new_bal = _get_balance(uid) or 0
                 # Quest progress

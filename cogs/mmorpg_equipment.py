@@ -545,14 +545,23 @@ def _equip_item(user_id: str, item_name: str) -> bool:
         if not rows:
             return False
         row = rows[0]
-        # Parse slot from item_name
-        name_parts = row["item_name"].split()
+        # Parse slot from item_id (format: eq_{slot}_{name})
         slot = None
-        for s in EQUIP_SLOTS:
-            if s in row["item_name"].lower():
-                slot = s
-                break
+        item_id = row["item_id"]
+        if item_id.startswith("eq_"):
+            parts = item_id.split("_", 2)
+            if len(parts) >= 2:
+                candidate = parts[1]
+                if candidate in EQUIP_SLOTS:
+                    slot = candidate
         if not slot:
+            # Fallback: parse from item_name for backward compat
+            for s in EQUIP_SLOTS:
+                if s in row["item_name"].lower():
+                    slot = s
+                    break
+        if not slot:
+            logger.error(f"_equip_item: cannot determine slot for item_id={item_id} item_name={row['item_name']}")
             return False
 
         # Consume 1 from inventory
