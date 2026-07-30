@@ -390,7 +390,11 @@ class MiniGames(CogBase):
             description=f"**最终排名 / Final Rankings:**\n{score_text}{bonus_text}",
             color=0xF1C40F,
         )
-        await interaction.channel.send(embed=embed)
+        if interaction:
+            await interaction.channel.send(embed=embed)
+        else:
+            channel = self.bot.get_channel(int(chid)) or await self.bot.fetch_channel(int(chid))
+            await channel.send(embed=embed)
 
     # ══════════════════════════════════════════════════════════
     # Message listener for idiom chain and music quiz answers
