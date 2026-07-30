@@ -128,8 +128,8 @@ def build_stats_embed(uid: str, display_name: str = None) -> discord.Embed:
         class_emoji = "\U0001f9d1"
         class_name = "\u672a\u9009\u62e9 / None"
 
-    xp_for_level = 1000
-    xp_progress = stats["xp"] % xp_for_level
+    xp_for_level = stats["level"] * 1000
+    xp_progress = stats["xp"]
 
     embed = discord.Embed(
         title=f"\U0001f4ca {display_name or 'Adventurer'}\u2019s Stats / \u5c5e\u6027\u9762\u677f",

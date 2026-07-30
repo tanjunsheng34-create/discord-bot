@@ -168,7 +168,7 @@ def _add_global_xp(uid: str, income: int) -> int:
 
     Success (profit): exp = max(1, income // 5)
     Failure (loss):   exp = max(1, abs(income) // 10)
-    Level up every 1000 XP.
+    Level up every (level * 1000) XP. Grants +10 max_hp, +3 attack per level-up.
     """
     if income > 0:
         exp = max(1, income // 5)
@@ -177,6 +177,12 @@ def _add_global_xp(uid: str, income: int) -> int:
 
     with get_db_ctx() as conn:
         cur = conn.cursor()
+        # Ensure user row exists (INSERT OR IGNORE for new users)
+        cur.execute(
+            "INSERT OR IGNORE INTO users (discord_id, xp, level, max_hp, hp, attack)"
+            " VALUES (?, 0, 1, 100, 100, 10)",
+            (uid,),
+        )
         cur.execute(
             "SELECT xp, level FROM users WHERE discord_id = ?",
             (uid,),
@@ -187,14 +193,28 @@ def _add_global_xp(uid: str, income: int) -> int:
         new_xp = old_xp + exp
 
         new_level = old_level
+        level_ups = 0
         while new_xp >= new_level * 1000:
             new_xp -= new_level * 1000
             new_level += 1
+            level_ups += 1
 
-        cur.execute(
-            "UPDATE users SET xp = ?, level = ? WHERE discord_id = ?",
-            (new_xp, new_level, uid),
-        )
+        if level_ups > 0:
+            hp_gain = level_ups * 10
+            atk_gain = level_ups * 3
+            cur.execute(
+                "UPDATE users SET xp = ?, level = ?, max_hp = max_hp + ?, hp = hp + ?, attack = attack + ? WHERE discord_id = ?",
+                (new_xp, new_level, hp_gain, hp_gain, atk_gain, uid),
+            )
+            logger.info(
+                "[_add_global_xp] uid=%s exp=%d old_level=%d new_level=%d level_ups=%d hp_gain=%d atk_gain=%d",
+                uid, exp, old_level, new_level, level_ups, hp_gain, atk_gain,
+            )
+        else:
+            cur.execute(
+                "UPDATE users SET xp = ?, level = ? WHERE discord_id = ?",
+                (new_xp, new_level, uid),
+            )
         conn.commit()
     return exp
 
@@ -228,8 +248,12 @@ def _add_user_xp(uid: str, amount: int) -> tuple:
             hp_gain = level_ups * 10
             atk_gain = level_ups * 3
             cur.execute(
-                "UPDATE users SET xp = ?, level = ?, max_hp = max_hp + ?, hp = max_hp + ?, attack = attack + ? WHERE discord_id = ?",
+                "UPDATE users SET xp = ?, level = ?, max_hp = max_hp + ?, hp = hp + ?, attack = attack + ? WHERE discord_id = ?",
                 (new_xp, new_level, hp_gain, hp_gain, atk_gain, uid),
+            )
+            logger.info(
+                "[_add_user_xp] uid=%s amount=%d old_level=%d new_level=%d level_ups=%d hp_gain=%d atk_gain=%d",
+                uid, amount, old_level, new_level, level_ups, hp_gain, atk_gain,
             )
         else:
             cur.execute(
@@ -990,10 +1014,6 @@ class EconomyJobsView(discord.ui.View):
             earned = get_balance(uid) - pre_bal
             if earned != 0:
                 _add_global_xp(uid, earned)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
 
         elif job == "beg":
@@ -1034,10 +1054,6 @@ class EconomyJobsView(discord.ui.View):
                 f"💰 {'有人施舍了！' if roll < 0.60 or roll >= 0.90 else '没人回应...'}",
             ], embed)
             earned = get_balance(uid) - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
             if earned != 0:
                 _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
@@ -1143,10 +1159,6 @@ class EconomyJobsView(discord.ui.View):
             earned = get_balance(uid) - pre_bal
             if earned != 0:
                 _add_global_xp(uid, earned)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
             if caught_member:
                 await interaction.channel.send(
@@ -1165,10 +1177,6 @@ class EconomyJobsView(discord.ui.View):
             earned = get_balance(uid) - pre_bal
             if earned != 0:
                 _add_global_xp(uid, earned)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
             if hit_msg:
                 await interaction.channel.send(hit_msg)
@@ -1183,10 +1191,6 @@ class EconomyJobsView(discord.ui.View):
             earned = get_balance(uid) - pre_bal
             if earned != 0:
                 _add_global_xp(uid, earned)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
 
         elif job == "busk":
@@ -1197,10 +1201,6 @@ class EconomyJobsView(discord.ui.View):
                 f"👏 路人们围了过来！",
             ], embed)
             earned = get_balance(uid) - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
             if earned != 0:
                 _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
@@ -1215,10 +1215,6 @@ class EconomyJobsView(discord.ui.View):
             earned = get_balance(uid) - pre_bal
             if earned != 0:
                 _add_global_xp(uid, earned)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
 
         elif job == "miner":
@@ -1229,10 +1225,6 @@ class EconomyJobsView(discord.ui.View):
                 f"🪨 矿石掉落了！",
             ], embed)
             earned = get_balance(uid) - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
             if earned != 0:
                 _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
@@ -1247,10 +1239,6 @@ class EconomyJobsView(discord.ui.View):
             earned = get_balance(uid) - pre_bal
             if earned != 0:
                 _add_global_xp(uid, earned)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
 
         elif job == "hunter":
@@ -1261,10 +1249,6 @@ class EconomyJobsView(discord.ui.View):
                 f"🐗 {uname} 猎物倒下！",
             ], embed)
             earned = get_balance(uid) - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
             if earned != 0:
                 _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
@@ -1279,10 +1263,6 @@ class EconomyJobsView(discord.ui.View):
             earned = get_balance(uid) - pre_bal
             if earned != 0:
                 _add_global_xp(uid, earned)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
 
         elif job == "bounty":
@@ -1293,10 +1273,6 @@ class EconomyJobsView(discord.ui.View):
                 f"⚔️ {uname} 与目标交战！",
             ], embed)
             earned = get_balance(uid) - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
             if earned != 0:
                 _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
@@ -1311,10 +1287,6 @@ class EconomyJobsView(discord.ui.View):
             earned = get_balance(uid) - pre_bal
             if earned != 0:
                 _add_global_xp(uid, earned)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
 
         elif job == "blacksmith":
@@ -1325,10 +1297,6 @@ class EconomyJobsView(discord.ui.View):
                 f"⚔️ 武器出炉！",
             ], embed)
             earned = get_balance(uid) - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
             if earned != 0:
                 _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
@@ -1343,10 +1311,6 @@ class EconomyJobsView(discord.ui.View):
             earned = get_balance(uid) - pre_bal
             if earned != 0:
                 _add_global_xp(uid, earned)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
 
         elif job == "potion_dealer":
@@ -1359,10 +1323,6 @@ class EconomyJobsView(discord.ui.View):
             earned = get_balance(uid) - pre_bal
             if earned != 0:
                 _add_global_xp(uid, earned)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
 
         elif job == "adventurer":
@@ -1373,10 +1333,6 @@ class EconomyJobsView(discord.ui.View):
                 f"💎 {uname} 发现宝藏！",
             ], embed)
             earned = get_balance(uid) - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
             if earned != 0:
                 _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
@@ -1878,14 +1834,6 @@ class EconomyJobs(CogBase):
                 f"💰 {uname} 收到工资！",
             ]
             await _animate_job(interaction, frames, embed)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
         except Exception as e:
             logger.error(f"[work_cmd] error: {e}", exc_info=True)
@@ -1974,14 +1922,6 @@ class EconomyJobs(CogBase):
                 f"💸 {uname} {result_text}",
             ]
             await _animate_job(interaction, frames, embed)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
         except Exception as e:
             logger.error(f"[rob_cmd] error: {e}", exc_info=True)
@@ -2048,14 +1988,6 @@ class EconomyJobs(CogBase):
                 f"💰 {'有人施舍了！' if roll < 0.60 or roll >= 0.90 else '没人回应...'}",
             ]
             await _animate_job(interaction, frames, embed)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
         except Exception as e:
             logger.error(f"[beg_cmd] error: {e}", exc_info=True)
@@ -2183,14 +2115,6 @@ class EconomyJobs(CogBase):
                 f"🐠 {uname} 拉杆！",
             ]
             await _animate_job(interaction, frames, embed)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
             if caught_member:
                 await interaction.channel.send(
@@ -2230,14 +2154,6 @@ class EconomyJobs(CogBase):
                 f"🐾 {uname} 发现猎物！",
             ]
             await _animate_job(interaction, frames, embed)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
             if hit_msg:
                 await interaction.channel.send(hit_msg)
@@ -2273,14 +2189,6 @@ class EconomyJobs(CogBase):
                 f"📦 {uname} 找到了什么！",
             ]
             await _animate_job(interaction, frames, embed)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
         except Exception as e:
             logger.error(f"[treasure_cmd] error: {e}", exc_info=True)
@@ -2314,14 +2222,6 @@ class EconomyJobs(CogBase):
                 f"🎩 {uname} 收取打赏！",
             ]
             await _animate_job(interaction, frames, embed)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
         except Exception as e:
             logger.error(f"[busk_cmd] error: {e}", exc_info=True)
@@ -2355,14 +2255,6 @@ class EconomyJobs(CogBase):
                 f"📊 {uname} 交易完成！",
             ]
             await _animate_job(interaction, frames, embed)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
-            post_bal = get_balance(uid)
-            earned = post_bal - pre_bal
-            if earned != 0:
-                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
         except Exception as e:
             logger.error(f"[stock_cmd] error: {e}", exc_info=True)
