@@ -8,6 +8,7 @@ GMPT Bot — MMORPG NPC Potion Shop / NPC 药水商店
 """
 import asyncio
 import logging
+import random
 import datetime
 import discord
 from discord import app_commands

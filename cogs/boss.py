@@ -862,7 +862,7 @@ class BossCog(CogBase):
             if pdata["hp"] <= 0:
                 continue
             # Random defense reduction
-            def_reduce = random.randint(0, pdata["def"] + pdata["buff_def"])
+            def_reduce = random.randint(0, (pdata["def"] + pdata["buff_def"]) // 3)
             actual_dmg = max(1, aoe_base - def_reduce)
             pdata["hp"] = max(0, pdata["hp"] - actual_dmg)
             status = ""

@@ -20,30 +20,30 @@ logger = logging.getLogger(__name__)
 
 # ── Dungeon Monsters ──
 DUNGEON_MONSTERS = {
-    1: [  # Floor 1
-        {"name": "史莱姆 Slime", "hp": 50, "atk": 8, "def": 2, "exp": 20, "coins": 50, "emoji": "🟢"},
-        {"name": "哥布林 Goblin", "hp": 65, "atk": 12, "def": 3, "exp": 30, "coins": 70, "emoji": "👺"},
-        {"name": "巨型老鼠 Giant Rat", "hp": 45, "atk": 10, "def": 1, "exp": 25, "coins": 60, "emoji": "🐀"},
+    1: [  # Floor 1 — Newbie-friendly, ATK buffed to threaten lightly geared players
+        {"name": "史莱姆 Slime", "hp": 60, "atk": 15, "def": 2, "exp": 20, "coins": 50, "emoji": "🟢"},
+        {"name": "哥布林 Goblin", "hp": 80, "atk": 18, "def": 3, "exp": 30, "coins": 70, "emoji": "👺"},
+        {"name": "巨型老鼠 Giant Rat", "hp": 55, "atk": 16, "def": 1, "exp": 25, "coins": 60, "emoji": "🐀"},
     ],
-    2: [  # Floor 2
-        {"name": "骷髅战士 Skeleton Warrior", "hp": 90, "atk": 18, "def": 5, "exp": 50, "coins": 120, "emoji": "💀"},
-        {"name": "暗影法师 Shadow Mage", "hp": 70, "atk": 22, "def": 3, "exp": 55, "coins": 130, "emoji": "🧙‍♂️"},
-        {"name": "石像鬼 Gargoyle", "hp": 100, "atk": 15, "def": 8, "exp": 45, "coins": 110, "emoji": "🗿"},
+    2: [  # Floor 2 — Early gear test
+        {"name": "骷髅战士 Skeleton Warrior", "hp": 110, "atk": 25, "def": 5, "exp": 50, "coins": 120, "emoji": "💀"},
+        {"name": "暗影法师 Shadow Mage", "hp": 85, "atk": 30, "def": 3, "exp": 55, "coins": 130, "emoji": "🧙‍♂️"},
+        {"name": "石像鬼 Gargoyle", "hp": 130, "atk": 20, "def": 7, "exp": 45, "coins": 110, "emoji": "🗿"},
     ],
-    3: [  # Floor 3
-        {"name": "牛头人 Minotaur", "hp": 140, "atk": 30, "def": 12, "exp": 100, "coins": 250, "emoji": "🐂"},
-        {"name": "亡灵骑士 Death Knight", "hp": 160, "atk": 28, "def": 15, "exp": 110, "coins": 280, "emoji": "⚰️"},
-        {"name": "地狱犬 Hellhound", "hp": 120, "atk": 35, "def": 10, "exp": 95, "coins": 230, "emoji": "🐺"},
+    3: [  # Floor 3 — Mid-game challenge
+        {"name": "牛头人 Minotaur", "hp": 180, "atk": 40, "def": 10, "exp": 100, "coins": 250, "emoji": "🐂"},
+        {"name": "亡灵骑士 Death Knight", "hp": 200, "atk": 38, "def": 12, "exp": 110, "coins": 280, "emoji": "⚰️"},
+        {"name": "地狱犬 Hellhound", "hp": 150, "atk": 45, "def": 8, "exp": 95, "coins": 230, "emoji": "🐺"},
     ],
-    4: [  # Floor 4
-        {"name": "狮鹫 Griffin", "hp": 200, "atk": 40, "def": 20, "exp": 180, "coins": 450, "emoji": "🦅"},
-        {"name": "九头蛇 Hydra", "hp": 250, "atk": 35, "def": 22, "exp": 200, "coins": 500, "emoji": "🐍"},
-        {"name": "岩石巨人 Stone Golem", "hp": 300, "atk": 30, "def": 30, "exp": 170, "coins": 420, "emoji": "🗻"},
+    4: [  # Floor 4 — Requires serious gear
+        {"name": "狮鹫 Griffin", "hp": 280, "atk": 55, "def": 15, "exp": 180, "coins": 450, "emoji": "🦅"},
+        {"name": "九头蛇 Hydra", "hp": 350, "atk": 50, "def": 18, "exp": 200, "coins": 500, "emoji": "🐍"},
+        {"name": "岩石巨人 Stone Golem", "hp": 400, "atk": 45, "def": 22, "exp": 170, "coins": 420, "emoji": "🗻"},
     ],
-    5: [  # Floor 5 — Boss
-        {"name": "暗影巨龙 Shadow Dragon", "hp": 400, "atk": 55, "def": 25, "exp": 500, "coins": 1200, "emoji": "🐉"},
-        {"name": "魔王 Demon Lord", "hp": 450, "atk": 50, "def": 20, "exp": 550, "coins": 1300, "emoji": "👹"},
-        {"name": "远古巫妖 Ancient Lich", "hp": 350, "atk": 60, "def": 18, "exp": 600, "coins": 1400, "emoji": "💀"},
+    5: [  # Floor 5 — Endgame Boss
+        {"name": "暗影巨龙 Shadow Dragon", "hp": 600, "atk": 75, "def": 18, "exp": 500, "coins": 1200, "emoji": "🐉"},
+        {"name": "魔王 Demon Lord", "hp": 650, "atk": 70, "def": 16, "exp": 550, "coins": 1300, "emoji": "👹"},
+        {"name": "远古巫妖 Ancient Lich", "hp": 500, "atk": 80, "def": 14, "exp": 600, "coins": 1400, "emoji": "💀"},
     ],
 }
 
@@ -222,7 +222,7 @@ class DungeonView(discord.ui.View):
 
             # Player attacks (with crit chance)
             crit_hit = random.random() < (player["crit"] / 100)
-            p_dmg = max(1, random.randint(player["atk"] // 2, player["atk"]) - monster["def"] // 2)
+            p_dmg = max(1, random.randint(player["atk"] // 2, player["atk"]) - monster["def"] // 3)
             if crit_hit:
                 p_dmg = int(p_dmg * 1.8)
             m_hp = max(0, m_hp - p_dmg)
@@ -234,7 +234,7 @@ class DungeonView(discord.ui.View):
                 break
 
             # Monster attacks
-            m_dmg = max(1, random.randint(monster["atk"] // 2, monster["atk"]) - player["def"] // 2)
+            m_dmg = max(1, random.randint(monster["atk"] // 2, monster["atk"]) - player["def"] // 3)
             p_hp = max(0, p_hp - m_dmg)
 
             # Animate monster counter
