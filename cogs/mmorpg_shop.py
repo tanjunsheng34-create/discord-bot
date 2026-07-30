@@ -1910,7 +1910,7 @@ class EquipmentGachaView(discord.ui.View):
     async def back_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         uid = str(interaction.user.id)
         embed = build_main_embed(uid, interaction.user.display_name)
-        view = MMORPGMainView(uid, uname=interaction.user.display_name, interaction=interaction)
+        view = MMORPGMainView(uid)
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
@@ -1963,12 +1963,25 @@ class EquipmentGachaView(discord.ui.View):
                 (uid,),
             )
             for slot, item in results:
+                item_id = f"eq_{slot}_gacha_{item['name'].replace(' ', '_')}"
                 encoded_name = f"{item['name']}|||{item['stat']}:{item['stat_value']}|||{item['quality']}"
-                conn.execute(
-                    "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) "
-                    "VALUES (?, ?, ?, 1, 'equipment')",
-                    (uid, f"eq_{slot}_gacha_{item['name'].replace(' ', '_')}", encoded_name),
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT quantity FROM user_inventory WHERE user_id = ? AND item_id = ?",
+                    (uid, item_id),
                 )
+                existing = cur.fetchone()
+                if existing:
+                    conn.execute(
+                        "UPDATE user_inventory SET quantity = quantity + 1 WHERE user_id = ? AND item_id = ?",
+                        (uid, item_id),
+                    )
+                else:
+                    conn.execute(
+                        "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) "
+                        "VALUES (?, ?, ?, 1, 'equipment')",
+                        (uid, item_id, encoded_name),
+                    )
             conn.commit()
 
         # Animated frames
