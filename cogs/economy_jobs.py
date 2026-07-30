@@ -192,9 +192,10 @@ def _add_global_xp(uid: str, income: int) -> int:
         old_level = row["level"] if row else 1
         new_xp = old_xp + exp
 
+        MAX_LEVEL = 100
         new_level = old_level
         level_ups = 0
-        while new_xp >= new_level * 1000:
+        while new_xp >= new_level * 1000 and new_level < MAX_LEVEL:
             new_xp -= new_level * 1000
             new_level += 1
             level_ups += 1
@@ -232,12 +233,13 @@ def _add_user_xp(uid: str, amount: int) -> tuple:
         old_xp = row["xp"] if row else 0
         old_level = row["level"] if row else 1
 
+        MAX_LEVEL = 100
         new_xp = old_xp + amount
         new_level = old_level
         level_ups = 0
         xp_to_next = new_level * 1000
 
-        while new_xp >= xp_to_next:
+        while new_xp >= xp_to_next and new_level < MAX_LEVEL:
             new_xp -= xp_to_next
             new_level += 1
             level_ups += 1

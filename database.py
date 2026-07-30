@@ -666,6 +666,7 @@ def _run_migrations(cursor):
         ("defense", "INTEGER DEFAULT 5"),
         ("job_level", "INTEGER DEFAULT 1"),
         ("job_xp", "INTEGER DEFAULT 0"),
+        ("is_admin", "INTEGER DEFAULT 0"),
     ]:
         try:
             cursor.execute(f"ALTER TABLE users ADD COLUMN {col} {col_type}")

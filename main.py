@@ -47,6 +47,7 @@ COMMON_COGS = [
     "cogs.voice_tracker",
     "cogs.stats",
     "cogs.admin_backup",
+    "cogs.admin",
     "cogs.dashboard",
 ]
 

@@ -841,9 +841,15 @@ class BossCog(CogBase):
             # Save final HP/MP states
             for pid, pdata in room["players"].items():
                 _save_combat_stats(pid, pdata)
+            # Clean up stale room reference
+            rid = room.get("room_id")
+            if rid and rid in _boss_rooms:
+                del _boss_rooms[rid]
 
     def _boss_aoe_attack(self, room: dict) -> str:
         """Boss AOE counter-attack against all alive players."""
+        if room["boss_hp"] <= 0:
+            return ""
         players = room["players"]
         boss_atk = room["boss_atk"]
         num_players = len(players)
@@ -947,10 +953,8 @@ class BossCog(CogBase):
             return await interaction.response.send_message("你不在副本中！/ You are not in the dungeon!", ephemeral=True)
 
         player = room["players"][uid]
-        if player["hp"] <= 0:
-            return await interaction.response.send_message("你已阵亡！/ You are dead!", ephemeral=True)
 
-        # Check inventory
+        # Check inventory (do this before hp check so revive can be used while dead)
         with get_db_ctx() as conn:
             cur = conn.cursor()
             cur.execute(
@@ -965,9 +969,6 @@ class BossCog(CogBase):
 
         # Get potion from catalog
         potion = POTION_CATALOG.get(name)
-        if not potion:
-            return await interaction.response.send_message(f"药水 '{name}' 不存在 / Not found", ephemeral=True)
-
         effect_type = potion["effect_type"]
         effect_value = potion["effect_value"]
 

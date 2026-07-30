@@ -187,7 +187,15 @@ class EquipmentView(discord.ui.View):
             btn.callback = self._make_slot_callback(slot)
             self.add_item(btn)
 
-        # Enhance + Back on row 2
+        # Equip + Enhance + Back on row 2 (3 buttons)
+        equip_btn = discord.ui.Button(
+            label="Equip 装备", emoji="⚔️",
+            style=discord.ButtonStyle.primary, row=2,
+            custom_id="eq_equip",
+        )
+        equip_btn.callback = self._equip_callback
+        self.add_item(equip_btn)
+
         enhance_btn = discord.ui.Button(
             label="Enhance 强化", emoji="🔨",
             style=discord.ButtonStyle.success, row=2,
@@ -203,6 +211,64 @@ class EquipmentView(discord.ui.View):
             )
             back_btn.callback = self._back_callback
             self.add_item(back_btn)
+
+    async def _equip_callback(self, interaction: discord.Interaction):
+        """Show inventory equipment list to equip."""
+        try:
+            with get_db_ctx() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT item_id, item_name, quantity FROM user_inventory"
+                    " WHERE user_id = ? AND item_type = 'equipment' AND quantity > 0"
+                    " ORDER BY item_name",
+                    (self.uid,),
+                )
+                rows = cur.fetchall()
+
+            if not rows:
+                return await interaction.response.send_message(
+                    "背包中没有可装备的装备！/ No equippable items in inventory!", ephemeral=True)
+
+            # Build select options
+            options = []
+            for row in rows:
+                name = row["item_name"][:100]
+                qty = row["quantity"]
+                # Parse quality prefix for emoji
+                emoji = "⚪"
+                if "legendary" in name.lower():
+                    emoji = "🟡"
+                elif "epic" in name.lower():
+                    emoji = "🟣"
+                elif "rare" in name.lower():
+                    emoji = "🔵"
+                options.append(discord.SelectOption(
+                    label=name,
+                    value=str(row["item_id"]),
+                    description=f"x{qty} | {emoji}",
+                    emoji=emoji,
+                ))
+
+            view = EquipSelectView(self.uid, self)
+            select = discord.ui.Select(
+                placeholder="选择要装备的装备 / Select equipment to equip",
+                options=options[:25],  # Discord limit
+                row=0,
+            )
+            select.callback = view._select_callback
+            view.add_item(select)
+            await interaction.response.send_message(
+                "选择要装备的装备 / Select equipment to equip：",
+                view=view,
+                ephemeral=True,
+            )
+        except Exception as e:
+            logger.error(f"Equip callback error (uid={self.uid}): {e}", exc_info=True)
+            try:
+                await interaction.response.send_message(
+                    "加载装备列表出错 / Error loading equipment list", ephemeral=True)
+            except Exception:
+                pass
 
     async def _enhance_callback(self, interaction: discord.Interaction):
         """Handle equipment enhancement."""
