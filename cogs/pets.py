@@ -157,8 +157,8 @@ class Pets(CogBase):
             if row["adopted_at"]:
                 dt = datetime.strptime(row["adopted_at"][:10], "%Y-%m-%d")
                 days_old = str((datetime.now() - dt).days)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"pet age parse error: {e}", exc_info=True)
 
         embed = discord.Embed(
             title=f"{info['emoji']} {row['pet_name']}",
@@ -378,8 +378,8 @@ class PetPanelView(discord.ui.View):
                     if row["adopted_at"]:
                         dt = datetime.strptime(row["adopted_at"][:10], "%Y-%m-%d")
                         days_old = str((datetime.now() - dt).days)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.error(f"pet age parse error: {e}", exc_info=True)
                 embed = discord.Embed(
                     title=f"{info['emoji']} {row['pet_name']}",
                     description=f"类型 / Type: **{row['pet_type']}**\n年龄 / Age: **{days_old} 天 / days**",

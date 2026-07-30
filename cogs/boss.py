@@ -685,6 +685,10 @@ class BossCog(CogBase):
             boss_log = self._boss_aoe_attack(room)
             lines.append(boss_log)
             await interaction.response.send_message("\n".join(lines))
+            # Check if boss died after AOE counter-attack
+            if room["boss_hp"] <= 0:
+                await self._distribute_rewards(room, interaction)
+                self._boss_rooms.pop(room["channel_id"], None)
             return
 
         # ═══ Calculate damage ═══

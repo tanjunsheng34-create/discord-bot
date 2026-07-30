@@ -352,7 +352,7 @@ class EquipmentView(discord.ui.View):
                 await interaction.response.send_message(
                     "一键装备出错 / Best equip error", ephemeral=True)
             except Exception:
-                pass
+                logger.error("Best equip send_message error", exc_info=True)
 
     async def _unequip_callback(self, interaction: discord.Interaction):
         """Unequip from a selected slot."""
@@ -399,7 +399,7 @@ class EquipmentView(discord.ui.View):
                 await interaction.response.send_message(
                     "卸下过程出错 / Error during unequip", ephemeral=True)
             except Exception:
-                pass
+                logger.error("Unequip send_message error", exc_info=True)
 
     async def _equip_callback(self, interaction: discord.Interaction):
         """Show inventory equipment list to equip."""
@@ -512,7 +512,7 @@ class EquipmentView(discord.ui.View):
                 await interaction.response.send_message(
                     "Error loading enhancement panel / 加载强化面板出错", ephemeral=True)
             except Exception:
-                pass
+                logger.error("Enhance callback error", exc_info=True)
 
     async def _back_callback(self, interaction: discord.Interaction):
         if self.main_view:
@@ -711,7 +711,7 @@ class EnhanceSelectView(discord.ui.View):
                     ephemeral=True,
                 )
             except Exception:
-                pass
+                logger.error("Enhance failed send_message error", exc_info=True)
 
 
 def _format_stat_display(stat: str, stat_value) -> str:
@@ -1050,7 +1050,7 @@ async def enhance_animation(interaction, level_before: int, level_after: int, su
                 await interaction.edit_original_response(content=f"💥 Enhancement failed! Stayed at **+{level_before}**")
         await asyncio.sleep(1.0)
     except Exception:
-        pass
+        logger.error("Enhancement progress error", exc_info=True)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -1131,7 +1131,7 @@ class EquipSelectView(discord.ui.View):
     """Select view for equipping items from inventory."""
 
     def __init__(self, uid: str, main_view=None, panel_msg=None):
-        super().__init__(timeout=60)
+        super().__init__(timeout=180)
         self.uid = uid
         self.main_view = main_view
         self.panel_msg = panel_msg  # The EquipmentView panel message to refresh after equip
@@ -1169,7 +1169,7 @@ class EquipSelectView(discord.ui.View):
                     "装备过程出错 / Error during equip", ephemeral=True
                 )
             except Exception:
-                pass
+                logger.error("Equip select send_message error", exc_info=True)
 
 
 async def setup(bot):

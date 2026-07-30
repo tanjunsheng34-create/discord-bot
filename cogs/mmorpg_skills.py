@@ -532,7 +532,7 @@ class SkillEquipView(discord.ui.View):
     """View for equipping / unequipping skills via multi-select dropdown."""
 
     def __init__(self, uid: str, shop_view: SkillShopView, learned: list):
-        super().__init__(timeout=120)
+        super().__init__(timeout=180)
         self.uid = uid
         self.shop_view = shop_view
         self.learned = learned

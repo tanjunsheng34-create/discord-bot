@@ -178,7 +178,7 @@ class ClassSelectView(discord.ui.View):
     COST_CHANGE = 500
 
     def __init__(self, user_id: str, current_class: str | None, balance: int = None, main_view=None):
-        super().__init__(timeout=120)
+        super().__init__(timeout=180)
         self.user_id = user_id
         self.current_class = current_class
         self.balance = balance if balance is not None else _get_balance(user_id)

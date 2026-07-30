@@ -408,10 +408,8 @@ async def settle_economy(game: PokerGame, channel: discord.TextChannel):
         net = p["chips"] - g.buy_in
         if net != 0:
             try:
-                with get_db_ctx() as conn:
-                    cur = conn.cursor()
-                    cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (net, str(uid)))
-                    conn.commit()
+                from cogs.economy import add_coins
+                add_coins(str(uid), net, "Poker payout")
                 emoji = "📈" if net > 0 else "📉"
                 lines.append(f"{emoji} **{p['name']}**: {'+' if net > 0 else ''}{net} coins")
             except Exception as e:
@@ -662,10 +660,8 @@ class Poker(commands.Cog):
             if not row or row[0] < g.buy_in:
                 await interaction.response.send_message(f"余额不足 Insufficient balance. Need {g.buy_in} coins.", ephemeral=True)
                 return
-            with get_db_ctx() as conn:
-                cur = conn.cursor()
-                cur.execute("UPDATE users SET score = score - ? WHERE discord_id = ?", (g.buy_in, uid))
-                conn.commit()
+            from cogs.economy import add_coins
+            add_coins(uid, -g.buy_in, "Poker buy-in")
         except Exception as e:
             await interaction.response.send_message(f"Database error: {e}", ephemeral=True)
             return

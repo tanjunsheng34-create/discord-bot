@@ -210,18 +210,11 @@ class MarketCog(CogBase):
                     )
 
                 # Deduct buyer coins
-                cur.execute("UPDATE users SET score = score - ? WHERE discord_id = ?", (price, uid))
-                cur.execute(
-                    "INSERT INTO transactions (discord_id, amount, reason) VALUES (?, ?, ?)",
-                    (uid, -price, f"Market buy #{listing_id}: {listing['item_name']}"),
-                )
+                from cogs.economy import add_coins
+                add_coins(uid, -price, f"Market buy #{listing_id}: {listing['item_name']}")
 
                 # Credit seller
-                cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (price, listing["seller_id"]))
-                cur.execute(
-                    "INSERT INTO transactions (discord_id, amount, reason) VALUES (?, ?, ?)",
-                    (listing["seller_id"], price, f"Market sold #{listing_id}: {listing['item_name']}"),
-                )
+                add_coins(listing["seller_id"], price, f"Market sold #{listing_id}: {listing['item_name']}")
 
                 # Transfer item to buyer
                 cur.execute(

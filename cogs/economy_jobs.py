@@ -1356,7 +1356,8 @@ class EconomyJobsView(discord.ui.View):
         for m in members:
             try:
                 bal = get_balance(str(m.id))
-            except Exception:
+            except Exception as e:
+                logger.error(f"get_balance error for {m.id}: {e}", exc_info=True)
                 bal = 0
             label = f"{m.display_name[:50]} — 🪙{bal}"
             if bal < 100:
