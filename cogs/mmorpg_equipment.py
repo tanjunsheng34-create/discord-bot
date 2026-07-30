@@ -14,12 +14,13 @@ from utils.cog_base import CogBase
 
 logger = logging.getLogger(__name__)
 
-EQUIP_SLOTS = ["weapon", "armor", "helmet", "ring", "accessory"]
+EQUIP_SLOTS = ["weapon", "helmet", "armor", "leggings", "boots", "accessory"]
 EQUIP_SLOT_LABELS_CN = {
     "weapon": "武器 Weapon",
-    "armor": "护甲 Armor",
     "helmet": "头盔 Helmet",
-    "ring": "戒指 Ring",
+    "armor": "护甲 Armor",
+    "leggings": "护腿 Leggings",
+    "boots": "靴子 Boots",
     "accessory": "饰品 Accessory",
 }
 
@@ -34,10 +35,11 @@ QUALITY_WEIGHTS = [0.55, 0.30, 0.12, 0.03]  # normal, rare, epic, legendary
 
 SLOT_STATS = {
     "weapon":     ["atk"],
-    "armor":      ["def"],
     "helmet":     ["hp"],
-    "ring":       ["crit"],
-    "accessory":  ["spd"],
+    "armor":      ["def"],
+    "leggings":   ["def"],
+    "boots":      ["spd"],
+    "accessory":  ["crit", "hp"],
 }
 
 BASE_NAMES = {
@@ -47,13 +49,8 @@ BASE_NAMES = {
         ("长剑 Longsword", "atk"),
         ("战斧 Battle Axe", "atk"),
         ("暗影之刃 Shadow Blade", "atk"),
-    ],
-    "armor": [
-        ("皮甲 Leather Armor", "def"),
-        ("锁子甲 Chainmail", "def"),
-        ("板甲 Plate Armor", "def"),
-        ("龙鳞甲 Dragonscale Armor", "def"),
-        ("守护者铠甲 Guardian Plate", "def"),
+        ("龙牙剑 Dragonfang Blade", "atk"),
+        ("冰霜之剑 Frostbrand", "atk"),
     ],
     "helmet": [
         ("布帽 Cloth Cap", "hp"),
@@ -61,20 +58,41 @@ BASE_NAMES = {
         ("秘银盔 Mithril Helm", "hp"),
         ("龙牙盔 Dragonfang Helm", "hp"),
         ("王冠 Crown", "hp"),
+        ("暗影兜帽 Shadow Hood", "hp"),
+        ("圣光头冠 Holy Circlet", "hp"),
     ],
-    "ring": [
+    "armor": [
+        ("皮甲 Leather Armor", "def"),
+        ("锁子甲 Chainmail", "def"),
+        ("板甲 Plate Armor", "def"),
+        ("龙鳞甲 Dragonscale Armor", "def"),
+        ("守护者铠甲 Guardian Plate", "def"),
+        ("暗影斗篷 Shadow Mantle", "def"),
+        ("圣骑士胸甲 Paladin Chestplate", "def"),
+    ],
+    "leggings": [
+        ("布裤 Cloth Pants", "def"),
+        ("皮裤 Leather Pants", "def"),
+        ("锁子护腿 Chain Leggings", "def"),
+        ("板甲护腿 Plate Greaves", "def"),
+        ("龙鳞护腿 Dragonscale Greaves", "def"),
+    ],
+    "boots": [
+        ("布靴 Cloth Boots", "spd"),
+        ("皮靴 Leather Boots", "spd"),
+        ("铁靴 Iron Boots", "spd"),
+        ("暗影之靴 Shadow Boots", "spd"),
+        ("疾风之靴 Wind Walkers", "spd"),
+    ],
+    "accessory": [
         ("铜戒 Copper Ring", "crit"),
         ("银戒 Silver Ring", "crit"),
         ("红宝石戒 Ruby Ring", "crit"),
         ("钻石戒 Diamond Ring", "crit"),
         ("命运之戒 Ring of Fate", "crit"),
-    ],
-    "accessory": [
-        ("布腰带 Cloth Belt", "spd"),
-        ("皮革披风 Leather Cloak", "spd"),
-        ("鹰翼披风 Eaglewing Cloak", "spd"),
-        ("疾风之靴 Wind Boots", "spd"),
+        ("翡翠项链 Jade Amulet", "hp"),
         ("凤凰羽毛 Phoenix Feather", "spd"),
+        ("力量护符 Amulet of Power", "atk"),
     ],
 }
 

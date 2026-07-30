@@ -394,6 +394,16 @@ class SkillShopView(discord.ui.View):
             btn.callback = self._make_learn_callback(sid)
             self.add_item(btn)
 
+        # Equip Skills button
+        equip_btn = discord.ui.Button(
+            label="⚔️ Equip Skills 装备技能",
+            style=discord.ButtonStyle.primary,
+            row=4,
+            custom_id="skill_equip_btn",
+        )
+        equip_btn.callback = self._equip_skills_callback
+        self.add_item(equip_btn)
+
         if self.main_view:
             back_btn = discord.ui.Button(
                 label="Back to MMORPG / 返回", style=discord.ButtonStyle.danger,
@@ -439,6 +449,62 @@ class SkillShopView(discord.ui.View):
                 pass
         return cb
 
+    async def _equip_skills_callback(self, interaction: discord.Interaction):
+        """Show a dropdown to equip/unequip learned skills (max 4)."""
+        uid = str(interaction.user.id)
+        learned = _get_learned_skills(uid)
+
+        if not learned:
+            return await interaction.response.send_message(
+                "你没有已学技能！先去学习技能吧。\nNo learned skills! Learn some first.",
+                ephemeral=True,
+            )
+
+        # Build options — show equipped status
+        options = []
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT skill_id, equipped FROM player_skills WHERE user_id = ? AND skill_id IN ({})".format(
+                    ",".join("?" * len(learned))
+                ),
+                (uid, *list(learned.keys())),
+            )
+            rows = {r["skill_id"]: r["equipped"] for r in cur.fetchall()}
+
+        for sid in learned:
+            sdef = SKILLS.get(sid, {})
+            equipped = rows.get(sid, 0)
+            prefix = "✅" if equipped else "⬜"
+            label = f"{prefix} {sdef.get('name', sid)}"[:100]
+            options.append(discord.SelectOption(
+                label=label,
+                value=sid,
+                description=f"{'已装备 / Equipped' if equipped else '未装备 / Not equipped'} | {sdef.get('description', '')}"[:100],
+                emoji=sdef.get("emoji", "⚡"),
+            ))
+
+        view = SkillEquipView(self.uid, self, learned)
+        select = discord.ui.Select(
+            placeholder="Select skills to equip (max 4) / 选择要装备的技能（最多4个）",
+            options=options,
+            row=0,
+            max_values=min(4, len(options)),
+        )
+        select.callback = view._select_callback
+        view.add_item(select)
+
+        # Pre-set default values to currently equipped
+        equipped_ids = [sid for sid, eq in rows.items() if eq]
+        if equipped_ids:
+            select._selected_values = equipped_ids[:4]
+
+        await interaction.response.send_message(
+            "Select skills to equip (最多4个) / 选择要装备的技能：",
+            view=view,
+            ephemeral=True,
+        )
+
     async def _back_callback(self, interaction: discord.Interaction):
         if self.main_view:
             from cogs.mmorpg_shop import _get_user_stats, _get_balance
@@ -460,6 +526,53 @@ class SkillShopView(discord.ui.View):
                 await interaction.response.edit_message(embed=embed, view=self.main_view)
             except discord.InteractionResponded:
                 await interaction.edit_original_response(embed=embed, view=self.main_view)
+
+
+class SkillEquipView(discord.ui.View):
+    """View for equipping / unequipping skills via multi-select dropdown."""
+
+    def __init__(self, uid: str, shop_view: SkillShopView, learned: dict):
+        super().__init__(timeout=120)
+        self.uid = uid
+        self.shop_view = shop_view
+        self.learned = learned
+
+    async def _select_callback(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        if uid != self.uid:
+            return await interaction.response.send_message("Not your panel!", ephemeral=True)
+
+        selected = interaction.data.get("values", [])
+        # Max 4 skills
+        if len(selected) > 4:
+            selected = selected[:4]
+
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            # Unequip all first
+            cur.execute(
+                "UPDATE player_skills SET equipped = 0 WHERE user_id = ?",
+                (uid,),
+            )
+            # Equip selected
+            for sid in selected:
+                cur.execute(
+                    "UPDATE player_skills SET equipped = 1 WHERE user_id = ? AND skill_id = ?",
+                    (uid, sid),
+                )
+            conn.commit()
+
+        # Build response message
+        if not selected:
+            msg = "已清空装备的技能 / All skills unequipped."
+        else:
+            names = []
+            for sid in selected:
+                sdef = SKILLS.get(sid, {})
+                names.append(f"{sdef.get('emoji', '')} {sdef.get('name', sid)}")
+            msg = f"装备技能 / Equipped ({len(selected)}/4):\n" + "\n".join(names)
+
+        await interaction.response.send_message(msg, ephemeral=True)
 
 
 async def setup(bot):

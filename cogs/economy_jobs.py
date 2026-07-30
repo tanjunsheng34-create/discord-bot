@@ -962,6 +962,7 @@ class EconomyJobsView(discord.ui.View):
 
     async def _handle_job(self, interaction: discord.Interaction, uid: str, job: str):
         uname = interaction.user.display_name
+        pre_bal = get_balance(uid)
 
         if job == "work":
             base = random.randint(50, 200)
@@ -986,6 +987,13 @@ class EconomyJobsView(discord.ui.View):
                 f"💪 {uname} 搬砖中...",
                 f"💰 {uname} 收到工资！",
             ], embed)
+            earned = get_balance(uid) - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
 
         elif job == "beg":
@@ -1025,6 +1033,13 @@ class EconomyJobsView(discord.ui.View):
                 f"🙏 {uname} 双手合十乞求...",
                 f"💰 {'有人施舍了！' if roll < 0.60 or roll >= 0.90 else '没人回应...'}",
             ], embed)
+            earned = get_balance(uid) - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
 
         elif job == "fish":
@@ -1125,6 +1140,13 @@ class EconomyJobsView(discord.ui.View):
                 f"🐠 快出水了！",
                 f"💰 {uname} 收竿！",
             ], embed)
+            earned = get_balance(uid) - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
             if caught_member:
                 await interaction.channel.send(
@@ -1139,6 +1161,13 @@ class EconomyJobsView(discord.ui.View):
                 f"🐗 发现猎物！",
                 f"💰 {uname} 放箭！",
             ], embed)
+            earned = get_balance(uid) - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
             if hit_msg:
                 await interaction.channel.send(hit_msg)
@@ -1150,6 +1179,13 @@ class EconomyJobsView(discord.ui.View):
                 f"⛏️ {uname} 正在挖掘...",
                 f"💎 {uname} 发现了什么！",
             ], embed)
+            earned = get_balance(uid) - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
 
         elif job == "busk":
@@ -1159,6 +1195,13 @@ class EconomyJobsView(discord.ui.View):
                 f"🎶 {uname} 开始表演...",
                 f"👏 路人们围了过来！",
             ], embed)
+            earned = get_balance(uid) - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
 
         elif job == "stock":
@@ -1168,6 +1211,13 @@ class EconomyJobsView(discord.ui.View):
                 f"💹 {uname} 正在分析走势...",
                 f"📊 {uname} 下单买入！",
             ], embed)
+            earned = get_balance(uid) - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
 
         elif job == "miner":
@@ -1177,6 +1227,13 @@ class EconomyJobsView(discord.ui.View):
                 f"💎 {uname} 挥动十字镐...",
                 f"🪨 矿石掉落了！",
             ], embed)
+            earned = get_balance(uid) - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
 
         elif job == "fisher":
@@ -1186,6 +1243,13 @@ class EconomyJobsView(discord.ui.View):
                 f"🌊 海面泛起涟漪...",
                 f"🐟 {uname} 收网！",
             ], embed)
+            earned = get_balance(uid) - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
 
         elif job == "hunter":
@@ -1195,6 +1259,13 @@ class EconomyJobsView(discord.ui.View):
                 f"🏹 {uname} 拉弓瞄准...",
                 f"🐗 {uname} 猎物倒下！",
             ], embed)
+            earned = get_balance(uid) - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
 
         elif job == "merchant":
@@ -1204,6 +1275,13 @@ class EconomyJobsView(discord.ui.View):
                 f"💬 {uname} 与商人讨价还价...",
                 f"🤝 交易完成！",
             ], embed)
+            earned = get_balance(uid) - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
 
         elif job == "bounty":
@@ -1213,6 +1291,13 @@ class EconomyJobsView(discord.ui.View):
                 f"💀 {uname} 追踪目标...",
                 f"⚔️ {uname} 与目标交战！",
             ], embed)
+            earned = get_balance(uid) - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
 
         elif job == "alchemist":
@@ -1222,6 +1307,13 @@ class EconomyJobsView(discord.ui.View):
                 f"🔮 {uname} 混合药剂...",
                 f"💥 药水炼成！",
             ], embed)
+            earned = get_balance(uid) - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
 
         elif job == "blacksmith":
@@ -1231,6 +1323,13 @@ class EconomyJobsView(discord.ui.View):
                 f"🔥 {uname} 锻打铁锭...",
                 f"⚔️ 武器出炉！",
             ], embed)
+            earned = get_balance(uid) - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
 
         elif job == "enchanter":
@@ -1240,6 +1339,13 @@ class EconomyJobsView(discord.ui.View):
                 f"📖 {uname} 吟唱咒语...",
                 f"💫 附魔完成！",
             ], embed)
+            earned = get_balance(uid) - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
 
         elif job == "potion_dealer":
@@ -1249,6 +1355,13 @@ class EconomyJobsView(discord.ui.View):
                 f"💬 {uname} 招揽顾客...",
                 f"🪙 卖出药水！",
             ], embed)
+            earned = get_balance(uid) - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
 
         elif job == "adventurer":
@@ -1258,6 +1371,13 @@ class EconomyJobsView(discord.ui.View):
                 f"🗺️ {uname} 探索未知领域...",
                 f"💎 {uname} 发现宝藏！",
             ], embed)
+            earned = get_balance(uid) - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
 
     async def _handle_rob(self, interaction: discord.Interaction, uid: str):
@@ -1726,6 +1846,7 @@ class EconomyJobs(CogBase):
                     ephemeral=True,
                 )
             uname = interaction.user.display_name
+            pre_bal = get_balance(uid)
 
             base = random.randint(50, 200)
             bonus = 0
@@ -1755,6 +1876,14 @@ class EconomyJobs(CogBase):
                 f"💰 {uname} 收到工资！",
             ]
             await _animate_job(interaction, frames, embed)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
         except Exception as e:
             logger.error(f"[work_cmd] error: {e}", exc_info=True)
@@ -1781,6 +1910,7 @@ class EconomyJobs(CogBase):
                 )
             tid = str(target.id)
             uname = interaction.user.display_name
+            pre_bal = get_balance(uid)
             tname = target.display_name
 
             if target.id == interaction.user.id:
@@ -1842,6 +1972,14 @@ class EconomyJobs(CogBase):
                 f"💸 {uname} {result_text}",
             ]
             await _animate_job(interaction, frames, embed)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
         except Exception as e:
             logger.error(f"[rob_cmd] error: {e}", exc_info=True)
@@ -1866,6 +2004,7 @@ class EconomyJobs(CogBase):
                     ephemeral=True,
                 )
             uname = interaction.user.display_name
+            pre_bal = get_balance(uid)
 
             roll = random.random()
 
@@ -1907,6 +2046,14 @@ class EconomyJobs(CogBase):
                 f"💰 {'有人施舍了！' if roll < 0.60 or roll >= 0.90 else '没人回应...'}",
             ]
             await _animate_job(interaction, frames, embed)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
         except Exception as e:
             logger.error(f"[beg_cmd] error: {e}", exc_info=True)
@@ -1931,6 +2078,7 @@ class EconomyJobs(CogBase):
                     ephemeral=True,
                 )
             uname = interaction.user.display_name
+            pre_bal = get_balance(uid)
 
             roll = random.random()
 
@@ -2033,6 +2181,14 @@ class EconomyJobs(CogBase):
                 f"🐠 {uname} 拉杆！",
             ]
             await _animate_job(interaction, frames, embed)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
             if caught_member:
                 await interaction.channel.send(
@@ -2062,6 +2218,7 @@ class EconomyJobs(CogBase):
                     ephemeral=True,
                 )
             uname = interaction.user.display_name
+            pre_bal = get_balance(uid)
 
             embed, hit_msg = await _do_hunt(interaction.guild, uname, uid)
             await interaction.response.defer()
@@ -2071,6 +2228,14 @@ class EconomyJobs(CogBase):
                 f"🐾 {uname} 发现猎物！",
             ]
             await _animate_job(interaction, frames, embed)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
             if hit_msg:
                 await interaction.channel.send(hit_msg)
@@ -2097,6 +2262,7 @@ class EconomyJobs(CogBase):
                     ephemeral=True,
                 )
             uname = interaction.user.display_name
+            pre_bal = get_balance(uid)
             embed = await _do_treasure(interaction.guild, uname, uid)
             await interaction.response.defer()
             frames = [
@@ -2105,6 +2271,14 @@ class EconomyJobs(CogBase):
                 f"📦 {uname} 找到了什么！",
             ]
             await _animate_job(interaction, frames, embed)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
         except Exception as e:
             logger.error(f"[treasure_cmd] error: {e}", exc_info=True)
@@ -2129,6 +2303,7 @@ class EconomyJobs(CogBase):
                     ephemeral=True,
                 )
             uname = interaction.user.display_name
+            pre_bal = get_balance(uid)
             embed = await _do_busk(interaction.guild, uname, uid)
             await interaction.response.defer()
             frames = [
@@ -2137,6 +2312,14 @@ class EconomyJobs(CogBase):
                 f"🎩 {uname} 收取打赏！",
             ]
             await _animate_job(interaction, frames, embed)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
         except Exception as e:
             logger.error(f"[busk_cmd] error: {e}", exc_info=True)
@@ -2161,6 +2344,7 @@ class EconomyJobs(CogBase):
                     ephemeral=True,
                 )
             uname = interaction.user.display_name
+            pre_bal = get_balance(uid)
             embed = await _do_stock(uname, uid)
             await interaction.response.defer()
             frames = [
@@ -2169,6 +2353,14 @@ class EconomyJobs(CogBase):
                 f"📊 {uname} 交易完成！",
             ]
             await _animate_job(interaction, frames, embed)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
+            post_bal = get_balance(uid)
+            earned = post_bal - pre_bal
+            if earned != 0:
+                _add_global_xp(uid, earned)
             await _handle_job_xp(uid, interaction)
         except Exception as e:
             logger.error(f"[stock_cmd] error: {e}", exc_info=True)
@@ -2192,6 +2384,7 @@ class EconomyJobs(CogBase):
                 ephemeral=True,
             )
         uname = interaction.user.display_name
+        pre_bal = get_balance(uid)
         embed = await _do_miner(interaction.guild, uname, uid)
         await interaction.response.defer()
         frames = [
@@ -2200,6 +2393,10 @@ class EconomyJobs(CogBase):
             f"🪨 {uname} 收获矿石！",
         ]
         await _animate_job(interaction, frames, embed)
+        post_bal = get_balance(uid)
+        earned = post_bal - pre_bal
+        if earned != 0:
+            _add_global_xp(uid, earned)
         await _handle_job_xp(uid, interaction)
 
     # ══════════════════════════════════════════════════════════
@@ -2217,6 +2414,7 @@ class EconomyJobs(CogBase):
                 ephemeral=True,
             )
         uname = interaction.user.display_name
+        pre_bal = get_balance(uid)
         embed = await _do_fisher(interaction.guild, uname, uid)
         await interaction.response.defer()
         frames = [
@@ -2225,6 +2423,10 @@ class EconomyJobs(CogBase):
             f"🐟 {uname} 收网！",
         ]
         await _animate_job(interaction, frames, embed)
+        post_bal = get_balance(uid)
+        earned = post_bal - pre_bal
+        if earned != 0:
+            _add_global_xp(uid, earned)
         await _handle_job_xp(uid, interaction)
 
     # ══════════════════════════════════════════════════════════
@@ -2242,6 +2444,7 @@ class EconomyJobs(CogBase):
                 ephemeral=True,
             )
         uname = interaction.user.display_name
+        pre_bal = get_balance(uid)
         embed = await _do_hunter_job(interaction.guild, uname, uid)
         await interaction.response.defer()
         frames = [
@@ -2250,6 +2453,10 @@ class EconomyJobs(CogBase):
             f"🐗 {uname} 发射！",
         ]
         await _animate_job(interaction, frames, embed)
+        post_bal = get_balance(uid)
+        earned = post_bal - pre_bal
+        if earned != 0:
+            _add_global_xp(uid, earned)
         await _handle_job_xp(uid, interaction)
 
     # ══════════════════════════════════════════════════════════
@@ -2267,6 +2474,7 @@ class EconomyJobs(CogBase):
                 ephemeral=True,
             )
         uname = interaction.user.display_name
+        pre_bal = get_balance(uid)
         embed = await _do_merchant(interaction.guild, uname, uid)
         await interaction.response.defer()
         frames = [
@@ -2275,6 +2483,10 @@ class EconomyJobs(CogBase):
             f"🤝 {uname} 成交！",
         ]
         await _animate_job(interaction, frames, embed)
+        post_bal = get_balance(uid)
+        earned = post_bal - pre_bal
+        if earned != 0:
+            _add_global_xp(uid, earned)
         await _handle_job_xp(uid, interaction)
 
     # ══════════════════════════════════════════════════════════
@@ -2292,6 +2504,7 @@ class EconomyJobs(CogBase):
                 ephemeral=True,
             )
         uname = interaction.user.display_name
+        pre_bal = get_balance(uid)
         embed = await _do_bounty(interaction.guild, uname, uid)
         await interaction.response.defer()
         frames = [
@@ -2300,6 +2513,10 @@ class EconomyJobs(CogBase):
             f"⚔️ {uname} 与目标交战！",
         ]
         await _animate_job(interaction, frames, embed)
+        post_bal = get_balance(uid)
+        earned = post_bal - pre_bal
+        if earned != 0:
+            _add_global_xp(uid, earned)
         await _handle_job_xp(uid, interaction)
 
     # ══════════════════════════════════════════════════════════
@@ -2317,6 +2534,7 @@ class EconomyJobs(CogBase):
                 ephemeral=True,
             )
         uname = interaction.user.display_name
+        pre_bal = get_balance(uid)
         embed = await _do_alchemist(interaction.guild, uname, uid)
         await interaction.response.defer()
         frames = [
@@ -2325,6 +2543,10 @@ class EconomyJobs(CogBase):
             f"💥 {uname} 炼成药水！",
         ]
         await _animate_job(interaction, frames, embed)
+        post_bal = get_balance(uid)
+        earned = post_bal - pre_bal
+        if earned != 0:
+            _add_global_xp(uid, earned)
         await _handle_job_xp(uid, interaction)
 
     # ══════════════════════════════════════════════════════════
@@ -2342,6 +2564,7 @@ class EconomyJobs(CogBase):
                 ephemeral=True,
             )
         uname = interaction.user.display_name
+        pre_bal = get_balance(uid)
         embed = await _do_blacksmith(interaction.guild, uname, uid)
         await interaction.response.defer()
         frames = [
@@ -2350,6 +2573,10 @@ class EconomyJobs(CogBase):
             f"⚔️ {uname} 武器出炉！",
         ]
         await _animate_job(interaction, frames, embed)
+        post_bal = get_balance(uid)
+        earned = post_bal - pre_bal
+        if earned != 0:
+            _add_global_xp(uid, earned)
         await _handle_job_xp(uid, interaction)
 
     # ══════════════════════════════════════════════════════════
@@ -2367,6 +2594,7 @@ class EconomyJobs(CogBase):
                 ephemeral=True,
             )
         uname = interaction.user.display_name
+        pre_bal = get_balance(uid)
         embed = await _do_enchanter(interaction.guild, uname, uid)
         await interaction.response.defer()
         frames = [
@@ -2375,6 +2603,10 @@ class EconomyJobs(CogBase):
             f"💫 {uname} 附魔完成！",
         ]
         await _animate_job(interaction, frames, embed)
+        post_bal = get_balance(uid)
+        earned = post_bal - pre_bal
+        if earned != 0:
+            _add_global_xp(uid, earned)
         await _handle_job_xp(uid, interaction)
 
     # ══════════════════════════════════════════════════════════
@@ -2392,6 +2624,8 @@ class EconomyJobs(CogBase):
                 ephemeral=True,
             )
         uname = interaction.user.display_name
+        pre_bal = get_balance(uid)
+        pre_bal = get_balance(uid)
         embed = await _do_potion_dealer(interaction.guild, uname, uid)
         await interaction.response.defer()
         frames = [
@@ -2400,6 +2634,10 @@ class EconomyJobs(CogBase):
             f"🪙 {uname} 卖出药水！",
         ]
         await _animate_job(interaction, frames, embed)
+        post_bal = get_balance(uid)
+        earned = post_bal - pre_bal
+        if earned != 0:
+            _add_global_xp(uid, earned)
         await _handle_job_xp(uid, interaction)
 
     # ══════════════════════════════════════════════════════════
@@ -2425,6 +2663,10 @@ class EconomyJobs(CogBase):
             f"💎 {uname} 发现宝藏！",
         ]
         await _animate_job(interaction, frames, embed)
+        post_bal = get_balance(uid)
+        earned = post_bal - pre_bal
+        if earned != 0:
+            _add_global_xp(uid, earned)
         await _handle_job_xp(uid, interaction)
 
     # ══════════════════════════════════════════════════════════

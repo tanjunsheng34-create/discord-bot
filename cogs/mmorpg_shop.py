@@ -702,7 +702,7 @@ class MMORPGMainView(discord.ui.View):
     @discord.ui.button(label="Work 打工", emoji="\u2692\uFE0F", style=discord.ButtonStyle.primary, row=0, custom_id="mmorpg_main:work")
     async def work_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         from cogs.economy_jobs import EconomyJobsView
-        view = EconomyJobsView(self.uid, main_view=self)
+        view = EconomyJobsView(interaction.guild, main_view=self)
         embed = discord.Embed(
             title="\u2692\uFE0F Work / 打工",
             description="Choose a job to earn coins and EXP!\n选择工作来赚取金币和经验！",
@@ -715,10 +715,13 @@ class MMORPGMainView(discord.ui.View):
 
     @discord.ui.button(label="Shop 商店", emoji="\U0001f3ea", style=discord.ButtonStyle.primary, row=0, custom_id="mmorpg_main:shop")
     async def shop_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from cogs.mmorpg_shop import PotionBrowseView
         user_level = _get_user_level(self.uid)
-        view = PotionBrowseView(POTION_CATALOG, user_level, self.uid, main_view=self)
-        embed = view.build_embed("recovery")
+        view = ShopHubView(self.uid, user_level, main_view=self)
+        embed = discord.Embed(
+            title="\U0001f3ea Shop / 商店",
+            description="Choose a shop category!\n选择商店类型！",
+            color=0xE67E22,
+        )
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
@@ -726,8 +729,9 @@ class MMORPGMainView(discord.ui.View):
 
     @discord.ui.button(label="Class 职业", emoji="\U0001f464", style=discord.ButtonStyle.primary, row=0, custom_id="mmorpg_main:class")
     async def class_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from cogs.mmorpg_class import ClassSelectView
-        view = ClassSelectView(self.uid, None, main_view=self)
+        from cogs.mmorpg_class import ClassSelectView, _get_class
+        current_class = _get_class(self.uid)
+        view = ClassSelectView(self.uid, current_class, main_view=self)
         embed = discord.Embed(
             title="\U0001f464 Class / 职业",
             description="Choose your class!\n选择你的职业！",
@@ -1347,11 +1351,23 @@ class PotionBrowseView(discord.ui.View):
                     "INSERT INTO transactions (discord_id, amount, reason) VALUES (?, ?, ?)",
                     (uid, -p["price"], f"Buy potion / 购买药水: {p['name_en']}"),
                 )
-                conn.execute(
-                    "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) "
-                    "VALUES (?, ?, ?, 1, 'potion')",
-                    (uid, p["id"], potion_key),
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT quantity FROM user_inventory WHERE user_id = ? AND item_id = ?",
+                    (uid, p["id"]),
                 )
+                existing = cur.fetchone()
+                if existing:
+                    conn.execute(
+                        "UPDATE user_inventory SET quantity = quantity + 1 WHERE user_id = ? AND item_id = ?",
+                        (uid, p["id"]),
+                    )
+                else:
+                    conn.execute(
+                        "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) "
+                        "VALUES (?, ?, ?, 1, 'potion')",
+                        (uid, p["id"], potion_key),
+                    )
                 conn.commit()
             new_bal = _get_balance(uid)
             import asyncio as _asyncio
@@ -1390,6 +1406,239 @@ class PotionBrowseView(discord.ui.View):
     async def on_timeout(self):
         for child in self.children:
             child.disabled = True
+
+
+# ══════════════════════════════════════════════════════════════
+# ShopHubView — Shop hub with potion / equipment sub-menus
+# ══════════════════════════════════════════════════════════════
+class ShopHubView(discord.ui.View):
+    """Hub view linking to Potion Shop and Equipment Shop."""
+    def __init__(self, uid: str, user_level: int, main_view: MMORPGMainView):
+        super().__init__(timeout=300)
+        self.uid = uid
+        self.user_level = user_level
+        self.main_view = main_view
+
+    @discord.ui.button(label="🧪 Potion Shop 药水", style=discord.ButtonStyle.primary, row=0)
+    async def potion_shop_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.mmorpg_shop import PotionBrowseView
+        view = PotionBrowseView(POTION_CATALOG, self.user_level, self.uid, main_view=self.main_view)
+        embed = view.build_embed("recovery")
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="⚔️ Equipment Shop 装备", style=discord.ButtonStyle.success, row=0)
+    async def equip_shop_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        view = EquipmentShopView(self.uid, main_view=self.main_view)
+        embed = view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="↩ Back 返回", emoji="↩", style=discord.ButtonStyle.secondary, row=1)
+    async def back_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        uid = str(interaction.user.id)
+        embed = build_main_embed(uid, interaction.user.display_name)
+        try:
+            await interaction.response.edit_message(embed=embed, view=self.main_view)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=embed, view=self.main_view)
+
+
+# ══════════════════════════════════════════════════════════════
+# EquipmentShopView — Equipment purchase shop
+# ══════════════════════════════════════════════════════════════
+EQUIPMENT_SHOP = {
+    "weapon": [
+        {"name": "铁剑 Iron Sword", "quality": "normal", "stat": "atk", "stat_value": 10, "price": 500, "emoji": "⚔️"},
+        {"name": "秘银剑 Mithril Sword", "quality": "rare", "stat": "atk", "stat_value": 18, "price": 1200, "emoji": "⚔️"},
+        {"name": "烈焰之刃 Flame Blade", "quality": "epic", "stat": "atk", "stat_value": 28, "price": 3000, "emoji": "🔥"},
+    ],
+    "helmet": [
+        {"name": "铁盔 Iron Helm", "quality": "normal", "stat": "hp", "stat_value": 15, "price": 400, "emoji": "🪖"},
+        {"name": "秘银盔 Mithril Helm", "quality": "rare", "stat": "hp", "stat_value": 25, "price": 1000, "emoji": "🪖"},
+        {"name": "龙鳞盔 Dragonscale Helm", "quality": "epic", "stat": "hp", "stat_value": 38, "price": 2500, "emoji": "🐉"},
+    ],
+    "armor": [
+        {"name": "皮甲 Leather Armor", "quality": "normal", "stat": "def", "stat_value": 10, "price": 500, "emoji": "🛡️"},
+        {"name": "锁子甲 Chainmail", "quality": "rare", "stat": "def", "stat_value": 18, "price": 1200, "emoji": "🛡️"},
+        {"name": "龙鳞甲 Dragonscale Plate", "quality": "epic", "stat": "def", "stat_value": 28, "price": 3000, "emoji": "🐉"},
+    ],
+    "leggings": [
+        {"name": "布裤 Cloth Pants", "quality": "normal", "stat": "def", "stat_value": 8, "price": 350, "emoji": "👖"},
+        {"name": "锁子裤 Chain Leggings", "quality": "rare", "stat": "def", "stat_value": 14, "price": 900, "emoji": "👖"},
+        {"name": "龙鳞护腿 Dragonscale Greaves", "quality": "epic", "stat": "def", "stat_value": 22, "price": 2200, "emoji": "🐉"},
+    ],
+    "boots": [
+        {"name": "皮靴 Leather Boots", "quality": "normal", "stat": "spd", "stat_value": 8, "price": 350, "emoji": "👢"},
+        {"name": "铁靴 Iron Boots", "quality": "rare", "stat": "spd", "stat_value": 14, "price": 900, "emoji": "👢"},
+        {"name": "疾风之靴 Wind Walkers", "quality": "epic", "stat": "spd", "stat_value": 22, "price": 2200, "emoji": "💨"},
+    ],
+    "accessory": [
+        {"name": "铜戒 Copper Ring", "quality": "normal", "stat": "crit", "stat_value": 6, "price": 300, "emoji": "💍"},
+        {"name": "银戒 Silver Ring", "quality": "rare", "stat": "crit", "stat_value": 10, "price": 800, "emoji": "💍"},
+        {"name": "翡翠项链 Jade Amulet", "quality": "epic", "stat": "hp", "stat_value": 20, "price": 2000, "emoji": "📿"},
+    ],
+}
+
+EQUIPMENT_SHOP_SLOT_LABELS = {
+    "weapon": "⚔️ Weapon 武器",
+    "helmet": "🪖 Helmet 头盔",
+    "armor": "🛡️ Armor 护甲",
+    "leggings": "👖 Leggings 护腿",
+    "boots": "👢 Boots 鞋子",
+    "accessory": "📿 Accessory 饰品",
+}
+
+QUALITY_EMOJI = {
+    "normal": "⚪",
+    "rare": "🔵",
+    "epic": "🟣",
+    "legendary": "🟡",
+}
+
+
+class EquipmentShopView(discord.ui.View):
+    def __init__(self, uid: str, main_view: MMORPGMainView):
+        super().__init__(timeout=300)
+        self.uid = uid
+        self.main_view = main_view
+        self.slots = list(EQUIPMENT_SHOP.keys())
+        self.active_slot_idx = 0
+        self._rebuild_buttons()
+
+    def build_embed(self) -> discord.Embed:
+        slot = self.slots[self.active_slot_idx]
+        label = EQUIPMENT_SHOP_SLOT_LABELS[slot]
+        items = EQUIPMENT_SHOP[slot]
+
+        embed = discord.Embed(
+            title="⚔️ Equipment Shop / 装备商店",
+            description=f"**{label}** — Purchase to add to your inventory!\n购买后自动加入背包，可在装备面板中穿戴。",
+            color=0x27AE60,
+        )
+        bal = _get_balance(self.uid) or 0
+        embed.set_footer(text=f"Your balance: 🪙 {bal:,}  |  Click Buy to purchase an item")
+
+        for idx, item in enumerate(items):
+            qe = QUALITY_EMOJI.get(item["quality"], "⚪")
+            stat_label = {"atk": "ATK", "def": "DEF", "hp": "HP", "spd": "SPD", "crit": "CRIT"}.get(item["stat"], item["stat"].upper())
+            embed.add_field(
+                name=f"{idx + 1}. {item['emoji']} {qe} {item['name']}",
+                value=f"{stat_label} **+{item['stat_value']}**  |  🪙 **{item['price']:,}**",
+                inline=False,
+            )
+
+        nav = " / ".join(
+            f"**{EQUIPMENT_SHOP_SLOT_LABELS[s]}**" if i == self.active_slot_idx
+            else EQUIPMENT_SHOP_SLOT_LABELS[s]
+            for i, s in enumerate(self.slots)
+        )
+        embed.description += f"\n\n📂 {nav}"
+        return embed
+
+    def _rebuild_buttons(self):
+        self.clear_items()
+        slot = self.slots[self.active_slot_idx]
+        items = EQUIPMENT_SHOP[slot]
+
+        # Buy buttons for each item in current slot
+        for idx, item in enumerate(items):
+            btn = discord.ui.Button(
+                label=f"{item['emoji']} {item['name']} ({item['price']:,}🪙)",
+                style=discord.ButtonStyle.success if item["quality"] != "normal" else discord.ButtonStyle.primary,
+                row=0,
+                custom_id=None,
+            )
+            btn.callback = self._make_buy_callback(idx, item, slot)
+            self.add_item(btn)
+
+        # Navigation buttons for slots
+        prev_btn = discord.ui.Button(label="◀ Prev Slot", style=discord.ButtonStyle.secondary, row=1)
+        prev_btn.callback = self._prev_slot
+        self.add_item(prev_btn)
+
+        next_btn = discord.ui.Button(label="Next Slot ▶", style=discord.ButtonStyle.secondary, row=1)
+        next_btn.callback = self._next_slot
+        self.add_item(next_btn)
+
+        back_btn = discord.ui.Button(label="↩ Back to Shop Hub", style=discord.ButtonStyle.secondary, row=1)
+        back_btn.callback = self._back_to_hub
+        self.add_item(back_btn)
+
+    def _make_buy_callback(self, idx: int, item: dict, slot: str):
+        async def callback(interaction: discord.Interaction):
+            uid = str(interaction.user.id)
+            if uid != self.uid:
+                return await interaction.response.send_message("Not your shop / 不是你的商店", ephemeral=True)
+
+            bal = _get_balance(uid) or 0
+            if bal < item["price"]:
+                return await interaction.response.send_message(
+                    f"Insufficient coins! Need 🪙 {item['price']:,}, you have 🪙 {bal:,}\n金币不足！",
+                    ephemeral=True,
+                )
+
+            try:
+                with get_db_ctx() as conn:
+                    conn.execute(
+                        "INSERT INTO users (discord_id, username) VALUES (?, '') ON CONFLICT(discord_id) DO NOTHING",
+                        (uid,),
+                    )
+                    conn.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (-item["price"], uid))
+                    conn.execute(
+                        "INSERT INTO transactions (discord_id, amount, reason) VALUES (?, ?, ?)",
+                        (uid, -item["price"], f"Buy equipment / 购买装备: {item['name']}"),
+                    )
+                    conn.execute(
+                        "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) "
+                        "VALUES (?, ?, ?, 1, 'equipment')",
+                        (uid, f"eq_{slot}_{item['name'].split(' ')[0]}", item['name']),
+                    )
+                    conn.commit()
+                new_bal = _get_balance(uid) or 0
+                await interaction.response.send_message(
+                    f"✅ Purchased / 已购买: {item['emoji']} **{item['name']}** for 🪙 {item['price']:,}\n"
+                    f"Remaining / 余额: 🪙 {new_bal:,}",
+                    ephemeral=True,
+                )
+            except Exception as e:
+                logger.error(f"EquipmentShop buy error: {e}", exc_info=True)
+                await interaction.response.send_message(f"❌ Purchase failed / 购买失败: {e}", ephemeral=True)
+
+        return callback
+
+    async def _prev_slot(self, interaction: discord.Interaction):
+        self.active_slot_idx = (self.active_slot_idx - 1) % len(self.slots)
+        self._rebuild_buttons()
+        try:
+            await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    async def _next_slot(self, interaction: discord.Interaction):
+        self.active_slot_idx = (self.active_slot_idx + 1) % len(self.slots)
+        self._rebuild_buttons()
+        try:
+            await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=self.build_embed(), view=self)
+
+    async def _back_to_hub(self, interaction: discord.Interaction):
+        user_level = _get_user_level(self.uid)
+        view = ShopHubView(self.uid, user_level, main_view=self.main_view)
+        embed = discord.Embed(
+            title="🏪 Shop / 商店",
+            description="Choose a shop category!\n选择商店类型！",
+            color=0xE67E22,
+        )
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=embed, view=view)
 
 
 async def setup(bot):
