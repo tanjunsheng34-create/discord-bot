@@ -244,7 +244,7 @@ class EquipmentView(discord.ui.View):
                     emoji = "🔵"
                 options.append(discord.SelectOption(
                     label=name,
-                    value=str(row["item_id"]),
+                    value=row["item_name"],
                     description=f"x{qty} | {emoji}",
                     emoji=emoji,
                 ))
@@ -705,21 +705,8 @@ class EquipSelectView(discord.ui.View):
         self.main_view = main_view
 
     async def _select_callback(self, interaction: discord.Interaction):
-        item_id = int(interaction.data["values"][0])
+        item_name = interaction.data["values"][0]
         try:
-            with get_db_ctx() as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    "SELECT item_name FROM user_inventory WHERE item_id = ?",
-                    (item_id,),
-                )
-                row = cur.fetchone()
-            if not row:
-                return await interaction.response.send_message(
-                    "物品不存在 / Item not found", ephemeral=True
-                )
-
-            item_name = row["item_name"]
             success = _equip_item(self.uid, item_name)
             if success:
                 await interaction.response.edit_message(
