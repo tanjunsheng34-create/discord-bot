@@ -315,8 +315,9 @@ class EquipmentView(discord.ui.View):
         try:
             results = _auto_equip_best(self.uid)
             if not results:
-                return await interaction.response.send_message(
-                    "背包中没有可装备的装备！/ No equippable items in inventory!", ephemeral=True)
+                await interaction.response.defer(ephemeral=True)
+                return await interaction.edit_original_response(
+                    content="背包中没有可装备的装备！/ No equippable items in inventory!")
 
             # Build summary embed
             embed = discord.Embed(
@@ -340,13 +341,11 @@ class EquipmentView(discord.ui.View):
                         inline=True,
                     )
 
-            # Refresh equipment panel
+            # defer → refresh panel → send summary as ephemeral followup
             self._build()
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            try:
-                await interaction.edit_original_response(embed=self.build_main_embed(), view=self)
-            except Exception:
-                pass
+            await interaction.response.defer()
+            await interaction.edit_original_response(embed=self.build_main_embed(), view=self)
+            await interaction.followup.send(embed=embed, ephemeral=True)
         except Exception as e:
             logger.error(f"Best equip error (uid={self.uid}): {e}", exc_info=True)
             try:
