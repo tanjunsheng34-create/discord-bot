@@ -607,10 +607,8 @@ class Poker(commands.Cog):
                 await interaction.response.send_message(f"余额不足 Insufficient balance. You have {row[0] if row else 0} coins.", ephemeral=True)
                 return
             # Deduct buy-in immediately
-            with get_db_ctx() as conn:
-                cur = conn.cursor()
-                cur.execute("UPDATE users SET score = score - ? WHERE discord_id = ?", (buy_in, uid))
-                conn.commit()
+            from cogs.economy import add_coins
+            add_coins(uid, -buy_in, "Poker buy-in")
         except Exception as e:
             await interaction.response.send_message(f"Database error: {e}", ephemeral=True)
             return
