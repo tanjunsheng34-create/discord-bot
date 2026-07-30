@@ -7,6 +7,7 @@ Floor rewards increase with depth.
 import random
 import time
 import asyncio
+import logging
 import discord
 from discord import app_commands
 
@@ -14,6 +15,8 @@ from database import get_db_ctx
 from utils.cog_base import CogBase
 from utils.animations import battle_animation, progress_bar
 from cogs.economy import add_coins, get_balance
+
+logger = logging.getLogger(__name__)
 
 # ── Dungeon Monsters ──
 DUNGEON_MONSTERS = {
@@ -80,7 +83,7 @@ def _get_dungeon_runs(user_id: str) -> tuple:
         cur.execute("SELECT free_runs_used, last_reset_ts FROM dungeon_runs WHERE user_id=?", (user_id,))
         row = cur.fetchone()
 
-    if not row or row["last_reset_ts"] < midnight_ts:
+    if not row or row["last_reset_ts"] <= midnight_ts:
         # Reset for new day
         free_runs_used = 0
         _save_dungeon_state(user_id, 0, tomorrow_ts)
@@ -167,27 +170,45 @@ class DungeonView(discord.ui.View):
                     ephemeral=True,
                 )
                 return
+            logger.info(f"Dungeon entry: {self.uname}({self.uid}) floor={floor} cost={cost}G balance_before={bal}")
             add_coins(self.uid, -cost, "地下城入场费 / Dungeon entry fee")
+            new_bal = get_balance(self.uid)
+            logger.info(f"Dungeon entry: {self.uname}({self.uid}) deducted {cost}G balance_after={new_bal}")
 
         # Mark run used
         free_runs_used = 1 if free > 0 else 2
         import datetime
         utc8_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8)))
-        tomorrow_ts = int(utc8_now.replace(hour=0, minute=0, second=0).timestamp()) + 86400
-        _save_dungeon_state(self.uid, free_runs_used, utc8_now.replace(hour=0, minute=0, second=0).timestamp() + 86400)
+        _save_dungeon_state(self.uid, free_runs_used, int(utc8_now.replace(hour=0, minute=0, second=0).timestamp()) + 86400)
 
         await interaction.response.defer()
 
-        # Show entering animation
-        msg = await interaction.followup.send(
-            f"🚪 {self.uname} 进入了 **{FLOOR_NAMES[floor]}**...\n"
-            f"🚪 {self.uname} enters **{FLOOR_NAMES[floor]}**..."
-        )
-        await asyncio.sleep(1.5)
+        # Entry animation — multi-frame deep descent
+        msg = await interaction.followup.send("🚪 ...")
+        entry_frames = [
+            f"🚪 {self.uname} 走向地下城入口...\n🚪 {self.uname} approaches the dungeon...",
+            f"🏰 **{FLOOR_NAMES[floor]}**\n黑暗中传来低沉的咆哮...\nA low growl echoes in the darkness...",
+            f"⚔️ {self.uname} 进入了 **{FLOOR_NAMES[floor]}**！\n⚔️ {self.uname} enters **{FLOOR_NAMES[floor]}**!",
+        ]
+        for frame_text in entry_frames:
+            embed = discord.Embed(description=frame_text, color=0x8E44AD)
+            await msg.edit(embed=embed)
+            await asyncio.sleep(0.8)
 
         # Pick random monster
         monster = random.choice(DUNGEON_MONSTERS[floor])
         player = _get_player_stats(self.uid)
+
+        # Encounter animation
+        encounter_frames = [
+            f"👀 {self.uname} 环顾四周...",
+            f"❓ 前方有动静... Something stirs ahead...",
+            f"{monster['emoji']} **{monster['name']}** 出现了！\n{monster['emoji']} **{monster['name']}** appears!",
+        ]
+        for frame_text in encounter_frames:
+            embed = discord.Embed(description=frame_text, color=0xFF6600)
+            await msg.edit(embed=embed)
+            await asyncio.sleep(0.5)
 
         # Battle simulation
         p_hp = player["hp"]
@@ -195,7 +216,6 @@ class DungeonView(discord.ui.View):
         p_max_hp = player["max_hp"]
         m_max_hp = monster["hp"]
         round_num = 0
-        battle_log = []
 
         while p_hp > 0 and m_hp > 0 and round_num < 20:
             round_num += 1
@@ -207,7 +227,8 @@ class DungeonView(discord.ui.View):
                 p_dmg = int(p_dmg * 1.8)
             m_hp = max(0, m_hp - p_dmg)
 
-            battle_log.append(f"⚔️ {self.uname} 造成 {p_dmg} 伤害{'💥暴击!' if crit_hit else ''} / Dealt {p_dmg} dmg{' CRIT!' if crit_hit else ''}")
+            # Animate player attack
+            await battle_animation(msg, self.uname, monster["name"], p_dmg, is_crit=crit_hit)
 
             if m_hp <= 0:
                 break
@@ -215,9 +236,21 @@ class DungeonView(discord.ui.View):
             # Monster attacks
             m_dmg = max(1, random.randint(monster["atk"] // 2, monster["atk"]) - player["def"] // 2)
             p_hp = max(0, p_hp - m_dmg)
-            battle_log.append(f"👊 {monster['emoji']} {monster['name']} 造成 {m_dmg} 伤害 / {monster['name']} dealt {m_dmg} dmg")
 
-            # Update battle message every 2 rounds
+            # Animate monster counter
+            m_frames = [
+                f"{monster['emoji']} {monster['name']} 反击中...",
+                f"💢 {self.uname} 受到 {m_dmg} 点伤害！\n{self.uname} took {m_dmg} damage!",
+            ]
+            for frame_text in m_frames:
+                embed = discord.Embed(description=frame_text, color=0xE74C3C)
+                try:
+                    await msg.edit(embed=embed)
+                except (discord.NotFound, discord.HTTPException):
+                    pass
+                await asyncio.sleep(0.4)
+
+            # Full status update every 2 rounds
             if round_num % 2 == 0:
                 p_bar = progress_bar(p_hp, p_max_hp)
                 m_bar = progress_bar(m_hp, m_max_hp)
@@ -227,9 +260,8 @@ class DungeonView(discord.ui.View):
                 )
                 embed.add_field(name=f"🧑 {self.uname}", value=f"❤️ HP: {p_bar}", inline=True)
                 embed.add_field(name=f"{monster['emoji']} {monster['name']}", value=f"❤️ HP: {m_bar}", inline=True)
-                embed.description = "\n".join(battle_log[-4:])
                 await msg.edit(embed=embed)
-                await asyncio.sleep(1.2)
+                await asyncio.sleep(1.0)
 
         # Battle result — persist HP regardless of outcome
         from cogs.economy_jobs import _add_user_xp
