@@ -571,70 +571,70 @@ class RouletteColorView(discord.ui.View):
         await self._resolve(interaction, "green")
 
     async def _resolve(self, interaction: discord.Interaction, choice: str):
-        if str(interaction.user.id) != self.player_id:
-            return await interaction.response.send_message("这不是你的赌局！/ Not your bet!", ephemeral=True)
-        if self.finished:
-            return await interaction.response.send_message("赌局已结束 / Bet already resolved.", ephemeral=True)
+        try:
+            if str(interaction.user.id) != self.player_id:
+                return await interaction.response.send_message("这不是你的赌局！/ Not your bet!", ephemeral=True)
+            if self.finished:
+                return await interaction.response.send_message("赌局已结束 / Bet already resolved.", ephemeral=True)
 
-        self.finished = True
-        uid = self.player_id
+            self.finished = True
+            uid = self.player_id
 
-        # Roulette spin 0-36
-        # 0 = green
-        # 1-10: odd=red, even=black
-        # 11-18: odd=black, even=red
-        # 19-28: odd=red, even=black
-        # 29-36: odd=black, even=red
-        number = random.randint(0, 36)
+            # Roulette spin 0-36
+            number = random.randint(0, 36)
 
-        if number == 0:
-            result_color = "green"
-        elif (1 <= number <= 10) or (19 <= number <= 28):
-            result_color = "red" if number % 2 == 1 else "black"
-        else:
-            result_color = "red" if number % 2 == 0 else "black"
-
-        color_emoji = {"red": "🔴", "black": "⚫", "green": "🟢"}
-
-        win = (choice == result_color)
-        if win:
-            if result_color == "green":
-                multiplier = 15  # net: +14*bet (15x total)
-                profit = self.bet * 14
+            if number == 0:
+                result_color = "green"
+            elif (1 <= number <= 10) or (19 <= number <= 28):
+                result_color = "red" if number % 2 == 1 else "black"
             else:
-                multiplier = 2  # net: +bet (2x total)
-                profit = self.bet
-            add_coins(uid, profit, f"轮盘赌获胜 / Roulette win ({choice})")
-            pnl_text = f"🪙 +{profit:,}"
-        else:
-            profit = -self.bet
-            add_coins(uid, profit, f"轮盘赌输 / Roulette loss ({choice}, {result_color})")
-            pnl_text = f"🪙 {profit:,}"
+                result_color = "red" if number % 2 == 0 else "black"
 
-        bal = get_balance(uid)
+            color_emoji = {"red": "🔴", "black": "⚫", "green": "🟢"}
 
-        embed = discord.Embed(
-            title="🎡 轮盘 / Roulette",
-            color=0xF1C40F if win else 0xE74C3C,
-        )
-        embed.add_field(
-            name="结果 / Result",
-            value=f"🎯 **{number}** {color_emoji.get(result_color, '')}",
-            inline=True,
-        )
-        embed.add_field(name="你的选择 / Your Choice", value=f"{color_emoji.get(choice, '')} {choice}", inline=True)
-        embed.add_field(name="赌注 / Bet", value=_format_coins(self.bet), inline=True)
-        embed.add_field(name="盈亏 / P/L", value=pnl_text, inline=True)
-        embed.add_field(name="余额 / Balance", value=_format_coins(bal), inline=True)
-        embed.set_footer(text=f"Player: {self.player_name}")
+            win = (choice == result_color)
+            if win:
+                if result_color == "green":
+                    profit = self.bet * 14
+                else:
+                    profit = self.bet
+                add_coins(uid, profit, f"轮盘赌获胜 / Roulette win ({choice})")
+                pnl_text = f"🪙 +{profit:,}"
+            else:
+                profit = -self.bet
+                add_coins(uid, profit, f"轮盘赌输 / Roulette loss ({choice}, {result_color})")
+                pnl_text = f"🪙 {profit:,}"
 
-        for child in self.children:
-            child.disabled = True
+            bal = get_balance(uid)
 
-        from utils.animations import roulette_spin_animation
-        await interaction.response.defer()
-        await roulette_spin_animation(interaction, number, result_color)
-        await interaction.edit_original_response(content=None, embed=embed, view=self)
+            embed = discord.Embed(
+                title="🎡 轮盘 / Roulette",
+                color=0xF1C40F if win else 0xE74C3C,
+            )
+            embed.add_field(
+                name="结果 / Result",
+                value=f"🎯 **{number}** {color_emoji.get(result_color, '')}",
+                inline=True,
+            )
+            embed.add_field(name="你的选择 / Your Choice", value=f"{color_emoji.get(choice, '')} {choice}", inline=True)
+            embed.add_field(name="赌注 / Bet", value=_format_coins(self.bet), inline=True)
+            embed.add_field(name="盈亏 / P/L", value=pnl_text, inline=True)
+            embed.add_field(name="余额 / Balance", value=_format_coins(bal), inline=True)
+            embed.set_footer(text=f"Player: {self.player_name}")
+
+            for child in self.children:
+                child.disabled = True
+
+            from utils.animations import roulette_spin_animation
+            await interaction.response.defer()
+            await roulette_spin_animation(interaction, number, result_color)
+            await interaction.edit_original_response(content=None, embed=embed, view=self)
+        except Exception as e:
+            logger.error(f"Roulette _resolve error: {e}", exc_info=True)
+            try:
+                await interaction.response.send_message("轮盘出错 / Roulette error", ephemeral=True)
+            except Exception:
+                pass
 
     async def on_timeout(self):
         if not self.finished:

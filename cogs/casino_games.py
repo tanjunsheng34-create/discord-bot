@@ -99,79 +99,100 @@ class BlackjackView(discord.ui.View):
 
     @discord.ui.button(label="🃏 Hit 要牌", style=discord.ButtonStyle.primary)
     async def hit_btn(self, interaction: discord.Interaction, button):
-        if str(interaction.user.id) != self.player_id:
-            return await interaction.response.send_message("不是你的牌局 / Not your game!", ephemeral=True)
-        if self.finished:
-            return await interaction.response.send_message("牌局已结束 / Game over.", ephemeral=True)
+        try:
+            if str(interaction.user.id) != self.player_id:
+                return await interaction.response.send_message("不是你的牌局 / Not your game!", ephemeral=True)
+            if self.finished:
+                return await interaction.response.send_message("牌局已结束 / Game over.", ephemeral=True)
 
-        self.player_hand.append(self._draw())
-        pv = self._hand_value(self.player_hand)
+            self.player_hand.append(self._draw())
+            pv = self._hand_value(self.player_hand)
 
-        if pv > 21:
-            self.finished = True
-            uid = self.player_id
-            bal = get_balance(uid)
-            embed = await self._build_embed(show_dealer=True)
-            embed.color = 0xE74C3C
-            embed.add_field(name="结果 / Result", value=f"💥 爆牌 / Bust! 🪙 -{self.bet:,}", inline=False)
-            embed.add_field(name="余额 / Balance", value=f"🪙 {bal:,}", inline=True)
-            for child in self.children:
-                child.disabled = True
+            if pv > 21:
+                self.finished = True
+                uid = self.player_id
+                bal = get_balance(uid)
+                embed = await self._build_embed(show_dealer=True)
+                embed.color = 0xE74C3C
+                embed.add_field(name="结果 / Result", value=f"💥 爆牌 / Bust! 🪙 -{self.bet:,}", inline=False)
+                embed.add_field(name="余额 / Balance", value=f"🪙 {bal:,}", inline=True)
+                for child in self.children:
+                    child.disabled = True
+                try:
+                    await interaction.response.edit_message(embed=embed, view=self)
+                except discord.InteractionResponded:
+                    await interaction.edit_original_response(embed=embed, view=self)
+            elif pv == 21:
+                await self._stand(interaction)
+            else:
+                embed = await self._build_embed()
+                try:
+                    await interaction.response.edit_message(embed=embed, view=self)
+                except discord.InteractionResponded:
+                    await interaction.edit_original_response(embed=embed, view=self)
+        except Exception as e:
+            logger.error(f"Blackjack hit_btn error: {e}", exc_info=True)
             try:
-                await interaction.response.edit_message(embed=embed, view=self)
-            except discord.InteractionResponded:
-                await interaction.edit_original_response(embed=embed, view=self)
-        elif pv == 21:
-            await self._stand(interaction)
-        else:
-            embed = await self._build_embed()
-            try:
-                await interaction.response.edit_message(embed=embed, view=self)
-            except discord.InteractionResponded:
-                await interaction.edit_original_response(embed=embed, view=self)
+                await interaction.response.send_message("Error / 出错", ephemeral=True)
+            except Exception:
+                pass
 
     @discord.ui.button(label="✋ Stand 停牌", style=discord.ButtonStyle.secondary)
     async def stand_btn(self, interaction: discord.Interaction, button):
-        if str(interaction.user.id) != self.player_id:
-            return await interaction.response.send_message("不是你的牌局 / Not your game!", ephemeral=True)
-        if self.finished:
-            return await interaction.response.send_message("牌局已结束 / Game over.", ephemeral=True)
-        await self._stand(interaction)
+        try:
+            if str(interaction.user.id) != self.player_id:
+                return await interaction.response.send_message("不是你的牌局 / Not your game!", ephemeral=True)
+            if self.finished:
+                return await interaction.response.send_message("牌局已结束 / Game over.", ephemeral=True)
+            await self._stand(interaction)
+        except Exception as e:
+            logger.error(f"Blackjack stand_btn error: {e}", exc_info=True)
+            try:
+                await interaction.response.send_message("Error / 出错", ephemeral=True)
+            except Exception:
+                pass
 
     @discord.ui.button(label="⬇️ Double 双倍", style=discord.ButtonStyle.success)
     async def double_btn(self, interaction: discord.Interaction, button):
-        if str(interaction.user.id) != self.player_id:
-            return await interaction.response.send_message("不是你的牌局 / Not your game!", ephemeral=True)
-        if self.finished:
-            return await interaction.response.send_message("牌局已结束 / Game over.", ephemeral=True)
-        if len(self.player_hand) != 2:
-            return await interaction.response.send_message("只能在首轮双倍 / Double only on first turn!", ephemeral=True)
+        try:
+            if str(interaction.user.id) != self.player_id:
+                return await interaction.response.send_message("不是你的牌局 / Not your game!", ephemeral=True)
+            if self.finished:
+                return await interaction.response.send_message("牌局已结束 / Game over.", ephemeral=True)
+            if len(self.player_hand) != 2:
+                return await interaction.response.send_message("只能在首轮双倍 / Double only on first turn!", ephemeral=True)
 
-        uid = self.player_id
-        bal = get_balance(uid)
-        if bal < self.bet:
-            return await interaction.response.send_message(f"金币不足！需要 {self.bet:,} / Not enough coins!", ephemeral=True)
+            uid = self.player_id
+            bal = get_balance(uid)
+            if bal < self.bet:
+                return await interaction.response.send_message(f"金币不足！需要 {self.bet:,} / Not enough coins!", ephemeral=True)
 
-        add_coins(uid, -self.bet, "21点双倍追加 / Blackjack double down")
-        self.bet *= 2
-        self.player_hand.append(self._draw())
-        pv = self._hand_value(self.player_hand)
+            add_coins(uid, -self.bet, "21点双倍追加 / Blackjack double down")
+            self.bet *= 2
+            self.player_hand.append(self._draw())
+            pv = self._hand_value(self.player_hand)
 
-        if pv > 21:
-            self.finished = True
-            bal2 = get_balance(uid)
-            embed = await self._build_embed(show_dealer=True)
-            embed.color = 0xE74C3C
-            embed.add_field(name="结果 / Result", value=f"💥 爆牌 / Bust! 🪙 -{self.bet:,}", inline=False)
-            embed.add_field(name="余额 / Balance", value=f"🪙 {bal2:,}", inline=True)
-            for child in self.children:
-                child.disabled = True
+            if pv > 21:
+                self.finished = True
+                bal2 = get_balance(uid)
+                embed = await self._build_embed(show_dealer=True)
+                embed.color = 0xE74C3C
+                embed.add_field(name="结果 / Result", value=f"💥 爆牌 / Bust! 🪙 -{self.bet:,}", inline=False)
+                embed.add_field(name="余额 / Balance", value=f"🪙 {bal2:,}", inline=True)
+                for child in self.children:
+                    child.disabled = True
+                try:
+                    await interaction.response.edit_message(embed=embed, view=self)
+                except discord.InteractionResponded:
+                    await interaction.edit_original_response(embed=embed, view=self)
+            else:
+                await self._stand(interaction)
+        except Exception as e:
+            logger.error(f"Blackjack double_btn error: {e}", exc_info=True)
             try:
-                await interaction.response.edit_message(embed=embed, view=self)
-            except discord.InteractionResponded:
-                await interaction.edit_original_response(embed=embed, view=self)
-        else:
-            await self._stand(interaction)
+                await interaction.response.send_message("Error / 出错", ephemeral=True)
+            except Exception:
+                pass
 
     async def _stand(self, interaction):
         if self.finished:
@@ -638,18 +659,25 @@ class TicTacToeSelectView(discord.ui.View):
         self.add_item(self.opponent_select)
 
     async def _select_callback(self, interaction: discord.Interaction):
-        member = self.opponent_select.values[0]
-        if member.id == interaction.user.id:
-            return await interaction.response.send_message(
-                "不能和自己下棋 / Cannot play against yourself!", ephemeral=True)
-        if member.bot:
-            return await interaction.response.send_message(
-                "不能和机器人下棋 / Cannot play against bots!", ephemeral=True)
+        try:
+            member = self.opponent_select.values[0]
+            if member.id == interaction.user.id:
+                return await interaction.response.send_message(
+                    "不能和自己下棋 / Cannot play against yourself!", ephemeral=True)
+            if member.bot:
+                return await interaction.response.send_message(
+                    "不能和机器人下棋 / Cannot play against bots!", ephemeral=True)
 
-        self.opponent = member
-        await interaction.response.send_modal(
-            TicTacToeBetModal(self.player_id, self.player_name, member, self.guild)
-        )
+            self.opponent = member
+            await interaction.response.send_modal(
+                TicTacToeBetModal(self.player_id, self.player_name, member, self.guild)
+            )
+        except Exception as e:
+            logger.error(f"TicTacToe select error: {e}", exc_info=True)
+            try:
+                await interaction.response.send_message("Error selecting opponent / 选择对手出错", ephemeral=True)
+            except Exception:
+                pass
 
 
 class TicTacToeBetModal(discord.ui.Modal, title="❌⭕ 井字棋下注 / Tic Tac Toe Bet"):

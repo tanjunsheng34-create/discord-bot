@@ -181,51 +181,59 @@ class EquipmentView(discord.ui.View):
 
     async def _enhance_callback(self, interaction: discord.Interaction):
         """Handle equipment enhancement."""
-        equipped = _get_equipped(self.uid)
-        if not equipped:
-            return await interaction.response.send_message(
-                "No equipment to enhance / 没有可强化的装备！", ephemeral=True)
+        try:
+            equipped = _get_equipped(self.uid)
+            if not equipped:
+                return await interaction.response.send_message(
+                    "No equipment to enhance / 没有可强化的装备！", ephemeral=True)
 
-        # Show slot selection
-        options = []
-        for slot in EQUIP_SLOTS:
-            eq = equipped.get(slot)
-            if eq:
-                lvl = eq.get('enhance_level', 0)
-                if lvl >= 15:
-                    options.append(discord.SelectOption(
-                        label=f"{EQUIP_SLOT_LABELS_CN[slot]} +{lvl} (MAX)",
-                        value=slot,
-                        description="Already max level / 已达最大等级",
-                        emoji="✅",
-                    ))
-                else:
-                    cost = _get_enhance_cost(lvl)
-                    rate = _get_enhance_rate(lvl)
-                    options.append(discord.SelectOption(
-                        label=f"{EQUIP_SLOT_LABELS_CN[slot]} +{lvl} → +{lvl+1}",
-                        value=slot,
-                        description=f"Cost: {cost}G | Rate: {int(rate*100)}%",
-                        emoji="🔨",
-                    ))
+            # Show slot selection
+            options = []
+            for slot in EQUIP_SLOTS:
+                eq = equipped.get(slot)
+                if eq:
+                    lvl = eq.get('enhance_level', 0)
+                    if lvl >= 15:
+                        options.append(discord.SelectOption(
+                            label=f"{EQUIP_SLOT_LABELS_CN[slot]} +{lvl} (MAX)",
+                            value=slot,
+                            description="Already max level / 已达最大等级",
+                            emoji="✅",
+                        ))
+                    else:
+                        cost = _get_enhance_cost(lvl)
+                        rate = _get_enhance_rate(lvl)
+                        options.append(discord.SelectOption(
+                            label=f"{EQUIP_SLOT_LABELS_CN[slot]} +{lvl} → +{lvl+1}",
+                            value=slot,
+                            description=f"Cost: {cost}G | Rate: {int(rate*100)}%",
+                            emoji="🔨",
+                        ))
 
-        if not options:
-            return await interaction.response.send_message(
-                "No equipment to enhance / 没有可强化的装备！", ephemeral=True)
+            if not options:
+                return await interaction.response.send_message(
+                    "No equipment to enhance / 没有可强化的装备！", ephemeral=True)
 
-        view = EnhanceSelectView(self.uid, equipped, self)
-        select = discord.ui.Select(
-            placeholder="Select equipment to enhance / 选择要强化的装备",
-            options=options,
-            row=0,
-        )
-        select.callback = view._select_callback
-        view.add_item(select)
-        await interaction.response.send_message(
-            "Choose equipment to enhance / 选择要强化的装备：",
-            view=view,
-            ephemeral=True,
-        )
+            view = EnhanceSelectView(self.uid, equipped, self)
+            select = discord.ui.Select(
+                placeholder="Select equipment to enhance / 选择要强化的装备",
+                options=options,
+                row=0,
+            )
+            select.callback = view._select_callback
+            view.add_item(select)
+            await interaction.response.send_message(
+                "Choose equipment to enhance / 选择要强化的装备：",
+                view=view,
+                ephemeral=True,
+            )
+        except Exception as e:
+            logger.error(f"Enhance callback error (uid={self.uid}): {e}", exc_info=True)
+            try:
+                await interaction.response.send_message(
+                    "Error loading enhancement panel / 加载强化面板出错", ephemeral=True)
+            except Exception:
+                pass
 
     async def _back_callback(self, interaction: discord.Interaction):
         if self.main_view:
@@ -295,89 +303,109 @@ class EnhanceSelectView(discord.ui.View):
         self.eq_view = eq_view
 
     async def _select_callback(self, interaction: discord.Interaction):
-        slot = interaction.data["values"][0]
-        eq = self.equipped.get(slot)
-        if not eq:
-            return await interaction.response.send_message("Not equipped / 未装备", ephemeral=True)
-
-        lvl = eq.get("enhance_level", 0)
-        if lvl >= 15:
-            return await interaction.response.send_message(
-                "Already max level +15 / 已达最大强化等级！", ephemeral=True)
-
-        cost = _get_enhance_cost(lvl)
-        rate = _get_enhance_rate(lvl)
-
-        from cogs.mmorpg_shop import _get_balance as _bal, _add_coins
-        bal = _bal(self.uid)
-        if bal < cost:
-            return await interaction.response.send_message(
-                f"Insufficient coins / 金币不足！Need {cost:,}, you have {bal:,}", ephemeral=True)
-
-        # Deduct coins
-        _add_coins(self.uid, -cost, f"Enhance {eq['name']} +{lvl}→+{lvl+1}")
-
-        import random, asyncio
-
-        # Try enhancement with animation
-        success = random.random() < rate
-        if success:
-            new_lvl = lvl + 1
-            new_stat = int(eq["stat_value"] * (1 + 0.1) / (1 + lvl * 0.1) * (1 + new_lvl * 0.1))
-        else:
-            if lvl <= 5:
-                new_lvl = lvl  # No drop
-            elif lvl <= 10:
-                new_lvl = max(0, lvl - 1)
-            else:
-                new_lvl = max(0, lvl - 3)
-            if new_lvl == lvl:
-                new_stat = eq["stat_value"]
-            else:
-                new_stat = int(eq["stat_value"] * (1 + new_lvl * 0.1) / (1 + lvl * 0.1))
-
-        # Animation
-        from cogs.mmorpg_equipment import enhance_animation
-        await enhance_animation(interaction, lvl, new_lvl, success)
-
-        # Update DB
-        with get_db_ctx() as conn:
-            conn.execute(
-                "UPDATE user_equipment SET enhance_level = ?, stat_value = ? WHERE user_id = ? AND slot = ?",
-                (new_lvl, new_stat, self.uid, slot),
-            )
-            conn.commit()
-
-        new_bal = _bal(self.uid)
-        if success:
-            msg = (
-                f"## \u2728 Enhancement Success / \u5f3a\u5316\u6210\u529f\uff01\n"
-                f"**{eq['name']}**: +{lvl} \u2192 **+{new_lvl}**\n"
-                f"STAT: {eq['stat_value']} \u2192 **{new_stat}**\n"
-                f"Cost / \u82b1\u8d39: {cost:,}G  |  Balance / \u4f59\u989d: **{new_bal:,}**"
-            )
-        else:
-            if new_lvl < lvl:
-                msg = (
-                    f"## \U0001f4a5 Enhancement Failed / \u5f3a\u5316\u5931\u8d25\uff01\n"
-                    f"**{eq['name']}**: +{lvl} \u2192 **+{new_lvl}** (Dropped / \u964d\u7ea7)\n"
-                    f"Cost / \u82b1\u8d39: {cost:,}G  |  Balance / \u4f59\u989d: **{new_bal:,}**"
-                )
-            else:
-                msg = (
-                    f"## \U0001f4a5 Enhancement Failed / \u5f3a\u5316\u5931\u8d25\uff01\n"
-                    f"**{eq['name']}**: +{lvl} (No change / \u4e0d\u53d8)\n"
-                    f"Cost / \u82b1\u8d39: {cost:,}G  |  Balance / \u4f59\u989d: **{new_bal:,}**"
-                )
-
-        await interaction.followup.send(msg, ephemeral=True)
-
-        # Refresh the equipment view
-        self.eq_view._build()
+        deducted = False
+        cost = 0
+        reason = ""
         try:
-            await interaction.edit_original_response(embed=self.eq_view.build_main_embed(), view=self.eq_view)
-        except Exception:
-            pass
+            slot = interaction.data["values"][0]
+            eq = self.equipped.get(slot)
+            if not eq:
+                return await interaction.response.send_message("Not equipped / 未装备", ephemeral=True)
+
+            lvl = eq.get("enhance_level", 0)
+            if lvl >= 15:
+                return await interaction.response.send_message(
+                    "Already max level +15 / 已达最大强化等级！", ephemeral=True)
+
+            cost = _get_enhance_cost(lvl)
+            rate = _get_enhance_rate(lvl)
+
+            from cogs.mmorpg_shop import _get_balance as _bal, _add_coins
+            bal = _bal(self.uid)
+            if bal < cost:
+                return await interaction.response.send_message(
+                    f"Insufficient coins / 金币不足！Need {cost:,}, you have {bal:,}", ephemeral=True)
+
+            # Deduct coins
+            reason = f"Enhance {eq['name']} +{lvl}→+{lvl+1}"
+            _add_coins(self.uid, -cost, reason)
+            deducted = True
+
+            import random, asyncio
+
+            # Try enhancement with animation
+            success = random.random() < rate
+            if success:
+                new_lvl = lvl + 1
+                new_stat = int(eq["stat_value"] * (1 + 0.1) / (1 + lvl * 0.1) * (1 + new_lvl * 0.1))
+            else:
+                if lvl <= 5:
+                    new_lvl = lvl  # No drop
+                elif lvl <= 10:
+                    new_lvl = max(0, lvl - 1)
+                else:
+                    new_lvl = max(0, lvl - 3)
+                if new_lvl == lvl:
+                    new_stat = eq["stat_value"]
+                else:
+                    new_stat = int(eq["stat_value"] * (1 + new_lvl * 0.1) / (1 + lvl * 0.1))
+
+            # Animation
+            await enhance_animation(interaction, lvl, new_lvl, success)
+
+            # Update DB
+            with get_db_ctx() as conn:
+                conn.execute(
+                    "UPDATE user_equipment SET enhance_level = ?, stat_value = ? WHERE user_id = ? AND slot = ?",
+                    (new_lvl, new_stat, self.uid, slot),
+                )
+                conn.commit()
+
+            new_bal = _bal(self.uid)
+            if success:
+                msg = (
+                    f"## \u2728 Enhancement Success / \u5f3a\u5316\u6210\u529f\uff01\n"
+                    f"**{eq['name']}**: +{lvl} \u2192 **+{new_lvl}**\n"
+                    f"STAT: {eq['stat_value']} \u2192 **{new_stat}**\n"
+                    f"Cost / \u82b1\u8d39: {cost:,}G  |  Balance / \u4f59\u989d: **{new_bal:,}**"
+                )
+            else:
+                if new_lvl < lvl:
+                    msg = (
+                        f"## \U0001f4a5 Enhancement Failed / \u5f3a\u5316\u5931\u8d25\uff01\n"
+                        f"**{eq['name']}**: +{lvl} \u2192 **+{new_lvl}** (Dropped / \u964d\u7ea7)\n"
+                        f"Cost / \u82b1\u8d39: {cost:,}G  |  Balance / \u4f59\u989d: **{new_bal:,}**"
+                    )
+                else:
+                    msg = (
+                        f"## \U0001f4a5 Enhancement Failed / \u5f3a\u5316\u5931\u8d25\uff01\n"
+                        f"**{eq['name']}**: +{lvl} (No change / \u4e0d\u53d8)\n"
+                        f"Cost / \u82b1\u8d39: {cost:,}G  |  Balance / \u4f59\u989d: **{new_bal:,}**"
+                    )
+
+            await interaction.followup.send(msg, ephemeral=True)
+
+            # Refresh the equipment view
+            self.eq_view._build()
+            try:
+                await interaction.edit_original_response(embed=self.eq_view.build_main_embed(), view=self.eq_view)
+            except Exception:
+                pass
+        except Exception as e:
+            logger.error(f"Enhance _select_callback error (uid={self.uid}): {e}", exc_info=True)
+            if deducted:
+                try:
+                    _add_coins(self.uid, cost, f"Refund: {reason}")
+                    logger.info(f"Refunded {cost} to {self.uid} after enhance failure")
+                except Exception as re:
+                    logger.error(f"Refund failed for {self.uid}: {re}")
+            try:
+                await interaction.response.send_message(
+                    "Enhancement failed due to an error. Any deducted coins have been refunded. / 强化出错，已退还金币。",
+                    ephemeral=True,
+                )
+            except Exception:
+                pass
 
 
 def _get_equipped(user_id: str) -> dict:

@@ -408,11 +408,10 @@ async def settle_economy(game: PokerGame, channel: discord.TextChannel):
         net = p["chips"] - g.buy_in
         if net != 0:
             try:
-                conn = get_db()
-                cur = conn.cursor()
-                cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (net, str(uid)))
-                conn.commit()
-                conn.close()
+                with get_db_ctx() as conn:
+                    cur = conn.cursor()
+                    cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (net, str(uid)))
+                    conn.commit()
                 emoji = "📈" if net > 0 else "📉"
                 lines.append(f"{emoji} **{p['name']}**: {'+' if net > 0 else ''}{net} coins")
             except Exception as e:
@@ -602,20 +601,18 @@ class Poker(commands.Cog):
 
         uid = str(interaction.user.id)
         try:
-            conn = get_db()
-            cur = conn.cursor()
-            cur.execute("SELECT score FROM users WHERE discord_id = ?", (uid,))
-            row = cur.fetchone()
-            conn.close()
+            with get_db_ctx() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT score FROM users WHERE discord_id = ?", (uid,))
+                row = cur.fetchone()
             if not row or row[0] < buy_in:
                 await interaction.response.send_message(f"余额不足 Insufficient balance. You have {row[0] if row else 0} coins.", ephemeral=True)
                 return
             # Deduct buy-in immediately
-            conn = get_db()
-            cur = conn.cursor()
-            cur.execute("UPDATE users SET score = score - ? WHERE discord_id = ?", (buy_in, uid))
-            conn.commit()
-            conn.close()
+            with get_db_ctx() as conn:
+                cur = conn.cursor()
+                cur.execute("UPDATE users SET score = score - ? WHERE discord_id = ?", (buy_in, uid))
+                conn.commit()
         except Exception as e:
             await interaction.response.send_message(f"Database error: {e}", ephemeral=True)
             return
@@ -658,19 +655,17 @@ class Poker(commands.Cog):
 
         uid = str(interaction.user.id)
         try:
-            conn = get_db()
-            cur = conn.cursor()
-            cur.execute("SELECT score FROM users WHERE discord_id = ?", (uid,))
-            row = cur.fetchone()
-            conn.close()
+            with get_db_ctx() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT score FROM users WHERE discord_id = ?", (uid,))
+                row = cur.fetchone()
             if not row or row[0] < g.buy_in:
                 await interaction.response.send_message(f"余额不足 Insufficient balance. Need {g.buy_in} coins.", ephemeral=True)
                 return
-            conn = get_db()
-            cur = conn.cursor()
-            cur.execute("UPDATE users SET score = score - ? WHERE discord_id = ?", (g.buy_in, uid))
-            conn.commit()
-            conn.close()
+            with get_db_ctx() as conn:
+                cur = conn.cursor()
+                cur.execute("UPDATE users SET score = score - ? WHERE discord_id = ?", (g.buy_in, uid))
+                conn.commit()
         except Exception as e:
             await interaction.response.send_message(f"Database error: {e}", ephemeral=True)
             return
@@ -767,7 +762,6 @@ class PokerPanelView(discord.ui.View):
 
     @discord.ui.button(label="🃏 创建 / Create", style=discord.ButtonStyle.primary, row=0)
     async def create_table(self, interaction: discord.Interaction, button):
-        from cogs.poker import _games
         cid = interaction.channel_id
         if cid in _games:
             return await interaction.response.send_message("本频道已有牌局 / A game is already running in this channel.", ephemeral=True)
