@@ -369,7 +369,6 @@ class EquipmentView(discord.ui.View):
                     options.append(discord.SelectOption(
                         label=f"{EQUIP_SLOT_LABELS_CN[slot]}: {eq['name'][:50]}",
                         value=slot,
-                        emoji=eq.get("emoji", "🔴"),
                     ))
             if not options:
                 return await interaction.response.send_message(
