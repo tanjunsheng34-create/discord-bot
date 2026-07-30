@@ -51,6 +51,12 @@ BASE_NAMES = {
         ("暗影之刃 Shadow Blade", "atk"),
         ("龙牙剑 Dragonfang Blade", "atk"),
         ("冰霜之剑 Frostbrand", "atk"),
+        ("雷霆战锤 Thunder Hammer", "atk"),
+        ("烈焰之刃 Flame Saber", "atk"),
+        ("噬魂镰刀 Soul Reaper", "atk"),
+        ("星辰之杖 Starfall Staff", "atk"),
+        ("末日审判者 Doombringer", "atk"),
+        ("天启之刃 Apocalypse Blade", "atk"),
     ],
     "helmet": [
         ("布帽 Cloth Cap", "hp"),
@@ -60,6 +66,9 @@ BASE_NAMES = {
         ("王冠 Crown", "hp"),
         ("暗影兜帽 Shadow Hood", "hp"),
         ("圣光头冠 Holy Circlet", "hp"),
+        ("深渊凝视者 Abyssal Gaze", "hp"),
+        ("智慧之冠 Crown of Wisdom", "hp"),
+        ("不朽皇冠 Immortal Crown", "hp"),
     ],
     "armor": [
         ("皮甲 Leather Armor", "def"),
@@ -69,6 +78,9 @@ BASE_NAMES = {
         ("守护者铠甲 Guardian Plate", "def"),
         ("暗影斗篷 Shadow Mantle", "def"),
         ("圣骑士胸甲 Paladin Chestplate", "def"),
+        ("虚空战甲 Voidplate", "def"),
+        ("泰坦铠甲 Titan's Bulwark", "def"),
+        ("永恒之盾 Eternal Aegis", "def"),
     ],
     "leggings": [
         ("布裤 Cloth Pants", "def"),
@@ -76,6 +88,8 @@ BASE_NAMES = {
         ("锁子护腿 Chain Leggings", "def"),
         ("板甲护腿 Plate Greaves", "def"),
         ("龙鳞护腿 Dragonscale Greaves", "def"),
+        ("暗影护腿 Shadow Greaves", "def"),
+        ("风暴行者 Storm Striders", "def"),
     ],
     "boots": [
         ("布靴 Cloth Boots", "spd"),
@@ -83,6 +97,8 @@ BASE_NAMES = {
         ("铁靴 Iron Boots", "spd"),
         ("暗影之靴 Shadow Boots", "spd"),
         ("疾风之靴 Wind Walkers", "spd"),
+        ("踏云靴 Cloudsteppers", "spd"),
+        ("虚空行者 Void Walkers", "spd"),
     ],
     "accessory": [
         ("铜戒 Copper Ring", "crit"),
@@ -93,6 +109,34 @@ BASE_NAMES = {
         ("翡翠项链 Jade Amulet", "hp"),
         ("凤凰羽毛 Phoenix Feather", "spd"),
         ("力量护符 Amulet of Power", "atk"),
+        ("龙心护符 Dragonheart Amulet", "hp"),
+        ("时空沙漏 Hourglass of Eternity", "spd"),
+        ("弑神者印记 Mark of the Godslayer", "atk"),
+        ("命运之星 Star of Destiny", "crit"),
+    ],
+}
+
+# ── Legendary-only equipment (only rolls as legendary quality) ──
+LEGENDARY_ONLY = {
+    "weapon": [
+        ("诸神黄昏 Ragnarok", "atk"),
+        ("灭世者 World Ender", "atk"),
+    ],
+    "helmet": [
+        ("全知者之冠 Omniscient Crown", "hp"),
+    ],
+    "armor": [
+        ("创世神之铠 Genesis Plate", "def"),
+    ],
+    "leggings": [
+        ("终末护腿 Apocalypse Greaves", "def"),
+    ],
+    "boots": [
+        ("光速行者 Lightspeed Striders", "spd"),
+    ],
+    "accessory": [
+        ("创世之心 Heart of Creation", "crit"),
+        ("永恒契约 Eternal Pact", "hp"),
     ],
 }
 
@@ -100,7 +144,13 @@ BASE_NAMES = {
 def _roll_equipment(slot: str, min_level: int = 1) -> dict:
     """Generate a random equipment piece for the given slot."""
     quality_key = random.choices(list(QUALITIES.keys()), weights=QUALITY_WEIGHTS, k=1)[0]
-    base_name, stat_key = random.choice(BASE_NAMES[slot])
+
+    # Legendary quality: 60% chance to pick from LEGENDARY_ONLY pool
+    if quality_key == "legendary" and slot in LEGENDARY_ONLY and random.random() < 0.6:
+        base_name, stat_key = random.choice(LEGENDARY_ONLY[slot])
+    else:
+        base_name, stat_key = random.choice(BASE_NAMES[slot])
+
     quality = QUALITIES[quality_key]
     base_stat = random.randint(5 + min_level * 2, 15 + min_level * 5)
     stat_value = int(base_stat * quality["mult"])
@@ -570,16 +620,40 @@ def _equip_item(user_id: str, item_name: str) -> bool:
         else:
             cur.execute("UPDATE user_inventory SET quantity=quantity-1 WHERE item_id=?", (row["item_id"],))
 
-        # Unequip old and equip new
+        # ── Unequip old: subtract its stats from users table ──
+        cur.execute("SELECT stat, stat_value FROM user_equipment WHERE user_id=? AND slot=?", (user_id, slot))
+        old = cur.fetchone()
+        if old:
+            _apply_stat_delta(cur, user_id, old["stat"], -old["stat_value"])
         cur.execute("DELETE FROM user_equipment WHERE user_id=? AND slot=?", (user_id, slot))
+
+        # ── Equip new: add its stats to users table ──
         quality, stat_val = _parse_equip_quality(row["item_name"])
+        stat_val = int(stat_val)
         stat_type = SLOT_STATS.get(slot, ["atk"])[0]
         cur.execute(
             "INSERT INTO user_equipment (user_id, slot, name, quality, stat, stat_value, emoji) VALUES (?,?,?,?,?,?,?)",
             (user_id, slot, row["item_name"], quality, stat_type, stat_val, ""),
         )
+        _apply_stat_delta(cur, user_id, stat_type, stat_val)
+
         conn.commit()
     return True
+
+
+# ── Stat-to-users column mapping ──
+_STAT_COL_MAP = {"atk": "attack", "def": "defense", "hp": "max_hp"}
+
+
+def _apply_stat_delta(cur, user_id: str, stat: str, delta: int):
+    """Apply stat delta to users table. atk→attack, def→defense, hp→max_hp+hp.
+    crit/spd are not tracked in users table and are silently ignored."""
+    col = _STAT_COL_MAP.get(stat)
+    if not col:
+        return
+    cur.execute(f"UPDATE users SET {col} = MAX(0, {col} + ?) WHERE discord_id = ?", (delta, user_id))
+    if stat == "hp":
+        cur.execute("UPDATE users SET hp = MIN(hp + ?, max_hp) WHERE discord_id = ?", (delta, user_id))
 
 
 def _parse_equip_quality(name: str):
