@@ -1671,7 +1671,7 @@ class EquipmentShopView(discord.ui.View):
         for idx, item in enumerate(items):
             btn = discord.ui.Button(
                 label=f"{item['emoji']} {item['name']} ({item['price']:,}🪙)",
-                style=discord.ButtonStyle.success if item["quality"] != "normal" else discord.ButtonStyle.primary,
+                style=discord.ButtonStyle.success if item["quality"] != "common" else discord.ButtonStyle.primary,
                 row=idx // 5,
                 custom_id=None,
             )
@@ -1729,7 +1729,7 @@ class EquipmentShopView(discord.ui.View):
                             (uid, item_id),
                         )
                     else:
-                        encoded_name = f"{item['name']}|{item['stat']}:{item['stat_value']}|{item['quality']}"
+                        encoded_name = f"{item['name']}|||{item['stat']}:{item['stat_value']}|||{item['quality']}"
                         conn.execute(
                             "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) "
                             "VALUES (?, ?, ?, 1, 'equipment')",
@@ -1862,7 +1862,7 @@ GACHA_POOL = {
 }
 
 GACHA_QUALITY_WEIGHTS = {
-    "normal": 60,
+    "common": 60,
     "rare": 30,
     "epic": 9,
     "legendary": 1,
@@ -1948,9 +1948,11 @@ class EquipmentGachaView(discord.ui.View):
                 guaranteed_hit = True
 
             pool_items = GACHA_POOL[slot]
+            if not pool_items:
+                continue
             same_quality = [it for it in pool_items if it["quality"] == quality]
             if not same_quality:
-                same_quality = [it for it in pool_items if it["quality"] == "normal"]
+                same_quality = [it for it in pool_items if it["quality"] == "common"]
             item = random.choice(same_quality)
             results.append((slot, item))
 
@@ -1961,7 +1963,7 @@ class EquipmentGachaView(discord.ui.View):
                 (uid,),
             )
             for slot, item in results:
-                encoded_name = f"{item['name']}|{item['stat']}:{item['stat_value']}|{item['quality']}"
+                encoded_name = f"{item['name']}|||{item['stat']}:{item['stat_value']}|||{item['quality']}"
                 conn.execute(
                     "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) "
                     "VALUES (?, ?, ?, 1, 'equipment')",
@@ -2013,4 +2015,4 @@ class EquipmentGachaView(discord.ui.View):
             cumulative += weight
             if roll <= cumulative:
                 return quality
-        return "normal"
+        return "common"

@@ -139,22 +139,24 @@ LEGENDARY_ONLY = {
 
 
 def _strip_stat_suffix(item_name: str) -> str:
-    """Strip |stat:value|quality suffix from item_name for display."""
+    """Strip |||stat:value|||quality suffix from item_name for display."""
+    if "|||" in item_name:
+        return item_name.split("|||")[0]
     if "|" in item_name:
         return item_name.split("|")[0]
     return item_name
 
 
 def _parse_item_name(item_name: str):
-    """Parse item_name in format 'Name|stat1:val1,stat2:val2|quality'.
+    """Parse item_name in format 'Name|||stat1:val1,stat2:val2|||quality'.
     Returns (clean_name, stat_str, stat_value_str, quality).
-    For legacy items without |, returns (item_name, 'atk', '5', 'common').
+    For legacy items without |||, returns (item_name, 'atk', '5', 'common').
     """
-    if "|" not in item_name:
+    if "|||" not in item_name:
         logger.warning(f"_parse_item_name: legacy item_name (no pipe): {item_name}")
         return item_name, "atk", "5", "common"
 
-    parts = item_name.split("|")
+    parts = item_name.split("|||")
     if len(parts) < 3:
         logger.warning(f"_parse_item_name: malformed item_name: {item_name}")
         return parts[0], "atk", "5", "common"
@@ -798,12 +800,12 @@ def _apply_stat_delta(cur, user_id: str, stat_str: str, delta_str: str):
 
 def _equip_item(user_id: str, item_name: str) -> bool:
     """Equip an item from inventory. Parses stat info from item_name.
-    item_name format: 'Name|stat_type:stat_value|quality' or legacy plain name.
+    item_name format: 'Name|||stat_type:stat_value|||quality' or legacy plain name.
     Returns True if successful."""
     with get_db_ctx() as conn:
         cur = conn.cursor()
         # Find the item in inventory — use LIKE for partial match on the name part
-        search_name = item_name.split("|")[0] if "|" in item_name else item_name
+        search_name = item_name.split("|||")[0] if "|||" in item_name else item_name
         cur.execute(
             "SELECT item_id, item_name, item_type, quantity FROM user_inventory WHERE user_id=? AND item_name LIKE ?",
             (user_id, f"%{search_name}%"),
@@ -831,12 +833,6 @@ def _equip_item(user_id: str, item_name: str) -> bool:
             logger.error(f"_equip_item: cannot determine slot for item_id={item_id} item_name={row['item_name']}")
             return False
 
-        # Consume 1 from inventory
-        if row["quantity"] <= 1:
-            cur.execute("DELETE FROM user_inventory WHERE item_id=?", (row["item_id"],))
-        else:
-            cur.execute("UPDATE user_inventory SET quantity=quantity-1 WHERE item_id=?", (row["item_id"],))
-
         # ── Parse stat info from item_name ──
         clean_name, stat_str, stat_val_str, quality = _parse_item_name(row["item_name"])
 
@@ -844,7 +840,6 @@ def _equip_item(user_id: str, item_name: str) -> bool:
         cur.execute("SELECT stat, stat_value FROM user_equipment WHERE user_id=? AND slot=?", (user_id, slot))
         old = cur.fetchone()
         if old:
-            # Negate each stat value to subtract from users table
             old_stat_str = str(old["stat"])
             old_val_str = str(old["stat_value"])
             old_stats = old_stat_str.split(",")
@@ -864,6 +859,12 @@ def _equip_item(user_id: str, item_name: str) -> bool:
             (user_id, slot, clean_name, quality, stat_str, stat_val_str, ""),
         )
         _apply_stat_delta(cur, user_id, stat_str, stat_val_str)
+
+        # ── Consume from inventory (after successful equip, within same transaction) ──
+        if row["quantity"] <= 1:
+            cur.execute("DELETE FROM user_inventory WHERE item_id=?", (row["item_id"],))
+        else:
+            cur.execute("UPDATE user_inventory SET quantity=quantity-1 WHERE item_id=?", (row["item_id"],))
 
         conn.commit()
         logger.info(f"_equip_item: uid={user_id} slot={slot} name={clean_name} stat={stat_str} val={stat_val_str} quality={quality}")
