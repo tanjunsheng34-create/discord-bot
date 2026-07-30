@@ -207,7 +207,7 @@ class EquipmentView(discord.ui.View):
     """装备面板 / Equipment panel with slot buttons."""
 
     def __init__(self, uid_or_guild, user_id: str = None, user_name: str = None, main_view=None):
-        super().__init__(timeout=180)
+        super().__init__(timeout=600)
         if isinstance(user_id, str):
             self.uid = user_id
             self.uname = user_name
@@ -438,7 +438,7 @@ class EquipmentView(discord.ui.View):
                     emoji=emoji,
                 ))
 
-            view = EquipSelectView(self.uid, self)
+            view = EquipSelectView(self.uid, self, interaction.message)
             select = discord.ui.Select(
                 placeholder="选择要装备的装备 / Select equipment to equip",
                 options=options[:25],
@@ -866,6 +866,7 @@ def _equip_item(user_id: str, item_name: str) -> bool:
         _apply_stat_delta(cur, user_id, stat_str, stat_val_str)
 
         conn.commit()
+        logger.info(f"_equip_item: uid={user_id} slot={slot} name={clean_name} stat={stat_str} val={stat_val_str} quality={quality}")
     return True
 
 
@@ -1129,10 +1130,11 @@ class MMORPGEquipment(CogBase):
 class EquipSelectView(discord.ui.View):
     """Select view for equipping items from inventory."""
 
-    def __init__(self, uid: str, main_view=None):
+    def __init__(self, uid: str, main_view=None, panel_msg=None):
         super().__init__(timeout=60)
         self.uid = uid
         self.main_view = main_view
+        self.panel_msg = panel_msg  # The EquipmentView panel message to refresh after equip
 
     async def _select_callback(self, interaction: discord.Interaction):
         item_name = interaction.data["values"][0]
@@ -1140,11 +1142,21 @@ class EquipSelectView(discord.ui.View):
             success = _equip_item(self.uid, item_name)
             if success:
                 display_name = _strip_stat_suffix(item_name)
+                logger.info(f"Equip success: uid={self.uid} item={item_name} -> parsed name={display_name}")
                 await interaction.response.edit_message(
                     content=f"装备成功！/ Equipped: **{display_name}**",
                     view=None,
                 )
+                # Refresh the parent EquipmentView panel if available
+                if self.main_view and hasattr(self.main_view, '_build') and self.panel_msg:
+                    try:
+                        self.main_view._build()
+                        embed = self.main_view.build_main_embed()
+                        await self.panel_msg.edit(embed=embed, view=self.main_view)
+                    except (discord.NotFound, discord.HTTPException) as e:
+                        logger.warning(f"Failed to refresh EquipmentView after equip: {e}")
             else:
+                logger.warning(f"Equip failed: uid={self.uid} item_name={item_name}")
                 await interaction.response.send_message(
                     "装备失败 / Equip failed", ephemeral=True
                 )
