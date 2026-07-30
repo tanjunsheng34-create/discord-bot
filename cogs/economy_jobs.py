@@ -223,10 +223,19 @@ def _add_user_xp(uid: str, amount: int) -> tuple:
             level_ups += 1
             xp_to_next = new_level * 1000
 
-        cur.execute(
-            "UPDATE users SET xp = ?, level = ? WHERE discord_id = ?",
-            (new_xp, new_level, uid),
-        )
+        # Grant stat growth on level-up: +10 max_hp, +3 attack per level gained
+        if level_ups > 0:
+            hp_gain = level_ups * 10
+            atk_gain = level_ups * 3
+            cur.execute(
+                "UPDATE users SET xp = ?, level = ?, max_hp = max_hp + ?, hp = max_hp + ?, attack = attack + ? WHERE discord_id = ?",
+                (new_xp, new_level, hp_gain, hp_gain, atk_gain, uid),
+            )
+        else:
+            cur.execute(
+                "UPDATE users SET xp = ?, level = ? WHERE discord_id = ?",
+                (new_xp, new_level, uid),
+            )
         conn.commit()
 
     return (amount, level_ups > 0, old_level, new_level, level_ups)

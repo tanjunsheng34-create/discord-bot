@@ -231,15 +231,19 @@ class DungeonView(discord.ui.View):
                 await msg.edit(embed=embed)
                 await asyncio.sleep(1.2)
 
-        # Battle result
+        # Battle result — persist HP regardless of outcome
+        from cogs.economy_jobs import _add_user_xp
+        with get_db_ctx() as conn:
+            conn.execute("UPDATE users SET hp = ? WHERE discord_id = ?", (p_hp, self.uid))
+            conn.commit()
+
         if p_hp > 0:
             # Victory!
             coins_earned = monster["coins"] + random.randint(-20, 50)
             exp_earned = monster["exp"]
 
             add_coins(self.uid, coins_earned, f"地下城第{floor}层奖励 / Dungeon floor {floor} reward")
-            # Add exp with level-up check
-            from cogs.economy_jobs import _add_user_xp
+            # Add exp with level-up check (now also grants stat growth on level-up)
             _, did_level, old_lv, new_lv, lv_ups = _add_user_xp(self.uid, exp_earned)
 
             bal = get_balance(self.uid)

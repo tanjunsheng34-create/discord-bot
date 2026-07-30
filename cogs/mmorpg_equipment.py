@@ -5,11 +5,14 @@ Qualities: ⚪ Normal / 🔵 Rare / 🟣 Epic / 🟡 Legendary
 """
 
 import random
+import logging
 import discord
 from discord import app_commands
 
 from database import get_db_ctx
 from utils.cog_base import CogBase
+
+logger = logging.getLogger(__name__)
 
 EQUIP_SLOTS = ["weapon", "armor", "helmet", "ring", "accessory"]
 EQUIP_SLOT_LABELS_CN = {
@@ -103,15 +106,19 @@ class EquipmentView(discord.ui.View):
         # Support two calling conventions:
         # 1. New: EquipmentView(uid, main_view=mv)
         # 2. Old: EquipmentView(guild, uid, uname)
-        if user_id is None:
-            self.uid = str(uid_or_guild)
-            self.uname = None
-            self.main_view = user_id  # passed as second arg
-        else:
-            self.uid = str(user_id)
+        if isinstance(user_id, str):
+            # Old style: (guild, uid_str, uname_str)
+            self.uid = user_id
             self.uname = user_name
             self.main_view = main_view
-        self.guild = uid_or_guild if user_id is not None else None
+            self.guild = uid_or_guild
+        else:
+            # New style: (uid_str, main_view=view_obj)
+            self.uid = str(uid_or_guild)
+            self.uname = None
+            self.guild = None
+            # When called as EquipmentView(uid, main_view=mv), user_id receives the main_view
+            self.main_view = user_id if user_id is not None else main_view
         self._build()
 
     def build_main_embed(self):
@@ -540,25 +547,24 @@ def _get_enhance_cost(from_level: int) -> int:
 
 
 async def enhance_animation(interaction, level_before: int, level_after: int, success: bool):
-    """Animate the enhancement process."""
+    """Animate the enhancement process. Returns the interaction with the original response edited to the final result."""
     import asyncio
     try:
-        msg = await interaction.followup.send(
+        await interaction.response.send_message(
             f"🔨 Enhancing... **+{level_before}** → 🔨...",
             ephemeral=True,
         )
         await asyncio.sleep(0.6)
-        await msg.edit(content=f"🔨 Enhancing... **+{level_before}** → ✨...")
+        await interaction.edit_original_response(content=f"🔨 Enhancing... **+{level_before}** → ✨...")
         await asyncio.sleep(0.6)
         if success:
-            await msg.edit(content=f"✨ Enhancement success! **+{level_before}** → **+{level_after}** ✨")
+            await interaction.edit_original_response(content=f"✨ Enhancement success! **+{level_before}** → **+{level_after}** ✨")
         else:
             if level_after < level_before:
-                await msg.edit(content=f"💥 Enhancement failed! **+{level_before}** → **+{level_after}** (dropped)")
+                await interaction.edit_original_response(content=f"💥 Enhancement failed! **+{level_before}** → **+{level_after}** (dropped)")
             else:
-                await msg.edit(content=f"💥 Enhancement failed! Stayed at **+{level_before}**")
+                await interaction.edit_original_response(content=f"💥 Enhancement failed! Stayed at **+{level_before}**")
         await asyncio.sleep(1.0)
-        await msg.delete()
     except Exception:
         pass
 
