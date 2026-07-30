@@ -286,6 +286,14 @@ class EquipmentView(discord.ui.View):
         equip_btn.callback = self._equip_callback
         self.add_item(equip_btn)
 
+        unequip_btn = discord.ui.Button(
+            label="Unequip 卸下", emoji="🔴",
+            style=discord.ButtonStyle.danger, row=2,
+            custom_id="eq_unequip",
+        )
+        unequip_btn.callback = self._unequip_callback
+        self.add_item(unequip_btn)
+
         enhance_btn = discord.ui.Button(
             label="Enhance 强化", emoji="🔨",
             style=discord.ButtonStyle.success, row=2,
@@ -344,6 +352,54 @@ class EquipmentView(discord.ui.View):
             try:
                 await interaction.response.send_message(
                     "一键装备出错 / Best equip error", ephemeral=True)
+            except Exception:
+                pass
+
+    async def _unequip_callback(self, interaction: discord.Interaction):
+        """Unequip from a selected slot."""
+        try:
+            equipped = _get_equipped(self.uid)
+            if not equipped:
+                return await interaction.response.send_message(
+                    "No equipment to unequip / 没有装备可卸下", ephemeral=True)
+
+            options = []
+            for slot in EQUIP_SLOTS:
+                eq = equipped.get(slot)
+                if eq:
+                    options.append(discord.SelectOption(
+                        label=f"{EQUIP_SLOT_LABELS_CN[slot]}: {eq['name'][:50]}",
+                        value=slot,
+                        emoji=eq.get("emoji", "🔴"),
+                    ))
+            if not options:
+                return await interaction.response.send_message(
+                    "No equipment to unequip / 没有装备可卸下", ephemeral=True)
+
+            class UnequipSelect(discord.ui.Select):
+                def __init__(sel):
+                    super().__init__(placeholder="Select slot to unequip / 选择要卸下的槽位", options=options)
+
+                async def callback(sel, inter: discord.Interaction):
+                    slot = sel.values[0]
+                    success = _unequip_item(self.uid, slot)
+                    if success:
+                        self._build()
+                        await inter.response.edit_message(
+                            content=f"✅ Unequipped / 已卸下: **{EQUIP_SLOT_LABELS_CN[slot]}**", embed=None, view=None)
+                    else:
+                        await inter.response.send_message(
+                            "Unequip failed / 卸下失败", ephemeral=True)
+
+            view = discord.ui.View(timeout=60)
+            view.add_item(UnequipSelect())
+            await interaction.response.send_message(
+                "Select a slot to unequip / 选择要卸下的槽位:", view=view, ephemeral=True)
+        except Exception as e:
+            logger.error(f"Unequip callback error (uid={self.uid}): {e}", exc_info=True)
+            try:
+                await interaction.response.send_message(
+                    "卸下过程出错 / Error during unequip", ephemeral=True)
             except Exception:
                 pass
 

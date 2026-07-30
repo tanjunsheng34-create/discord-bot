@@ -1666,27 +1666,27 @@ class EquipmentShopView(discord.ui.View):
         slot = self.slots[self.active_slot_idx]
         items = EQUIPMENT_SHOP[slot]
 
-        # Buy buttons for each item in current slot
+        # Buy buttons for each item in current slot (max 5 per row)
         for idx, item in enumerate(items):
             btn = discord.ui.Button(
                 label=f"{item['emoji']} {item['name']} ({item['price']:,}🪙)",
                 style=discord.ButtonStyle.success if item["quality"] != "normal" else discord.ButtonStyle.primary,
-                row=0,
+                row=idx // 5,
                 custom_id=None,
             )
             btn.callback = self._make_buy_callback(idx, item, slot)
             self.add_item(btn)
 
         # Navigation buttons for slots
-        prev_btn = discord.ui.Button(label="◀ Prev Slot", style=discord.ButtonStyle.secondary, row=1)
+        prev_btn = discord.ui.Button(label="◀ Prev Slot", style=discord.ButtonStyle.secondary, row=2)
         prev_btn.callback = self._prev_slot
         self.add_item(prev_btn)
 
-        next_btn = discord.ui.Button(label="Next Slot ▶", style=discord.ButtonStyle.secondary, row=1)
+        next_btn = discord.ui.Button(label="Next Slot ▶", style=discord.ButtonStyle.secondary, row=2)
         next_btn.callback = self._next_slot
         self.add_item(next_btn)
 
-        back_btn = discord.ui.Button(label="↩ Back to Shop Hub", style=discord.ButtonStyle.secondary, row=1)
+        back_btn = discord.ui.Button(label="↩ Back to Shop Hub", style=discord.ButtonStyle.secondary, row=2)
         back_btn.callback = self._back_to_hub
         self.add_item(back_btn)
 
