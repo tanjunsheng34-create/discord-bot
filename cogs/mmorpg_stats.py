@@ -2,14 +2,25 @@
 GMPT Bot — MMORPG Stats Panel / MMORPG 属性面板
 /gmpt-stats — View detailed character stats / 查看详细角色属性
 """
+import logging
 import discord
 from discord import app_commands
 from discord.ext import commands
 from database import get_db_ctx
 from utils.cog_base import CogBase
 
+logger = logging.getLogger(__name__)
+
+# ── Stat growth per level (no DEF growth) ──
+ATK_PER_LEVEL = 3
+HP_PER_LEVEL = 10
+BASE_ATTACK = 10
+BASE_MAX_HP = 100
+BASE_DEFENSE = 5
+
 
 def _get_user_stats(uid: str):
+    """Read user stats, auto-fixing any missing level-up stat growth."""
     with get_db_ctx() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -17,9 +28,48 @@ def _get_user_stats(uid: str):
             (uid,),
         )
         row = cur.fetchone()
-    if row:
-        return dict(row)
-    return {"hp": 100, "max_hp": 100, "mp": 50, "max_mp": 50, "attack": 10, "defense": 5, "level": 1, "xp": 0}
+
+    if not row:
+        return {"hp": 100, "max_hp": 100, "mp": 50, "max_mp": 50, "attack": 10, "defense": 5, "level": 1, "xp": 0}
+
+    stats = dict(row)
+    level = stats["level"]
+
+    # ── Auto-fix: recalculate stats for users who leveled before growth code was deployed ──
+    expected_attack = BASE_ATTACK + (level - 1) * ATK_PER_LEVEL
+    expected_max_hp = BASE_MAX_HP + (level - 1) * HP_PER_LEVEL
+
+    fixed_attack = stats["attack"]
+    fixed_max_hp = stats["max_hp"]
+    needs_fix = False
+
+    if stats["attack"] < expected_attack:
+        needs_fix = True
+        fixed_attack = expected_attack
+
+    if stats["max_hp"] < expected_max_hp:
+        needs_fix = True
+        fixed_max_hp = expected_max_hp
+
+    if needs_fix:
+        old_atk = stats["attack"]
+        old_hp = stats["max_hp"]
+        logger.info(
+            "[Stats Fix] uid=%s level=%d: ATK %d→%d, max_HP %d→%d",
+            uid, level, old_atk, fixed_attack, old_hp, fixed_max_hp,
+        )
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE users SET attack = ?, max_hp = ?, hp = MAX(hp, ?) WHERE discord_id = ?",
+                (fixed_attack, fixed_max_hp, fixed_max_hp, uid),
+            )
+            conn.commit()
+        stats["attack"] = fixed_attack
+        stats["max_hp"] = fixed_max_hp
+        stats["hp"] = max(stats["hp"], fixed_max_hp)
+
+    return stats
 
 
 def _get_balance(uid: str) -> int:
