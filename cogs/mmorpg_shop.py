@@ -234,7 +234,15 @@ def _get_user_level(uid: str) -> int:
     return row["level"] if row else 1
 
 
+# ── Stat growth constants (mirrored from mmorpg_stats.py) ──
+_BASE_ATTACK = 10
+_ATK_PER_LEVEL = 3
+_BASE_MAX_HP = 100
+_HP_PER_LEVEL = 10
+
+
 def _get_user_stats(uid: str):
+    """Read user stats with auto-fix for missing level-up stat growth."""
     with get_db_ctx() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -242,9 +250,48 @@ def _get_user_stats(uid: str):
             (uid,),
         )
         row = cur.fetchone()
-    if row:
-        return dict(row)
-    return {"hp": 100, "max_hp": 100, "mp": 50, "max_mp": 50, "attack": 10, "defense": 5, "level": 1, "xp": 0}
+
+    if not row:
+        return {"hp": 100, "max_hp": 100, "mp": 50, "max_mp": 50, "attack": 10, "defense": 5, "level": 1, "xp": 0}
+
+    stats = dict(row)
+    level = stats["level"]
+
+    # ── Auto-fix: recalculate stats for users who leveled before growth code was deployed ──
+    expected_attack = _BASE_ATTACK + (level - 1) * _ATK_PER_LEVEL
+    expected_max_hp = _BASE_MAX_HP + (level - 1) * _HP_PER_LEVEL
+
+    fixed_attack = stats["attack"]
+    fixed_max_hp = stats["max_hp"]
+    needs_fix = False
+
+    if stats["attack"] < expected_attack:
+        needs_fix = True
+        fixed_attack = expected_attack
+
+    if stats["max_hp"] < expected_max_hp:
+        needs_fix = True
+        fixed_max_hp = expected_max_hp
+
+    if needs_fix:
+        old_atk = stats["attack"]
+        old_hp = stats["max_hp"]
+        logger.info(
+            "[Stats Fix] uid=%s level=%d: ATK %d→%d, max_HP %d→%d",
+            uid, level, old_atk, fixed_attack, old_hp, fixed_max_hp,
+        )
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE users SET attack = ?, max_hp = ?, hp = MAX(hp, ?) WHERE discord_id = ?",
+                (fixed_attack, fixed_max_hp, fixed_max_hp, uid),
+            )
+            conn.commit()
+        stats["attack"] = fixed_attack
+        stats["max_hp"] = fixed_max_hp
+        stats["hp"] = max(stats["hp"], fixed_max_hp)
+
+    return stats
 
 
 # ══════════════════════════════════════════════════════════════
@@ -1492,60 +1539,83 @@ class ShopHubView(discord.ui.View):
 # ══════════════════════════════════════════════════════════════
 EQUIPMENT_SHOP = {
     "weapon": [
-        {"name": "铁剑 Iron Sword", "quality": "normal", "stat": "atk", "stat_value": 10, "price": 500, "emoji": "⚔️"},
-        {"name": "秘银剑 Mithril Sword", "quality": "rare", "stat": "atk", "stat_value": 18, "price": 1200, "emoji": "⚔️"},
-        {"name": "烈焰之刃 Flame Blade", "quality": "epic", "stat": "atk", "stat_value": 28, "price": 3000, "emoji": "🔥"},
-        {"name": "冰霜之剑 Frostbrand", "quality": "legendary", "stat": "atk", "stat_value": 42, "price": 8000, "emoji": "❄️"},
-        {"name": "暗影之刃 Shadow Blade", "quality": "epic", "stat": "atk", "stat_value": 30, "price": 3500, "emoji": "🌑"},
+        {"name": "多兰之刃 Doran's Blade", "quality": "common", "stat": "atk", "stat_value": 8, "price": 90, "emoji": "⚔️"},
+        {"name": "长剑 Long Sword", "quality": "common", "stat": "atk", "stat_value": 10, "price": 70, "emoji": "⚔️"},
+        {"name": "暴风之剑 B.F. Sword", "quality": "rare", "stat": "atk", "stat_value": 25, "price": 260, "emoji": "⚔️"},
+        {"name": "无尽之刃 Infinity Edge", "quality": "epic", "stat": "atk", "stat_value": 45, "price": 680, "emoji": "🔥"},
+        {"name": "饮血剑 Bloodthirster", "quality": "epic", "stat": "atk", "stat_value": 40, "price": 640, "emoji": "❤️"},
+        {"name": "三相之力 Trinity Force", "quality": "epic", "stat": "atk", "stat_value": 35, "price": 667, "emoji": "✨"},
+        {"name": "神圣分离者 Divine Sunderer", "quality": "epic", "stat": "atk", "stat_value": 35, "price": 660, "emoji": "⚡"},
+        {"name": "暮刃 Duskblade", "quality": "legendary", "stat": "atk", "stat_value": 55, "price": 800, "emoji": "🌑"},
+        {"name": "幽梦之灵 Youmuu's Ghostblade", "quality": "rare", "stat": "atk", "stat_value": 20, "price": 220, "emoji": "💨"},
     ],
     "helmet": [
-        {"name": "铁盔 Iron Helm", "quality": "normal", "stat": "hp", "stat_value": 15, "price": 400, "emoji": "🪖"},
-        {"name": "秘银盔 Mithril Helm", "quality": "rare", "stat": "hp", "stat_value": 25, "price": 1000, "emoji": "🪖"},
-        {"name": "龙鳞盔 Dragonscale Helm", "quality": "epic", "stat": "hp", "stat_value": 38, "price": 2500, "emoji": "🐉"},
-        {"name": "圣光头冠 Holy Circlet", "quality": "legendary", "stat": "hp", "stat_value": 55, "price": 7500, "emoji": "👑"},
-        {"name": "智慧之冠 Crown of Wisdom", "quality": "epic", "stat": "hp", "stat_value": 35, "price": 2800, "emoji": "🧠"},
+        {"name": "抗魔斗篷 Null-Magic Mantle", "quality": "common", "stat": "def", "stat_value": 8, "price": 90, "emoji": "🪖"},
+        {"name": "布甲 Cloth Armor", "quality": "common", "stat": "def", "stat_value": 5, "price": 60, "emoji": "🪖"},
+        {"name": "负极斗篷 Negatron Cloak", "quality": "rare", "stat": "def", "stat_value": 15, "price": 180, "emoji": "🪖"},
+        {"name": "振奋盔甲 Spirit Visage", "quality": "epic", "stat": "def", "stat_value": 30, "price": 580, "emoji": "💚"},
+        {"name": "灭世者的死亡之帽 Rabadon's Deathcap", "quality": "legendary", "stat": "def", "stat_value": 25, "price": 720, "emoji": "👑"},
+        {"name": "适应性头盔 Adaptive Helm", "quality": "epic", "stat": "def", "stat_value": 25, "price": 560, "emoji": "🧠"},
+        {"name": "兰顿之兆 Randuin's Omen", "quality": "epic", "stat": "def", "stat_value": 35, "price": 540, "emoji": "🛡️"},
+        {"name": "深渊面具 Abyssal Mask", "quality": "rare", "stat": "def", "stat_value": 20, "price": 220, "emoji": "🎭"},
+        {"name": "女妖面纱 Banshee's Veil", "quality": "epic", "stat": "def", "stat_value": 25, "price": 520, "emoji": "🔮"},
     ],
     "armor": [
-        {"name": "皮甲 Leather Armor", "quality": "normal", "stat": "def", "stat_value": 10, "price": 500, "emoji": "🛡️"},
-        {"name": "锁子甲 Chainmail", "quality": "rare", "stat": "def", "stat_value": 18, "price": 1200, "emoji": "🛡️"},
-        {"name": "龙鳞甲 Dragonscale Plate", "quality": "epic", "stat": "def", "stat_value": 28, "price": 3000, "emoji": "🐉"},
-        {"name": "守护者铠甲 Guardian Plate", "quality": "legendary", "stat": "def", "stat_value": 42, "price": 8000, "emoji": "🛡️"},
-        {"name": "暗影斗篷 Shadow Mantle", "quality": "epic", "stat": "def", "stat_value": 30, "price": 3500, "emoji": "🌑"},
+        {"name": "锁子甲 Chain Vest", "quality": "common", "stat": "def", "stat_value": 10, "price": 160, "emoji": "🛡️"},
+        {"name": "守望者铠甲 Warden's Mail", "quality": "rare", "stat": "def", "stat_value": 15, "price": 200, "emoji": "🛡️"},
+        {"name": "日炎斗篷 Sunfire Cape", "quality": "epic", "stat": "def", "stat_value": 30, "price": 540, "emoji": "☀️"},
+        {"name": "荆棘之甲 Thornmail", "quality": "epic", "stat": "def", "stat_value": 35, "price": 540, "emoji": "🌹"},
+        {"name": "亡者的板甲 Dead Man's Plate", "quality": "epic", "stat": "def", "stat_value": 30, "price": 580, "emoji": "💀"},
+        {"name": "冰霜之心 Frozen Heart", "quality": "epic", "stat": "def", "stat_value": 30, "price": 500, "emoji": "❄️"},
+        {"name": "狂徒铠甲 Warmog's Armor", "quality": "legendary", "stat": "def", "stat_value": 45, "price": 600, "emoji": "🛡️"},
+        {"name": "石像鬼石板甲 Gargoyle Stoneplate", "quality": "epic", "stat": "def", "stat_value": 25, "price": 500, "emoji": "🗿"},
+        {"name": "守护天使 Guardian Angel", "quality": "legendary", "stat": "def", "stat_value": 35, "price": 560, "emoji": "👼"},
     ],
     "leggings": [
-        {"name": "布裤 Cloth Pants", "quality": "normal", "stat": "def", "stat_value": 8, "price": 350, "emoji": "👖"},
-        {"name": "锁子裤 Chain Leggings", "quality": "rare", "stat": "def", "stat_value": 14, "price": 900, "emoji": "👖"},
-        {"name": "龙鳞护腿 Dragonscale Greaves", "quality": "epic", "stat": "def", "stat_value": 22, "price": 2200, "emoji": "🐉"},
-        {"name": "风暴行者 Storm Striders", "quality": "legendary", "stat": "def", "stat_value": 35, "price": 6000, "emoji": "⚡"},
-        {"name": "板甲护腿 Plate Greaves", "quality": "rare", "stat": "def", "stat_value": 16, "price": 1100, "emoji": "👖"},
+        {"name": "草鞋 Boots of Speed", "quality": "common", "stat": "hp", "stat_value": 15, "price": 60, "emoji": "👖"},
+        {"name": "水银之靴 Mercury's Treads", "quality": "rare", "stat": "hp", "stat_value": 30, "price": 220, "emoji": "👖"},
+        {"name": "忍者足具 Ninja Tabi", "quality": "rare", "stat": "hp", "stat_value": 25, "price": 220, "emoji": "👖"},
+        {"name": "狂战士胫甲 Berserker's Greaves", "quality": "rare", "stat": "hp", "stat_value": 25, "price": 220, "emoji": "👖"},
+        {"name": "明朗之靴 Ionian Boots", "quality": "rare", "stat": "hp", "stat_value": 20, "price": 180, "emoji": "👖"},
+        {"name": "轻灵之靴 Boots of Swiftness", "quality": "epic", "stat": "hp", "stat_value": 35, "price": 500, "emoji": "💨"},
+        {"name": "铁板靴 Plated Steelcaps", "quality": "rare", "stat": "hp", "stat_value": 30, "price": 200, "emoji": "👖"},
+        {"name": "法穿鞋 Sorcerer's Shoes", "quality": "rare", "stat": "hp", "stat_value": 20, "price": 220, "emoji": "👖"},
     ],
     "boots": [
-        {"name": "皮靴 Leather Boots", "quality": "normal", "stat": "spd", "stat_value": 8, "price": 350, "emoji": "👢"},
-        {"name": "铁靴 Iron Boots", "quality": "rare", "stat": "spd", "stat_value": 14, "price": 900, "emoji": "👢"},
-        {"name": "疾风之靴 Wind Walkers", "quality": "epic", "stat": "spd", "stat_value": 22, "price": 2200, "emoji": "💨"},
-        {"name": "暗影之靴 Shadow Boots", "quality": "legendary", "stat": "spd", "stat_value": 35, "price": 6000, "emoji": "🌑"},
-        {"name": "踏云靴 Cloudsteppers", "quality": "epic", "stat": "spd", "stat_value": 25, "price": 2500, "emoji": "☁️"},
+        {"name": "速度之靴 Boots", "quality": "common", "stat": "hp", "stat_value": 10, "price": 60, "emoji": "👢"},
+        {"name": "疾行之靴 Boots of Mobility", "quality": "rare", "stat": "hp", "stat_value": 25, "price": 200, "emoji": "👢"},
+        {"name": "明朗之靴 Cosmic Drive", "quality": "rare", "stat": "hp", "stat_value": 20, "price": 180, "emoji": "👢"},
+        {"name": "幽梦之靴 Youmuu's Greaves", "quality": "epic", "stat": "hp", "stat_value": 35, "price": 520, "emoji": "👢"},
+        {"name": "无尽之靴 Infinity Treads", "quality": "epic", "stat": "hp", "stat_value": 30, "price": 500, "emoji": "👢"},
+        {"name": "暗行者之靴 Prowler's Greaves", "quality": "legendary", "stat": "hp", "stat_value": 45, "price": 640, "emoji": "🌑"},
+        {"name": "风暴之靴 Stormrazor Boots", "quality": "rare", "stat": "hp", "stat_value": 20, "price": 200, "emoji": "👢"},
+        {"name": "神谕之靴 Oracle's Greaves", "quality": "epic", "stat": "hp", "stat_value": 30, "price": 480, "emoji": "👢"},
     ],
     "accessory": [
-        {"name": "铜戒 Copper Ring", "quality": "normal", "stat": "crit", "stat_value": 6, "price": 300, "emoji": "💍"},
-        {"name": "银戒 Silver Ring", "quality": "rare", "stat": "crit", "stat_value": 10, "price": 800, "emoji": "💍"},
-        {"name": "翡翠项链 Jade Amulet", "quality": "epic", "stat": "hp", "stat_value": 20, "price": 2000, "emoji": "📿"},
-        {"name": "命运之戒 Ring of Fate", "quality": "legendary", "stat": "crit", "stat_value": 30, "price": 7000, "emoji": "💫"},
-        {"name": "龙心护符 Dragonheart Amulet", "quality": "epic", "stat": "hp", "stat_value": 24, "price": 2800, "emoji": "❤️"},
+        {"name": "暴击手套 Brawler's Gloves", "quality": "common", "stat": "crit,hp", "stat_value": "5,10", "price": 80, "emoji": "💍"},
+        {"name": "灵巧披风 Cloak of Agility", "quality": "rare", "stat": "crit,hp", "stat_value": "10,15", "price": 160, "emoji": "💍"},
+        {"name": "狂热 Zeal", "quality": "rare", "stat": "crit,hp", "stat_value": "12,10", "price": 240, "emoji": "💍"},
+        {"name": "幻影之舞 Phantom Dancer", "quality": "epic", "stat": "crit,hp", "stat_value": "20,20", "price": 520, "emoji": "💫"},
+        {"name": "斯塔缇克电刃 Statikk Shiv", "quality": "epic", "stat": "crit,hp", "stat_value": "18,15", "price": 520, "emoji": "⚡"},
+        {"name": "卢安娜的飓风 Runaan's Hurricane", "quality": "epic", "stat": "crit,hp", "stat_value": "18,15", "price": 520, "emoji": "🌪️"},
+        {"name": "水银饰带 Quicksilver Sash", "quality": "rare", "stat": "crit,hp", "stat_value": "8,20", "price": 260, "emoji": "💍"},
+        {"name": "中娅沙漏 Zhonya's Hourglass", "quality": "legendary", "stat": "crit,hp", "stat_value": "15,35", "price": 600, "emoji": "⏳"},
+        {"name": "破败王者之刃 Blade of the Ruined King", "quality": "legendary", "stat": "crit,hp", "stat_value": "12,30", "price": 640, "emoji": "🗡️"},
+        {"name": "界弓 The Collector", "quality": "legendary", "stat": "crit,hp", "stat_value": "25,10", "price": 600, "emoji": "🏹"},
     ],
 }
 
 EQUIPMENT_SHOP_SLOT_LABELS = {
-    "weapon": "⚔️ Weapon 武器",
-    "helmet": "🪖 Helmet 头盔",
-    "armor": "🛡️ Armor 护甲",
-    "leggings": "👖 Leggings 护腿",
-    "boots": "👢 Boots 鞋子",
-    "accessory": "📿 Accessory 饰品",
+    "weapon": "⚔️ Weapon 武器 (ATK)",
+    "helmet": "🪖 Helmet 头盔 (DEF)",
+    "armor": "🛡️ Armor 护甲 (DEF)",
+    "leggings": "👖 Leggings 护腿 (HP)",
+    "boots": "👢 Boots 鞋子 (HP)",
+    "accessory": "📿 Accessory 饰品 (CRIT+HP)",
 }
 
 QUALITY_EMOJI = {
-    "normal": "⚪",
+    "common": "⚪",
     "rare": "🔵",
     "epic": "🟣",
     "legendary": "🟡",
@@ -1658,10 +1728,11 @@ class EquipmentShopView(discord.ui.View):
                             (uid, item_id),
                         )
                     else:
+                        encoded_name = f"{item['name']}|{item['stat']}:{item['stat_value']}|{item['quality']}"
                         conn.execute(
                             "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) "
                             "VALUES (?, ?, ?, 1, 'equipment')",
-                            (uid, item_id, item['name']),
+                            (uid, item_id, encoded_name),
                         )
                     conn.commit()
                 new_bal = _get_balance(uid) or 0
@@ -1862,10 +1933,11 @@ class EquipmentGachaView(discord.ui.View):
                 (uid,),
             )
             for slot, item in results:
+                encoded_name = f"{item['name']}|{item['stat']}:{item['stat_value']}|{item['quality']}"
                 conn.execute(
                     "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) "
                     "VALUES (?, ?, ?, 1, 'equipment')",
-                    (uid, f"eq_gacha_{slot}_{item['name'].replace(' ', '_')}", item['name']),
+                    (uid, f"eq_{slot}_gacha_{item['name'].replace(' ', '_')}", encoded_name),
                 )
             conn.commit()
 

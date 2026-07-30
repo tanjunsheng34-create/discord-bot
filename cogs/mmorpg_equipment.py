@@ -1,6 +1,7 @@
+
 """
 cogs/mmorpg_equipment.py — 装备系统 / Equipment System
-Supports: Weapon(ATK) / Armor(DEF) / Helmet(HP) / Ring(Crit) / Accessory(SPD)
+Supports: Weapon(ATK) / Helmet(DEF) / Armor(DEF) / Leggings(HP) / Boots(HP) / Accessory(CRIT+HP)
 Qualities: ⚪ Normal / 🔵 Rare / 🟣 Epic / 🟡 Legendary
 """
 
@@ -25,94 +26,92 @@ EQUIP_SLOT_LABELS_CN = {
 }
 
 QUALITIES = {
-    "normal":    {"label": "⚪ 普通 Normal",    "mult": 1.0, "color": 0x95A5A6},
+    "common":    {"label": "⚪ 普通 Common",    "mult": 1.0, "color": 0x95A5A6},
     "rare":      {"label": "🔵 稀有 Rare",      "mult": 1.3, "color": 0x3498DB},
     "epic":      {"label": "🟣 史诗 Epic",      "mult": 1.6, "color": 0x9B59B6},
     "legendary": {"label": "🟡 传说 Legendary",  "mult": 2.0, "color": 0xF1C40F},
 }
 
-QUALITY_WEIGHTS = [0.55, 0.30, 0.12, 0.03]  # normal, rare, epic, legendary
+QUALITY_WEIGHTS = [0.55, 0.30, 0.12, 0.03]  # common, rare, epic, legendary
 
 SLOT_STATS = {
     "weapon":     ["atk"],
-    "helmet":     ["hp"],
+    "helmet":     ["def"],
     "armor":      ["def"],
-    "leggings":   ["def"],
-    "boots":      ["spd"],
+    "leggings":   ["hp"],
+    "boots":      ["hp"],
     "accessory":  ["crit", "hp"],
 }
 
+# ══════════════════════════════════════════════════════════════
+# BASE_NAMES — LOL Equipment Pool (used by _roll_equipment)
+# ══════════════════════════════════════════════════════════════
 BASE_NAMES = {
     "weapon": [
-        ("生锈的铁剑 Rusty Sword", "atk"),
-        ("短剑 Short Sword", "atk"),
-        ("长剑 Longsword", "atk"),
-        ("战斧 Battle Axe", "atk"),
-        ("暗影之刃 Shadow Blade", "atk"),
-        ("龙牙剑 Dragonfang Blade", "atk"),
-        ("冰霜之剑 Frostbrand", "atk"),
-        ("雷霆战锤 Thunder Hammer", "atk"),
-        ("烈焰之刃 Flame Saber", "atk"),
-        ("噬魂镰刀 Soul Reaper", "atk"),
-        ("星辰之杖 Starfall Staff", "atk"),
-        ("末日审判者 Doombringer", "atk"),
-        ("天启之刃 Apocalypse Blade", "atk"),
+        ("多兰之刃 Doran's Blade", "atk"),
+        ("长剑 Long Sword", "atk"),
+        ("暴风之剑 B.F. Sword", "atk"),
+        ("无尽之刃 Infinity Edge", "atk"),
+        ("饮血剑 Bloodthirster", "atk"),
+        ("三相之力 Trinity Force", "atk"),
+        ("神圣分离者 Divine Sunderer", "atk"),
+        ("暮刃 Duskblade", "atk"),
+        ("幽梦之灵 Youmuu's Ghostblade", "atk"),
+        ("破败王者之刃 Blade of the Ruined King", "atk"),
     ],
     "helmet": [
-        ("布帽 Cloth Cap", "hp"),
-        ("铁盔 Iron Helmet", "hp"),
-        ("秘银盔 Mithril Helm", "hp"),
-        ("龙牙盔 Dragonfang Helm", "hp"),
-        ("王冠 Crown", "hp"),
-        ("暗影兜帽 Shadow Hood", "hp"),
-        ("圣光头冠 Holy Circlet", "hp"),
-        ("深渊凝视者 Abyssal Gaze", "hp"),
-        ("智慧之冠 Crown of Wisdom", "hp"),
-        ("不朽皇冠 Immortal Crown", "hp"),
+        ("抗魔斗篷 Null-Magic Mantle", "def"),
+        ("布甲 Cloth Armor", "def"),
+        ("负极斗篷 Negatron Cloak", "def"),
+        ("振奋盔甲 Spirit Visage", "def"),
+        ("灭世者的死亡之帽 Rabadon's Deathcap", "def"),
+        ("适应性头盔 Adaptive Helm", "def"),
+        ("兰顿之兆 Randuin's Omen", "def"),
+        ("深渊面具 Abyssal Mask", "def"),
+        ("女妖面纱 Banshee's Veil", "def"),
     ],
     "armor": [
-        ("皮甲 Leather Armor", "def"),
-        ("锁子甲 Chainmail", "def"),
-        ("板甲 Plate Armor", "def"),
-        ("龙鳞甲 Dragonscale Armor", "def"),
-        ("守护者铠甲 Guardian Plate", "def"),
-        ("暗影斗篷 Shadow Mantle", "def"),
-        ("圣骑士胸甲 Paladin Chestplate", "def"),
-        ("虚空战甲 Voidplate", "def"),
-        ("泰坦铠甲 Titan's Bulwark", "def"),
-        ("永恒之盾 Eternal Aegis", "def"),
+        ("锁子甲 Chain Vest", "def"),
+        ("守望者铠甲 Warden's Mail", "def"),
+        ("日炎斗篷 Sunfire Cape", "def"),
+        ("荆棘之甲 Thornmail", "def"),
+        ("亡者的板甲 Dead Man's Plate", "def"),
+        ("冰霜之心 Frozen Heart", "def"),
+        ("狂徒铠甲 Warmog's Armor", "def"),
+        ("石像鬼石板甲 Gargoyle Stoneplate", "def"),
+        ("守护天使 Guardian Angel", "def"),
     ],
     "leggings": [
-        ("布裤 Cloth Pants", "def"),
-        ("皮裤 Leather Pants", "def"),
-        ("锁子护腿 Chain Leggings", "def"),
-        ("板甲护腿 Plate Greaves", "def"),
-        ("龙鳞护腿 Dragonscale Greaves", "def"),
-        ("暗影护腿 Shadow Greaves", "def"),
-        ("风暴行者 Storm Striders", "def"),
+        ("草鞋 Boots of Speed", "hp"),
+        ("水银之靴 Mercury's Treads", "hp"),
+        ("忍者足具 Ninja Tabi", "hp"),
+        ("狂战士胫甲 Berserker's Greaves", "hp"),
+        ("明朗之靴 Ionian Boots", "hp"),
+        ("轻灵之靴 Boots of Swiftness", "hp"),
+        ("铁板靴 Plated Steelcaps", "hp"),
+        ("法穿鞋 Sorcerer's Shoes", "hp"),
     ],
     "boots": [
-        ("布靴 Cloth Boots", "spd"),
-        ("皮靴 Leather Boots", "spd"),
-        ("铁靴 Iron Boots", "spd"),
-        ("暗影之靴 Shadow Boots", "spd"),
-        ("疾风之靴 Wind Walkers", "spd"),
-        ("踏云靴 Cloudsteppers", "spd"),
-        ("虚空行者 Void Walkers", "spd"),
+        ("速度之靴 Boots", "hp"),
+        ("疾行之靴 Boots of Mobility", "hp"),
+        ("明朗之靴 Cosmic Drive", "hp"),
+        ("幽梦之靴 Youmuu's Greaves", "hp"),
+        ("无尽之靴 Infinity Treads", "hp"),
+        ("暗行者之靴 Prowler's Greaves", "hp"),
+        ("风暴之靴 Stormrazor Boots", "hp"),
+        ("神谕之靴 Oracle's Greaves", "hp"),
     ],
     "accessory": [
-        ("铜戒 Copper Ring", "crit"),
-        ("银戒 Silver Ring", "crit"),
-        ("红宝石戒 Ruby Ring", "crit"),
-        ("钻石戒 Diamond Ring", "crit"),
-        ("命运之戒 Ring of Fate", "crit"),
-        ("翡翠项链 Jade Amulet", "hp"),
-        ("凤凰羽毛 Phoenix Feather", "spd"),
-        ("力量护符 Amulet of Power", "atk"),
-        ("龙心护符 Dragonheart Amulet", "hp"),
-        ("时空沙漏 Hourglass of Eternity", "spd"),
-        ("弑神者印记 Mark of the Godslayer", "atk"),
-        ("命运之星 Star of Destiny", "crit"),
+        ("暴击手套 Brawler's Gloves", "crit"),
+        ("灵巧披风 Cloak of Agility", "crit"),
+        ("狂热 Zeal", "crit"),
+        ("幻影之舞 Phantom Dancer", "crit"),
+        ("斯塔缇克电刃 Statikk Shiv", "crit"),
+        ("卢安娜的飓风 Runaan's Hurricane", "crit"),
+        ("水银饰带 Quicksilver Sash", "crit"),
+        ("中娅沙漏 Zhonya's Hourglass", "crit"),
+        ("破败王者之刃 Blade of the Ruined King", "crit"),
+        ("界弓 The Collector", "crit"),
     ],
 }
 
@@ -120,25 +119,63 @@ BASE_NAMES = {
 LEGENDARY_ONLY = {
     "weapon": [
         ("诸神黄昏 Ragnarok", "atk"),
-        ("灭世者 World Ender", "atk"),
     ],
     "helmet": [
-        ("全知者之冠 Omniscient Crown", "hp"),
+        ("全知者之冠 Crown of Omniscience", "def"),
     ],
     "armor": [
-        ("创世神之铠 Genesis Plate", "def"),
+        ("创世神之铠 Aegis of Creation", "def"),
     ],
     "leggings": [
-        ("终末护腿 Apocalypse Greaves", "def"),
+        ("终末护腿 Leggings of Finality", "hp"),
     ],
     "boots": [
-        ("光速行者 Lightspeed Striders", "spd"),
+        ("光速行者 Lightspeed Strider", "hp"),
     ],
     "accessory": [
-        ("创世之心 Heart of Creation", "crit"),
-        ("永恒契约 Eternal Pact", "hp"),
+        ("创世之心 Heart of Genesis", "crit"),
     ],
 }
+
+
+def _strip_stat_suffix(item_name: str) -> str:
+    """Strip |stat:value|quality suffix from item_name for display."""
+    if "|" in item_name:
+        return item_name.split("|")[0]
+    return item_name
+
+
+def _parse_item_name(item_name: str):
+    """Parse item_name in format 'Name|stat1:val1,stat2:val2|quality'.
+    Returns (clean_name, stat_str, stat_value_str, quality).
+    For legacy items without |, returns (item_name, 'atk', '5', 'common').
+    """
+    if "|" not in item_name:
+        logger.warning(f"_parse_item_name: legacy item_name (no pipe): {item_name}")
+        return item_name, "atk", "5", "common"
+
+    parts = item_name.split("|")
+    if len(parts) < 3:
+        logger.warning(f"_parse_item_name: malformed item_name: {item_name}")
+        return parts[0], "atk", "5", "common"
+
+    clean_name = parts[0]
+    stat_part = parts[1]   # "atk:10" or "crit:20,hp:20"
+    quality = parts[2]
+
+    # Parse stat:value pairs
+    stat_keys = []
+    stat_vals = []
+    for pair in stat_part.split(","):
+        if ":" in pair:
+            k, v = pair.split(":", 1)
+            stat_keys.append(k.strip())
+            stat_vals.append(v.strip())
+
+    if not stat_keys:
+        return clean_name, "atk", "5", quality
+
+    return clean_name, ",".join(stat_keys), ",".join(stat_vals), quality
 
 
 def _roll_equipment(slot: str, min_level: int = 1) -> dict:
@@ -171,21 +208,15 @@ class EquipmentView(discord.ui.View):
 
     def __init__(self, uid_or_guild, user_id: str = None, user_name: str = None, main_view=None):
         super().__init__(timeout=180)
-        # Support two calling conventions:
-        # 1. New: EquipmentView(uid, main_view=mv)
-        # 2. Old: EquipmentView(guild, uid, uname)
         if isinstance(user_id, str):
-            # Old style: (guild, uid_str, uname_str)
             self.uid = user_id
             self.uname = user_name
             self.main_view = main_view
             self.guild = uid_or_guild
         else:
-            # New style: (uid_str, main_view=view_obj)
             self.uid = str(uid_or_guild)
             self.uname = None
             self.guild = None
-            # When called as EquipmentView(uid, main_view=mv), user_id receives the main_view
             self.main_view = user_id if user_id is not None else main_view
         self._build()
 
@@ -200,10 +231,11 @@ class EquipmentView(discord.ui.View):
         for slot in EQUIP_SLOTS:
             eq = equipped.get(slot)
             if eq:
-                q = QUALITIES.get(eq["quality"], QUALITIES["normal"])
+                q = QUALITIES.get(eq["quality"], QUALITIES["common"])
+                stat_display = _format_stat_display(eq["stat"], eq["stat_value"])
                 embed.add_field(
                     name=f"{eq['emoji'] if eq.get('emoji') else q['label'].split()[0]} {EQUIP_SLOT_LABELS_CN[slot]}",
-                    value=f"{eq['name']}\n+{eq['stat_value']} {eq['stat'].upper()}",
+                    value=f"{eq['name']}\n{stat_display}",
                     inline=True,
                 )
             else:
@@ -231,13 +263,21 @@ class EquipmentView(discord.ui.View):
             btn = discord.ui.Button(
                 label=label,
                 style=discord.ButtonStyle.secondary if eq else discord.ButtonStyle.primary,
-                row=i // 3,  # 3 per row: row 0 = weapon/helmet/armor, row 1 = leggings/boots/accessory
+                row=i // 3,
                 custom_id=f"eq_slot_{slot}",
             )
             btn.callback = self._make_slot_callback(slot)
             self.add_item(btn)
 
-        # Equip + Enhance + Back on row 2 (3 buttons)
+        # Row 2: Best Equip | Equip | Enhance | Back
+        best_btn = discord.ui.Button(
+            label="Best Equip 一键最强", emoji="⚡",
+            style=discord.ButtonStyle.primary, row=2,
+            custom_id="eq_best",
+        )
+        best_btn.callback = self._best_equip_callback
+        self.add_item(best_btn)
+
         equip_btn = discord.ui.Button(
             label="Equip 装备", emoji="⚔️",
             style=discord.ButtonStyle.primary, row=2,
@@ -262,6 +302,51 @@ class EquipmentView(discord.ui.View):
             back_btn.callback = self._back_callback
             self.add_item(back_btn)
 
+    # ── Best Equip / 一键最强 ──
+    async def _best_equip_callback(self, interaction: discord.Interaction):
+        try:
+            results = _auto_equip_best(self.uid)
+            if not results:
+                return await interaction.response.send_message(
+                    "背包中没有可装备的装备！/ No equippable items in inventory!", ephemeral=True)
+
+            # Build summary embed
+            embed = discord.Embed(
+                title="⚡ Best Equip / 一键最强装备",
+                description="已自动为每个槽位装备最强装备：",
+                color=0xF1C40F,
+            )
+            for slot, info in results.items():
+                if info.get("error"):
+                    embed.add_field(
+                        name=f"{EQUIP_SLOT_LABELS_CN[slot]}",
+                        value=f"⚠️ {info['error']}",
+                        inline=True,
+                    )
+                else:
+                    q = QUALITIES.get(info["quality"], QUALITIES["common"])
+                    stat_disp = _format_stat_display(info["stat"], info["stat_value"])
+                    embed.add_field(
+                        name=f"{info['emoji']} {EQUIP_SLOT_LABELS_CN[slot]}",
+                        value=f"**{info['name']}**\n{q['label']}\n{stat_disp}",
+                        inline=True,
+                    )
+
+            # Refresh equipment panel
+            self._build()
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            try:
+                await interaction.edit_original_response(embed=self.build_main_embed(), view=self)
+            except Exception:
+                pass
+        except Exception as e:
+            logger.error(f"Best equip error (uid={self.uid}): {e}", exc_info=True)
+            try:
+                await interaction.response.send_message(
+                    "一键装备出错 / Best equip error", ephemeral=True)
+            except Exception:
+                pass
+
     async def _equip_callback(self, interaction: discord.Interaction):
         """Show inventory equipment list to equip."""
         try:
@@ -282,18 +367,18 @@ class EquipmentView(discord.ui.View):
             # Build select options
             options = []
             for row in rows:
-                name = row["item_name"][:100]
+                display_name = _strip_stat_suffix(row["item_name"])[:100]
                 qty = row["quantity"]
-                # Parse quality prefix for emoji
+                name_lower = row["item_name"].lower()
                 emoji = "⚪"
-                if "legendary" in name.lower():
+                if "legendary" in name_lower:
                     emoji = "🟡"
-                elif "epic" in name.lower():
+                elif "epic" in name_lower:
                     emoji = "🟣"
-                elif "rare" in name.lower():
+                elif "rare" in name_lower:
                     emoji = "🔵"
                 options.append(discord.SelectOption(
-                    label=name,
+                    label=display_name,
                     value=row["item_name"],
                     description=f"x{qty} | {emoji}",
                     emoji=emoji,
@@ -302,7 +387,7 @@ class EquipmentView(discord.ui.View):
             view = EquipSelectView(self.uid, self)
             select = discord.ui.Select(
                 placeholder="选择要装备的装备 / Select equipment to equip",
-                options=options[:25],  # Discord limit
+                options=options[:25],
                 row=0,
             )
             select.callback = view._select_callback
@@ -328,7 +413,6 @@ class EquipmentView(discord.ui.View):
                 return await interaction.response.send_message(
                     "No equipment to enhance / 没有可强化的装备！", ephemeral=True)
 
-            # Show slot selection
             options = []
             for slot in EQUIP_SLOTS:
                 eq = equipped.get(slot)
@@ -413,13 +497,15 @@ class EquipmentView(discord.ui.View):
             )
             return
 
-        q = QUALITIES.get(eq["quality"], QUALITIES["normal"])
+        q = QUALITIES.get(eq["quality"], QUALITIES["common"])
         lvl = eq.get("enhance_level", 0)
-        base_stat = int(eq["stat_value"] / (1 + lvl * 0.1)) if lvl > 0 else eq["stat_value"]
-        enhance_bonus = eq["stat_value"] - base_stat
+        base_stat = int(eq["stat_value"] / (1 + lvl * 0.1)) if lvl > 0 and isinstance(eq["stat_value"], (int, float)) else eq["stat_value"]
+        enhance_bonus = eq["stat_value"] - base_stat if isinstance(eq["stat_value"], (int, float)) else 0
+
+        stat_display = _format_stat_display(eq["stat"], eq["stat_value"])
 
         desc = (
-            f"**{eq['stat'].upper()}**: +{eq['stat_value']}\n"
+            f"**属性 Stats**: {stat_display}\n"
             f"**槽位 Slot**: {EQUIP_SLOT_LABELS_CN[slot]}\n"
             f"**强化 Enhance**: +{lvl}"
         )
@@ -431,7 +517,37 @@ class EquipmentView(discord.ui.View):
             description=desc,
             color=q["color"],
         )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        # ── Add Unequip button ──
+        view = discord.ui.View(timeout=60)
+        unequip_btn = discord.ui.Button(
+            label="Unequip 卸下", emoji="🔴",
+            style=discord.ButtonStyle.danger, row=0,
+        )
+        unequip_btn.callback = self._make_unequip_callback(slot, eq)
+        view.add_item(unequip_btn)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+    def _make_unequip_callback(self, slot: str, eq: dict):
+        async def cb(interaction: discord.Interaction):
+            try:
+                success = _unequip_item(self.uid, slot)
+                if success:
+                    self._build()
+                    await interaction.response.edit_message(
+                        content=f"✅ 已卸下 / Unequipped: **{eq['name']}**", embed=None, view=None)
+                    # Also try to update the main panel
+                else:
+                    await interaction.response.send_message(
+                        "卸下失败 / Unequip failed", ephemeral=True)
+            except Exception as e:
+                logger.error(f"Unequip error (uid={self.uid}, slot={slot}): {e}", exc_info=True)
+                try:
+                    await interaction.response.send_message(
+                        "卸下过程出错 / Error during unequip", ephemeral=True)
+                except Exception:
+                    pass
+        return cb
 
 
 class EnhanceSelectView(discord.ui.View):
@@ -467,21 +583,19 @@ class EnhanceSelectView(discord.ui.View):
                 return await interaction.response.send_message(
                     f"Insufficient coins / 金币不足！Need {cost:,}, you have {bal:,}", ephemeral=True)
 
-            # Deduct coins
             reason = f"Enhance {eq['name']} +{lvl}→+{lvl+1}"
             _add_coins(self.uid, -cost, reason)
             deducted = True
 
             import random, asyncio
 
-            # Try enhancement with animation
             success = random.random() < rate
             if success:
                 new_lvl = lvl + 1
-                new_stat = int(eq["stat_value"] * (1 + 0.1) / (1 + lvl * 0.1) * (1 + new_lvl * 0.1))
+                new_stat = int(eq["stat_value"] * (1 + 0.1) / (1 + lvl * 0.1) * (1 + new_lvl * 0.1)) if isinstance(eq["stat_value"], (int, float)) else eq["stat_value"]
             else:
                 if lvl <= 5:
-                    new_lvl = lvl  # No drop
+                    new_lvl = lvl
                 elif lvl <= 10:
                     new_lvl = max(0, lvl - 1)
                 else:
@@ -489,12 +603,10 @@ class EnhanceSelectView(discord.ui.View):
                 if new_lvl == lvl:
                     new_stat = eq["stat_value"]
                 else:
-                    new_stat = int(eq["stat_value"] * (1 + new_lvl * 0.1) / (1 + lvl * 0.1))
+                    new_stat = int(eq["stat_value"] * (1 + new_lvl * 0.1) / (1 + lvl * 0.1)) if isinstance(eq["stat_value"], (int, float)) else eq["stat_value"]
 
-            # Animation
             await enhance_animation(interaction, lvl, new_lvl, success)
 
-            # Update DB
             with get_db_ctx() as conn:
                 conn.execute(
                     "UPDATE user_equipment SET enhance_level = ?, stat_value = ? WHERE user_id = ? AND slot = ?",
@@ -505,28 +617,27 @@ class EnhanceSelectView(discord.ui.View):
             new_bal = _bal(self.uid)
             if success:
                 msg = (
-                    f"## \u2728 Enhancement Success / \u5f3a\u5316\u6210\u529f\uff01\n"
-                    f"**{eq['name']}**: +{lvl} \u2192 **+{new_lvl}**\n"
-                    f"STAT: {eq['stat_value']} \u2192 **{new_stat}**\n"
-                    f"Cost / \u82b1\u8d39: {cost:,}G  |  Balance / \u4f59\u989d: **{new_bal:,}**"
+                    f"## ✨ Enhancement Success / 强化成功！\n"
+                    f"**{eq['name']}**: +{lvl} → **+{new_lvl}**\n"
+                    f"STAT: {eq['stat_value']} → **{new_stat}**\n"
+                    f"Cost / 花费: {cost:,}G  |  Balance / 余额: **{new_bal:,}**"
                 )
             else:
                 if new_lvl < lvl:
                     msg = (
-                        f"## \U0001f4a5 Enhancement Failed / \u5f3a\u5316\u5931\u8d25\uff01\n"
-                        f"**{eq['name']}**: +{lvl} \u2192 **+{new_lvl}** (Dropped / \u964d\u7ea7)\n"
-                        f"Cost / \u82b1\u8d39: {cost:,}G  |  Balance / \u4f59\u989d: **{new_bal:,}**"
+                        f"## 💥 Enhancement Failed / 强化失败！\n"
+                        f"**{eq['name']}**: +{lvl} → **+{new_lvl}** (Dropped / 降级)\n"
+                        f"Cost / 花费: {cost:,}G  |  Balance / 余额: **{new_bal:,}**"
                     )
                 else:
                     msg = (
-                        f"## \U0001f4a5 Enhancement Failed / \u5f3a\u5316\u5931\u8d25\uff01\n"
-                        f"**{eq['name']}**: +{lvl} (No change / \u4e0d\u53d8)\n"
-                        f"Cost / \u82b1\u8d39: {cost:,}G  |  Balance / \u4f59\u989d: **{new_bal:,}**"
+                        f"## 💥 Enhancement Failed / 强化失败！\n"
+                        f"**{eq['name']}**: +{lvl} (No change / 不变)\n"
+                        f"Cost / 花费: {cost:,}G  |  Balance / 余额: **{new_bal:,}**"
                     )
 
             await interaction.followup.send(msg, ephemeral=True)
 
-            # Refresh the equipment view
             self.eq_view._build()
             try:
                 await interaction.edit_original_response(embed=self.eq_view.build_main_embed(), view=self.eq_view)
@@ -549,8 +660,22 @@ class EnhanceSelectView(discord.ui.View):
                 pass
 
 
+def _format_stat_display(stat: str, stat_value) -> str:
+    """Format stat display: 'ATK:+10' or 'CRIT:+20 HP:+15'."""
+    if isinstance(stat_value, str) and "," in stat_value:
+        stats = stat.split(",")
+        vals = stat_value.split(",")
+        parts = [f"{s.upper()}:+{v}" for s, v in zip(stats, vals)]
+        return " ".join(parts)
+    return f"+{stat_value} {stat.upper()}"
+
+
+# ══════════════════════════════════════════════════════════════
+# Core equipment functions
+# ══════════════════════════════════════════════════════════════
+
 def _get_equipped(user_id: str) -> dict:
-    """Return {slot: {emoji, name, quality, stat, stat_value, enhance_level}, ...}."""
+    """Return {slot: {name, quality, stat, stat_value, enhance_level, emoji}, ...}."""
     with get_db_ctx() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -576,26 +701,65 @@ def _get_equip_stats(user_id: str) -> dict:
     stats = {"atk": 0, "def": 0, "hp": 0, "crit": 0, "spd": 0}
     equipped = _get_equipped(user_id)
     for eq in equipped.values():
-        stat_name = eq["stat"]
-        if stat_name in stats:
-            stats[stat_name] += eq["stat_value"]
+        stat_str = str(eq["stat"])
+        val_str = str(eq["stat_value"])
+        stat_names = stat_str.split(",")
+        stat_vals = val_str.split(",")
+        for s, v in zip(stat_names, stat_vals):
+            s = s.strip()
+            try:
+                iv = int(v.strip())
+            except (ValueError, AttributeError):
+                iv = 0
+            if s in stats:
+                stats[s] += iv
     return stats
 
 
+# ── Stat-to-users column mapping ──
+_STAT_COL_MAP = {"atk": "attack", "def": "defense", "hp": "max_hp"}
+
+
+def _apply_stat_delta(cur, user_id: str, stat_str: str, delta_str: str):
+    """Apply stat delta(s) to users table. Handles comma-separated multi-stats.
+    stat_str: "atk" or "crit,hp"
+    delta_str: "10" or "20,15"
+    crit/spd are not tracked in users table and are silently ignored."""
+    stat_names = str(stat_str).split(",")
+    delta_vals = str(delta_str).split(",")
+
+    for s, d in zip(stat_names, delta_vals):
+        s = s.strip()
+        try:
+            d_int = int(d.strip())
+        except (ValueError, AttributeError):
+            continue
+        col = _STAT_COL_MAP.get(s)
+        if not col:
+            continue
+        cur.execute(f"UPDATE users SET {col} = MAX(0, {col} + ?) WHERE discord_id = ?", (d_int, user_id))
+        if s == "hp":
+            cur.execute("UPDATE users SET hp = MIN(hp + ?, max_hp) WHERE discord_id = ?", (d_int, user_id))
+
+
 def _equip_item(user_id: str, item_name: str) -> bool:
-    """Equip an item from inventory. Returns True if successful."""
+    """Equip an item from inventory. Parses stat info from item_name.
+    item_name format: 'Name|stat_type:stat_value|quality' or legacy plain name.
+    Returns True if successful."""
     with get_db_ctx() as conn:
         cur = conn.cursor()
-        # Find the item in inventory
+        # Find the item in inventory — use LIKE for partial match on the name part
+        search_name = item_name.split("|")[0] if "|" in item_name else item_name
         cur.execute(
             "SELECT item_id, item_name, item_type, quantity FROM user_inventory WHERE user_id=? AND item_name LIKE ?",
-            (user_id, f"%{item_name}%"),
+            (user_id, f"%{search_name}%"),
         )
         rows = cur.fetchall()
         if not rows:
             return False
         row = rows[0]
-        # Parse slot from item_id (format: eq_{slot}_{name})
+
+        # Parse slot from item_id (format: eq_{slot}_{name} or eq_{slot}_gacha_{name})
         slot = None
         item_id = row["item_id"]
         if item_id.startswith("eq_"):
@@ -605,7 +769,6 @@ def _equip_item(user_id: str, item_name: str) -> bool:
                 if candidate in EQUIP_SLOTS:
                     slot = candidate
         if not slot:
-            # Fallback: parse from item_name for backward compat
             for s in EQUIP_SLOTS:
                 if s in row["item_name"].lower():
                     slot = s
@@ -620,73 +783,175 @@ def _equip_item(user_id: str, item_name: str) -> bool:
         else:
             cur.execute("UPDATE user_inventory SET quantity=quantity-1 WHERE item_id=?", (row["item_id"],))
 
+        # ── Parse stat info from item_name ──
+        clean_name, stat_str, stat_val_str, quality = _parse_item_name(row["item_name"])
+
         # ── Unequip old: subtract its stats from users table ──
         cur.execute("SELECT stat, stat_value FROM user_equipment WHERE user_id=? AND slot=?", (user_id, slot))
         old = cur.fetchone()
         if old:
-            _apply_stat_delta(cur, user_id, old["stat"], -old["stat_value"])
+            # Negate each stat value to subtract from users table
+            old_stat_str = str(old["stat"])
+            old_val_str = str(old["stat_value"])
+            old_stats = old_stat_str.split(",")
+            old_vals = old_val_str.split(",")
+            neg_vals = []
+            for v in old_vals:
+                try:
+                    neg_vals.append(str(-int(v.strip())))
+                except ValueError:
+                    neg_vals.append("0")
+            _apply_stat_delta(cur, user_id, old_stat_str, ",".join(neg_vals))
         cur.execute("DELETE FROM user_equipment WHERE user_id=? AND slot=?", (user_id, slot))
 
-        # ── Equip new: add its stats to users table ──
-        quality, stat_val = _parse_equip_quality(row["item_name"])
-        stat_val = int(stat_val)
-        stat_type = SLOT_STATS.get(slot, ["atk"])[0]
+        # ── Equip new: write to user_equipment and users table ──
         cur.execute(
             "INSERT INTO user_equipment (user_id, slot, name, quality, stat, stat_value, emoji) VALUES (?,?,?,?,?,?,?)",
-            (user_id, slot, row["item_name"], quality, stat_type, stat_val, ""),
+            (user_id, slot, clean_name, quality, stat_str, stat_val_str, ""),
         )
-        _apply_stat_delta(cur, user_id, stat_type, stat_val)
+        _apply_stat_delta(cur, user_id, stat_str, stat_val_str)
 
         conn.commit()
     return True
 
 
-# ── Stat-to-users column mapping ──
-_STAT_COL_MAP = {"atk": "attack", "def": "defense", "hp": "max_hp"}
-
-
-def _apply_stat_delta(cur, user_id: str, stat: str, delta: int):
-    """Apply stat delta to users table. atk→attack, def→defense, hp→max_hp+hp.
-    crit/spd are not tracked in users table and are silently ignored."""
-    col = _STAT_COL_MAP.get(stat)
-    if not col:
-        return
-    cur.execute(f"UPDATE users SET {col} = MAX(0, {col} + ?) WHERE discord_id = ?", (delta, user_id))
-    if stat == "hp":
-        cur.execute("UPDATE users SET hp = MIN(hp + ?, max_hp) WHERE discord_id = ?", (delta, user_id))
-
-
-def _parse_equip_quality(name: str):
-    """Parse quality and stat value from equipment name."""
-    for qk in ["legendary", "epic", "rare"]:
-        if qk in name.lower():
-            return qk, random.randint(10, 30) * QUALITIES[qk]["mult"]
-    return "normal", random.randint(5, 15)
-
-
-# ── Init DB table ──
-def _init_equipment_db():
+def _unequip_item(user_id: str, slot: str) -> bool:
+    """Unequip an item from a slot and return it to inventory.
+    1. Read user_equipment record for the slot
+    2. DELETE it
+    3. INSERT back to user_inventory with encoded item_name
+    4. Subtract stats from users table
+    Returns True if successful, False if slot was empty."""
     with get_db_ctx() as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS user_equipment (
-                user_id TEXT NOT NULL,
-                slot TEXT NOT NULL,
-                name TEXT,
-                quality TEXT DEFAULT 'normal',
-                stat TEXT,
-                stat_value INTEGER DEFAULT 0,
-                enhance_level INTEGER DEFAULT 0,
-                emoji TEXT DEFAULT '',
-                PRIMARY KEY (user_id, slot)
-            )
-        """)
-        # Add enhance_level column if upgrading from old schema
         cur = conn.cursor()
-        cur.execute("PRAGMA table_info(user_equipment)")
-        cols = {r["name"] for r in cur.fetchall()}
-        if "enhance_level" not in cols:
-            cur.execute("ALTER TABLE user_equipment ADD COLUMN enhance_level INTEGER DEFAULT 0")
+        cur.execute(
+            "SELECT name, quality, stat, stat_value, emoji FROM user_equipment WHERE user_id=? AND slot=?",
+            (user_id, slot),
+        )
+        eq = cur.fetchone()
+        if not eq:
+            return False
+
+        # Reconstruct encoded item_name: "Name|stat:val|quality"
+        encoded_name = f"{eq['name']}|{eq['stat']}:{eq['stat_value']}|{eq['quality']}"
+
+        # Generate item_id
+        item_id = f"eq_{slot}_{eq['name'].split(' ')[0]}"
+
+        # Delete from user_equipment
+        cur.execute("DELETE FROM user_equipment WHERE user_id=? AND slot=?", (user_id, slot))
+
+        # Subtract stats
+        stat_str = str(eq["stat"])
+        val_str = str(eq["stat_value"])
+        stats = stat_str.split(",")
+        vals = val_str.split(",")
+        neg_vals = []
+        for v in vals:
+            try:
+                neg_vals.append(str(-int(v.strip())))
+            except ValueError:
+                neg_vals.append("0")
+        _apply_stat_delta(cur, user_id, stat_str, ",".join(neg_vals))
+
+        # Return to inventory
+        cur.execute(
+            "SELECT quantity FROM user_inventory WHERE user_id = ? AND item_id = ?",
+            (user_id, item_id),
+        )
+        existing = cur.fetchone()
+        if existing:
+            cur.execute(
+                "UPDATE user_inventory SET quantity = quantity + 1 WHERE user_id = ? AND item_id = ?",
+                (user_id, item_id),
+            )
+        else:
+            cur.execute(
+                "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) "
+                "VALUES (?, ?, ?, 1, 'equipment')",
+                (user_id, item_id, encoded_name),
+            )
+
         conn.commit()
+    return True
+
+
+def _auto_equip_best(user_id: str) -> dict:
+    """Scan inventory for all equipment, group by slot, pick highest stat_value per slot,
+    and equip each. Returns {slot: {name, quality, stat, stat_value, emoji, error?}}."""
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT item_id, item_name, quantity FROM user_inventory"
+            " WHERE user_id = ? AND item_type = 'equipment' AND quantity > 0",
+            (user_id,),
+        )
+        rows = cur.fetchall()
+
+    if not rows:
+        return {}
+
+    # Group by slot, pick best
+    best_by_slot = {}
+    for row in rows:
+        # Determine slot from item_id
+        slot = None
+        item_id = row["item_id"]
+        if item_id.startswith("eq_"):
+            parts = item_id.split("_", 2)
+            if len(parts) >= 2 and parts[1] in EQUIP_SLOTS:
+                slot = parts[1]
+        if not slot:
+            for s in EQUIP_SLOTS:
+                if s in row["item_name"].lower():
+                    slot = s
+                    break
+        if not slot:
+            continue
+
+        # Parse stat_value from item_name
+        _, stat_str, stat_val_str, quality = _parse_item_name(row["item_name"])
+        # For comparison, use the first stat value
+        try:
+            primary_val = int(stat_val_str.split(",")[0].strip())
+        except (ValueError, AttributeError):
+            primary_val = 0
+
+        if slot not in best_by_slot or primary_val > best_by_slot[slot]["score"]:
+            best_by_slot[slot] = {
+                "item_name": row["item_name"],
+                "score": primary_val,
+            }
+
+    # Equip each best
+    results = {}
+    for slot in EQUIP_SLOTS:
+        if slot not in best_by_slot:
+            results[slot] = {"error": "无可用装备 / No available equipment"}
+            continue
+
+        info = best_by_slot[slot]
+        success = _equip_item(user_id, info["item_name"])
+        if success:
+            # Read back what was equipped
+            equipped = _get_equipped(user_id)
+            eq = equipped.get(slot, {})
+            results[slot] = {
+                "name": eq.get("name", info["item_name"]),
+                "quality": eq.get("quality", "common"),
+                "stat": eq.get("stat", "atk"),
+                "stat_value": eq.get("stat_value", "0"),
+                "emoji": eq.get("emoji", "⚪"),
+            }
+        else:
+            results[slot] = {"error": "装备失败 / Equip failed"}
+
+    return results
+
+
+# ══════════════════════════════════════════════════════════════
+# Enhancement system
+# ══════════════════════════════════════════════════════════════
 
 ENHANCE_RATES = {
     (0, 1): 1.00, (1, 2): 1.00, (2, 3): 0.95, (3, 4): 0.90, (4, 5): 0.85,
@@ -702,19 +967,16 @@ ENHANCE_COSTS = {
 
 
 def _get_enhance_rate(from_level: int) -> float:
-    """Get success rate for enhancing from a given level to the next."""
     to_level = from_level + 1
     return ENHANCE_RATES.get((from_level, to_level), 0.15)
 
 
 def _get_enhance_cost(from_level: int) -> int:
-    """Get cost to enhance from a given level."""
     to_level = from_level + 1
     return ENHANCE_COSTS.get(to_level, 50000)
 
 
 async def enhance_animation(interaction, level_before: int, level_after: int, success: bool):
-    """Animate the enhancement process. Returns the interaction with the original response edited to the final result."""
     import asyncio
     try:
         await interaction.response.send_message(
@@ -735,6 +997,37 @@ async def enhance_animation(interaction, level_before: int, level_after: int, su
     except Exception:
         pass
 
+
+# ══════════════════════════════════════════════════════════════
+# Init DB table
+# ══════════════════════════════════════════════════════════════
+
+def _init_equipment_db():
+    with get_db_ctx() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_equipment (
+                user_id TEXT NOT NULL,
+                slot TEXT NOT NULL,
+                name TEXT,
+                quality TEXT DEFAULT 'common',
+                stat TEXT,
+                stat_value TEXT DEFAULT '0',
+                enhance_level INTEGER DEFAULT 0,
+                emoji TEXT DEFAULT '',
+                PRIMARY KEY (user_id, slot)
+            )
+        """)
+        cur = conn.cursor()
+        cur.execute("PRAGMA table_info(user_equipment)")
+        cols = {r["name"] for r in cur.fetchall()}
+        if "enhance_level" not in cols:
+            cur.execute("ALTER TABLE user_equipment ADD COLUMN enhance_level INTEGER DEFAULT 0")
+        conn.commit()
+
+
+# ══════════════════════════════════════════════════════════════
+# Cog & Commands
+# ══════════════════════════════════════════════════════════════
 
 class MMORPGEquipment(CogBase):
     """装备系统 / Equipment System"""
@@ -758,8 +1051,9 @@ class MMORPGEquipment(CogBase):
         for slot in EQUIP_SLOTS:
             eq = equipped.get(slot)
             if eq:
-                q = QUALITIES.get(eq["quality"], QUALITIES["normal"])
-                val = f"{q['label'].split()[0]} **{eq['name']}** (+{eq['stat_value']} {eq['stat'].upper()})"
+                q = QUALITIES.get(eq["quality"], QUALITIES["common"])
+                stat_display = _format_stat_display(eq["stat"], eq["stat_value"])
+                val = f"{q['label'].split()[0]} **{eq['name']}** ({stat_display})"
             else:
                 val = "⬜ 空 / Empty"
             embed.add_field(
@@ -768,7 +1062,6 @@ class MMORPGEquipment(CogBase):
                 inline=True,
             )
 
-        # Total stats
         stats_text = (
             f"⚔️ ATK: +{total_stats['atk']}  |  🛡️ DEF: +{total_stats['def']}  |  ❤️ HP: +{total_stats['hp']}\n"
             f"💥 Crit: +{total_stats['crit']}%  |  💨 SPD: +{total_stats['spd']}"
@@ -792,8 +1085,9 @@ class EquipSelectView(discord.ui.View):
         try:
             success = _equip_item(self.uid, item_name)
             if success:
+                display_name = _strip_stat_suffix(item_name)
                 await interaction.response.edit_message(
-                    content=f"装备成功！/ Equipped: **{item_name}**",
+                    content=f"装备成功！/ Equipped: **{display_name}**",
                     view=None,
                 )
             else:
