@@ -1033,9 +1033,10 @@ class MMORPGMainView(discord.ui.View):
 
     @discord.ui.button(label="Achieve 成就", emoji="\U0001f3c6", style=discord.ButtonStyle.secondary, row=3, custom_id="mmorpg_main:achievements")
     async def achievements_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from cogs.achievements import AchievementsView
+        from cogs.mmorpg_achievement import AchievementsView, check_and_unlock_all
+        check_and_unlock_all(self.uid)
         view = AchievementsView(self.uid, main_view=self)
-        embed = await view._get_achievements_embed()
+        embed = view.build_embed()
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
@@ -1062,6 +1063,50 @@ class MMORPGMainView(discord.ui.View):
         )
         embed.set_footer(text="/gmpt-shop buy <item> to purchase | 使用 /gmpt-shop buy <物品> 购买")
         view = _BackOnlyView(self.uid, main_view=self)
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    # ═══════════════════════════════════════════════════════════
+    # Row 4: World Boss / Fishing / Check-in / Achievements  (info)
+    # ═══════════════════════════════════════════════════════════
+    @discord.ui.button(label="World Boss", emoji="🐉", style=discord.ButtonStyle.secondary, row=4, custom_id="mmorpg_main:worldboss")
+    async def worldboss_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.mmorpg_worldboss import WorldBossView
+        view = WorldBossView(self.uid, main_view=self)
+        embed = view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Fishing 钓鱼", emoji="🎣", style=discord.ButtonStyle.secondary, row=4, custom_id="mmorpg_main:fishing")
+    async def fishing_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.mmorpg_fishing import FishingView
+        view = FishingView(self.uid, main_view=self)
+        embed = view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Check-in 签到", emoji="📅", style=discord.ButtonStyle.secondary, row=4, custom_id="mmorpg_main:checkin")
+    async def checkin_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.mmorpg_checkin import CheckinView
+        view = CheckinView(self.uid, main_view=self)
+        embed = view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Badges 徽章", emoji="🎖️", style=discord.ButtonStyle.secondary, row=4, custom_id="mmorpg_main:badges")
+    async def badges_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.mmorpg_achievement import AchievementsView, check_and_unlock_all
+        check_and_unlock_all(self.uid)
+        view = AchievementsView(self.uid, main_view=self)
+        embed = view.build_embed()
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:

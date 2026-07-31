@@ -66,6 +66,10 @@ MMORPG_COGS = {
     "cogs.dungeon",
     "cogs.achievements",
     "cogs.market",
+    "cogs.mmorpg_worldboss",
+    "cogs.mmorpg_checkin",
+    "cogs.mmorpg_fishing",
+    "cogs.mmorpg_achievement",
 }
 COMMUNITY_COGS = {
     "cogs.pets",
