@@ -12,6 +12,7 @@ from discord import app_commands
 
 from database import get_db_ctx
 from utils.cog_base import CogBase
+from cogs.economy import add_coins
 
 logger = logging.getLogger(__name__)
 
@@ -794,11 +795,7 @@ class EquipmentView(discord.ui.View):
                             cur2.execute("UPDATE user_inventory SET quantity=quantity-1"
                                          " WHERE user_id=? AND item_id=?",
                                          (self.uid, item_id))
-                        cur2.execute(
-                            "INSERT INTO user_balance (user_id, coins) VALUES (?, ?)"
-                            " ON CONFLICT(user_id) DO UPDATE SET coins=coins+excluded.coins",
-                            (self.uid, price),
-                        )
+                        add_coins(self.uid, price, "sell equipment")
                         conn2.commit()
 
                     await inter.response.send_message(
