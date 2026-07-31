@@ -180,6 +180,22 @@ def _parse_item_name(item_name: str):
     return clean_name, ",".join(stat_keys), ",".join(stat_vals), quality
 
 
+def _resolve_slot(item_id: str, item_name: str) -> str:
+    """Resolve equipment slot from item_id prefix or fallback to item_name matching."""
+    slot = None
+    if item_id.startswith("eq_"):
+        parts = item_id.split("_", 2)
+        if len(parts) >= 2 and parts[1] in EQUIP_SLOTS:
+            slot = parts[1]
+    if not slot:
+        name_lower = item_name.lower()
+        for s in EQUIP_SLOTS:
+            if s in name_lower:
+                slot = s
+                break
+    return slot
+
+
 def _roll_equipment(slot: str, min_level: int = 1) -> dict:
     """Generate a random equipment piece for the given slot."""
     quality_key = random.choices(list(QUALITIES.keys()), weights=QUALITY_WEIGHTS, k=1)[0]
@@ -312,7 +328,23 @@ class EquipmentView(discord.ui.View):
             back_btn.callback = self._back_callback
             self.add_item(back_btn)
 
-        # Row 3: Sell Weak
+        # Row 3: Bag | Sell | Sell Weak
+        bag_btn = discord.ui.Button(
+            label="Bag 背包", emoji="🎒",
+            style=discord.ButtonStyle.secondary, row=3,
+            custom_id="eq_bag",
+        )
+        bag_btn.callback = self._bag_callback
+        self.add_item(bag_btn)
+
+        sell_equip_btn = discord.ui.Button(
+            label="Sell 卖装备", emoji="💲",
+            style=discord.ButtonStyle.secondary, row=3,
+            custom_id="eq_sell",
+        )
+        sell_equip_btn.callback = self._sell_callback
+        self.add_item(sell_equip_btn)
+
         sell_btn = discord.ui.Button(
             label="Sell Weak 卖弱装", emoji="💰",
             style=discord.ButtonStyle.secondary, row=3,
@@ -610,7 +642,7 @@ class EquipmentView(discord.ui.View):
                             embed = self.build_main_embed()
                             await panel_msg.edit(embed=embed, view=self)
                         except (discord.NotFound, discord.HTTPException) as e:
-                            logger.warning(f"Failed to refresh EquipmentView after unequip: {e}")
+                            logger.debug(f"Failed to refresh EquipmentView after unequip: {e}")
                 else:
                     await interaction.response.send_message(
                         "卸下失败 / Unequip failed", ephemeral=True)
@@ -622,6 +654,149 @@ class EquipmentView(discord.ui.View):
                 except Exception:
                     pass
         return cb
+
+    # ── Bag / 背包 ──
+    async def _bag_callback(self, interaction: discord.Interaction):
+        """Show inventory equipment grouped by slot."""
+        try:
+            with get_db_ctx() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT item_id, item_name, quantity FROM user_inventory"
+                    " WHERE user_id = ? AND item_type = 'equipment' AND quantity > 0"
+                    " ORDER BY item_name",
+                    (self.uid,),
+                )
+                rows = cur.fetchall()
+
+            if not rows:
+                return await interaction.response.send_message(
+                    "背包中没有装备！/ No equipment in backpack!", ephemeral=True)
+
+            # Group by slot
+            grouped = {s: [] for s in EQUIP_SLOTS}
+            for row in rows:
+                slot = _resolve_slot(row["item_id"], row["item_name"])
+                if slot and slot in grouped:
+                    grouped[slot].append(row)
+                else:
+                    if "other" not in grouped:
+                        grouped["other"] = []
+                    grouped["other"].append(row)
+
+            embed = discord.Embed(
+                title=f"🎒 {self.uname} 的背包 / Backpack",
+                color=discord.Color.blue(),
+            )
+
+            quality_emoji = {"common": "⚪", "rare": "🔵", "epic": "🟣", "legendary": "🟡"}
+            for slot, items in grouped.items():
+                if not items:
+                    continue
+                label = EQUIP_SLOT_LABELS_CN.get(slot, "其他 / Other")
+                lines = []
+                for item in items:
+                    display_name = _strip_stat_suffix(item["item_name"])[:60]
+                    _, _, _, quality = _parse_item_name(item["item_name"])
+                    emoji = quality_emoji.get(quality, "⚪")
+                    qty_str = f" x{item['quantity']}" if item["quantity"] > 1 else ""
+                    lines.append(f"{emoji} {display_name}{qty_str}")
+                embed.add_field(
+                    name=f"{label} ({len(items)})",
+                    value="\n".join(lines) if lines else "（空 / Empty）",
+                    inline=False,
+                )
+
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        except Exception as e:
+            logger.error(f"Bag callback error (uid={self.uid}): {e}", exc_info=True)
+            try:
+                await interaction.response.send_message(
+                    "背包查看出错 / Error viewing backpack", ephemeral=True)
+            except Exception:
+                pass
+
+    # ── Sell / 手动卖装备 ──
+    async def _sell_callback(self, interaction: discord.Interaction):
+        """Show Select dropdown to manually sell a piece of equipment."""
+        try:
+            with get_db_ctx() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT item_id, item_name, quantity FROM user_inventory"
+                    " WHERE user_id = ? AND item_type = 'equipment' AND quantity > 0"
+                    " ORDER BY item_name",
+                    (self.uid,),
+                )
+                rows = cur.fetchall()
+
+            if not rows:
+                return await interaction.response.send_message(
+                    "背包中没有装备！/ No equipment to sell!", ephemeral=True)
+
+            QUALITY_PRICES = {"common": 50, "rare": 150, "epic": 300, "legendary": 800}
+
+            options = []
+            for row in rows:
+                display_name = _strip_stat_suffix(row["item_name"])[:60]
+                _, _, _, quality = _parse_item_name(row["item_name"])
+                price = QUALITY_PRICES.get(quality, 25)
+                qty_str = f" x{row['quantity']}" if row["quantity"] > 1 else ""
+                options.append(discord.SelectOption(
+                    label=f"{display_name}{qty_str}",
+                    value=row["item_id"],
+                    description=f"品质: {quality} | 售价/Price: {price}G",
+                ))
+
+            class SellSelect(discord.ui.Select):
+                def __init__(sel):
+                    super().__init__(
+                        placeholder="Select equipment to sell / 选择要卖的装备",
+                        options=options[:25],  # Discord limit
+                    )
+
+                async def callback(sel, inter: discord.Interaction):
+                    item_id = sel.values[0]
+                    row2 = next((r for r in rows if r["item_id"] == item_id), None)
+                    if not row2:
+                        return await inter.response.send_message("Item not found / 未找到物品", ephemeral=True)
+
+                    _, _, _, quality = _parse_item_name(row2["item_name"])
+                    price = QUALITY_PRICES.get(quality, 25)
+                    display_name = _strip_stat_suffix(row2["item_name"])[:60]
+
+                    with get_db_ctx() as conn2:
+                        cur2 = conn2.cursor()
+                        if row2["quantity"] <= 1:
+                            cur2.execute("DELETE FROM user_inventory WHERE user_id=? AND item_id=?",
+                                         (self.uid, item_id))
+                        else:
+                            cur2.execute("UPDATE user_inventory SET quantity=quantity-1"
+                                         " WHERE user_id=? AND item_id=?",
+                                         (self.uid, item_id))
+                        cur2.execute(
+                            "INSERT INTO user_balance (user_id, coins) VALUES (?, ?)"
+                            " ON CONFLICT(user_id) DO UPDATE SET coins=coins+excluded.coins",
+                            (self.uid, price),
+                        )
+                        conn2.commit()
+
+                    await inter.response.send_message(
+                        f"💰 卖出 / Sold: **{display_name}** — +{price}G",
+                        ephemeral=True,
+                    )
+
+            view = discord.ui.View(timeout=120)
+            view.add_item(SellSelect())
+            await interaction.response.send_message(
+                "选择要卖的装备 / Select equipment to sell:", view=view, ephemeral=True)
+        except Exception as e:
+            logger.error(f"Sell callback error (uid={self.uid}): {e}", exc_info=True)
+            try:
+                await interaction.response.send_message(
+                    "卖装备出错 / Error selling equipment", ephemeral=True)
+            except Exception:
+                pass
 
     async def _sell_weak_callback(self, interaction: discord.Interaction):
         """Sell inventory equipment weaker than currently equipped items."""
@@ -646,18 +821,8 @@ class EquipmentView(discord.ui.View):
             total_gold = 0
 
             for row in rows:
-                # Determine slot from item_id
-                slot = None
-                item_id = row["item_id"]
-                if item_id.startswith("eq_"):
-                    parts = item_id.split("_", 2)
-                    if len(parts) >= 2 and parts[1] in EQUIP_SLOTS:
-                        slot = parts[1]
-                if not slot:
-                    for s in EQUIP_SLOTS:
-                        if s in row["item_name"].lower():
-                            slot = s
-                            break
+                # Determine slot using shared helper
+                slot = _resolve_slot(row["item_id"], row["item_name"])
                 if not slot:
                     continue
 
@@ -689,7 +854,7 @@ class EquipmentView(discord.ui.View):
 
                 # Delete from inventory
                 with get_db_ctx() as conn_write:
-                    conn_write.execute("DELETE FROM user_inventory WHERE item_id = ?", (item_id,))
+                    conn_write.execute("DELETE FROM user_inventory WHERE item_id = ?", (row["item_id"],))
                     conn_write.commit()
 
                 sold_details.append(f"{display_name} x{row['quantity']} ({quality}, {price}G each)")
@@ -818,7 +983,7 @@ class EnhanceSelectView(discord.ui.View):
                     embed = self.eq_view.build_main_embed()
                     await self.panel_msg.edit(embed=embed, view=self.eq_view)
                 except (discord.NotFound, discord.HTTPException) as e:
-                    logger.warning(f"Failed to refresh EquipmentView after enhance: {e}")
+                    logger.debug(f"Failed to refresh EquipmentView after enhance: {e}")
             try:
                 await interaction.edit_original_response(content="强化完成 / Enhancement complete", embed=None, view=None)
             except Exception:
@@ -1003,8 +1168,8 @@ def _equip_item(user_id: str, item_name: str, item_id: str = None) -> bool:
         # ── Return old equipment to inventory ──
         if old_eq:
             # Reconstruct encoded item_name: "Name|||stat1:val1,stat2:val2|||quality"
-            old_stat_keys = old_eq["stat"].split(",")
-            old_stat_vals = old_eq["stat_value"].split(",")
+            old_stat_keys = str(old_eq["stat"]).split(",")
+            old_stat_vals = str(old_eq["stat_value"]).split(",")
             stat_pairs = ",".join(
                 f"{k.strip()}:{v.strip()}"
                 for k, v in zip(old_stat_keys, old_stat_vals)
@@ -1344,7 +1509,7 @@ class EquipSelectView(discord.ui.View):
                         embed = self.main_view.build_main_embed()
                         await self.panel_msg.edit(embed=embed, view=self.main_view)
                     except (discord.NotFound, discord.HTTPException) as e:
-                        logger.warning(f"Failed to refresh EquipmentView after equip: {e}")
+                        logger.debug(f"Failed to refresh EquipmentView after equip: {e}")
             else:
                 logger.warning(f"Equip failed: uid={self.uid} item_name={item_name}")
                 await interaction.response.send_message(
