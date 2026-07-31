@@ -74,6 +74,8 @@ MMORPG_COGS = {
     "cogs.mmorpg_guild",
     "cogs.mmorpg_auction",
     "cogs.mmorpg_enchant",
+    "cogs.mmorpg_raid",
+    "cogs.mmorpg_ranked",
 }
 COMMUNITY_COGS = {
     "cogs.pets",

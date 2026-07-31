@@ -1155,6 +1155,29 @@ class MMORPGMainView(discord.ui.View):
         except discord.InteractionResponded:
             await interaction.followup.edit_message(embed=embed, view=view)
 
+    # ═══════════════════════════════════════════════════════════
+    # Row 6: Raid / Ranked  (副本/排位)
+    # ═══════════════════════════════════════════════════════════
+    @discord.ui.button(label="Raid 副本", emoji="⚔️", style=discord.ButtonStyle.danger, row=6, custom_id="mmorpg_main:raid")
+    async def raid_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.mmorpg_raid import RaidLobbyView
+        view = RaidLobbyView(self.uid, main_view=self)
+        embed = view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Ranked 排位", emoji="🏆", style=discord.ButtonStyle.primary, row=6, custom_id="mmorpg_main:ranked")
+    async def ranked_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.mmorpg_ranked import RankedStatsView
+        view = RankedStatsView(self.uid, main_view=self)
+        embed = view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
 class _BackOnlyView(discord.ui.View):
     """Simple view with just a Back button for panels that only display info."""
     def __init__(self, uid: str, main_view: MMORPGMainView):
