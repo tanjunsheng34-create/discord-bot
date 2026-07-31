@@ -865,8 +865,8 @@ def _equip_item(user_id: str, item_name: str, item_id: str = None) -> bool:
 
         # ── Equip new: write to user_equipment and users table ──
         cur.execute(
-            "INSERT INTO user_equipment (user_id, slot, name, quality, stat, stat_value, emoji) VALUES (?,?,?,?,?,?,?)",
-            (user_id, slot, clean_name, quality, stat_str, stat_val_str, ""),
+            "INSERT INTO user_equipment (user_id, slot, name, quality, stat, stat_value, emoji, item_id) VALUES (?,?,?,?,?,?,?,?)",
+            (user_id, slot, clean_name, quality, stat_str, stat_val_str, "", item_id),
         )
         _apply_stat_delta(cur, user_id, stat_str, stat_val_str)
 
@@ -987,6 +987,7 @@ def _auto_equip_best(user_id: str) -> dict:
             best_by_slot[slot] = {
                 "item_name": row["item_name"],
                 "score": primary_val,
+                "item_id": row["item_id"],
             }
 
     # Equip each best
@@ -1152,8 +1153,8 @@ class EquipSelectView(discord.ui.View):
         self.item_map = {}  # item_id → item_name mapping for exact match in _select_callback
 
     async def _select_callback(self, interaction: discord.Interaction):
-        item_name = interaction.data["values"][0]
-        item_id = getattr(self, "item_map", {}).get(item_name)
+        item_id = interaction.data["values"][0]
+        item_name = self.item_map.get(item_id)
         try:
             success = _equip_item(self.uid, item_name, item_id=item_id)
             if success:
