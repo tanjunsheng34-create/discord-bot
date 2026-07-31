@@ -1305,8 +1305,8 @@ class ReShuffleView(discord.ui.View):
 class RematchView(discord.ui.View):
     """赛后重赛/结束按钮。"""
 
-    def __init__(self, match_id: int, guild: discord.Guild, match_name: str, timeout: float = 300):
-        super().__init__(timeout=timeout)
+    def __init__(self, match_id: int, guild: discord.Guild, match_name: str, timeout=None):
+        super().__init__(timeout=None)
         self.match_id = match_id
         self.guild = guild
         self.match_name = match_name
@@ -1675,8 +1675,8 @@ class PostMatchPullView(discord.ui.View):
 class ManualTeamView(discord.ui.View):
     """管理员手动将每个玩家分配到 A/B 队(自己分队)。"""
 
-    def __init__(self, src_match_id, match_name, player_ids, guild, team_size, created_by, timeout=300):
-        super().__init__(timeout=timeout)
+    def __init__(self, src_match_id, match_name, player_ids, guild, team_size, created_by, timeout=None):
+        super().__init__(timeout=None)
         self.src_match_id = src_match_id
         self.match_name = match_name
         self.guild = guild
@@ -1888,8 +1888,8 @@ class ManualTeamView(discord.ui.View):
 class CaptainDraftView(discord.ui.View):
     """队长分队:先选 2 名队长,再轮流选人(draft 模式)。"""
 
-    def __init__(self, src_match_id, match_name, player_ids, guild, team_size, created_by, timeout=300):
-        super().__init__(timeout=timeout)
+    def __init__(self, src_match_id, match_name, player_ids, guild, team_size, created_by, timeout=None):
+        super().__init__(timeout=None)
         self.src_match_id = src_match_id
         self.match_name = match_name
         self.guild = guild
@@ -3099,6 +3099,13 @@ class MatchViewWithID(discord.ui.View):
             view=view,
             ephemeral=True,
         )
+
+    async def on_timeout(self):
+        """Disable all buttons on timeout to prevent 'Unknown interaction' errors."""
+        for child in self.children:
+            child.disabled = True
+        # Note: Since timeout=None, this should never be called in normal operation.
+        # It serves as a safety net if a subclass or future change sets a finite timeout.
 
 # =============================================================================
 # LoL Vote View — 模式投票（ARAM / Summoner's Rift / TFT）
