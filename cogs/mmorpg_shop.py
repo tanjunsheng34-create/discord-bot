@@ -1112,6 +1112,49 @@ class MMORPGMainView(discord.ui.View):
         except discord.InteractionResponded:
             await interaction.followup.edit_message(embed=embed, view=view)
 
+    # ═══════════════════════════════════════════════════════════
+    # Row 5: Pet / Guild / Auction / Enchant  (info)
+    # ═══════════════════════════════════════════════════════════
+    @discord.ui.button(label="Pet 宠物", emoji="🐾", style=discord.ButtonStyle.secondary, row=5, custom_id="mmorpg_main:pet")
+    async def pet_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.mmorpg_pet import PetPanelView
+        view = PetPanelView(self.uid, main_view=self)
+        embed = view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Guild 公会", emoji="🏰", style=discord.ButtonStyle.secondary, row=5, custom_id="mmorpg_main:guild")
+    async def guild_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.mmorpg_guild import GuildPanelView
+        view = GuildPanelView(self.uid, main_view=self)
+        embed = view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Auction 拍卖", emoji="💎", style=discord.ButtonStyle.secondary, row=5, custom_id="mmorpg_main:auction")
+    async def auction_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.mmorpg_auction import AuctionView
+        view = AuctionView(self.uid, main_view=self)
+        embed = view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Enchant 附魔", emoji="✨", style=discord.ButtonStyle.secondary, row=5, custom_id="mmorpg_main:enchant")
+    async def enchant_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.mmorpg_enchant import EnchantView
+        view = EnchantView(self.uid, main_view=self)
+        embed = view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
 class _BackOnlyView(discord.ui.View):
     """Simple view with just a Back button for panels that only display info."""
     def __init__(self, uid: str, main_view: MMORPGMainView):

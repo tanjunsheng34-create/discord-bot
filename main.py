@@ -70,6 +70,10 @@ MMORPG_COGS = {
     "cogs.mmorpg_checkin",
     "cogs.mmorpg_fishing",
     "cogs.mmorpg_achievement",
+    "cogs.mmorpg_pet",
+    "cogs.mmorpg_guild",
+    "cogs.mmorpg_auction",
+    "cogs.mmorpg_enchant",
 }
 COMMUNITY_COGS = {
     "cogs.pets",
