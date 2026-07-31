@@ -312,6 +312,15 @@ class EquipmentView(discord.ui.View):
             back_btn.callback = self._back_callback
             self.add_item(back_btn)
 
+        # Row 3: Sell Weak
+        sell_btn = discord.ui.Button(
+            label="Sell Weak 卖弱装", emoji="💰",
+            style=discord.ButtonStyle.secondary, row=3,
+            custom_id="eq_sell_weak",
+        )
+        sell_btn.callback = self._sell_weak_callback
+        self.add_item(sell_btn)
+
     # ── Best Equip / 一键最强 ──
     async def _best_equip_callback(self, interaction: discord.Interaction):
         try:
@@ -614,6 +623,105 @@ class EquipmentView(discord.ui.View):
                     pass
         return cb
 
+    async def _sell_weak_callback(self, interaction: discord.Interaction):
+        """Sell inventory equipment weaker than currently equipped items."""
+        try:
+            equipped = _get_equipped(self.uid)
+            with get_db_ctx() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT item_id, item_name, quantity FROM user_inventory"
+                    " WHERE user_id = ? AND item_type = 'equipment' AND quantity > 0",
+                    (self.uid,),
+                )
+                rows = cur.fetchall()
+
+            if not rows:
+                return await interaction.response.send_message(
+                    "No equipment in inventory / 背包中没有装备", ephemeral=True)
+
+            QUALITY_PRICES = {"common": 50, "rare": 150, "epic": 300, "legendary": 800}
+            sold_count = 0
+            sold_details = []
+            total_gold = 0
+
+            for row in rows:
+                # Determine slot from item_id
+                slot = None
+                item_id = row["item_id"]
+                if item_id.startswith("eq_"):
+                    parts = item_id.split("_", 2)
+                    if len(parts) >= 2 and parts[1] in EQUIP_SLOTS:
+                        slot = parts[1]
+                if not slot:
+                    for s in EQUIP_SLOTS:
+                        if s in row["item_name"].lower():
+                            slot = s
+                            break
+                if not slot:
+                    continue
+
+                # Skip if no equipped item in this slot — inventory item may be useful later
+                if slot not in equipped:
+                    continue
+
+                # Compare stat_value: inventory vs equipped
+                _, stat_str, stat_val_str, quality = _parse_item_name(row["item_name"])
+                try:
+                    inv_val = sum(int(v.strip()) for v in stat_val_str.split(","))
+                except (ValueError, AttributeError):
+                    inv_val = 0
+
+                current_val_str = str(equipped[slot].get("stat_value", "0"))
+                try:
+                    cur_val = sum(int(v.strip()) for v in current_val_str.split(","))
+                except (ValueError, AttributeError):
+                    cur_val = 0
+
+                # Only sell if strictly weaker
+                if inv_val >= cur_val:
+                    continue
+
+                price = QUALITY_PRICES.get(quality, 25)
+                total_gold += price * row["quantity"]
+                sold_count += row["quantity"]
+                display_name = _strip_stat_suffix(row["item_name"])
+
+                # Delete from inventory
+                with get_db_ctx() as conn_write:
+                    conn_write.execute("DELETE FROM user_inventory WHERE item_id = ?", (item_id,))
+                    conn_write.commit()
+
+                sold_details.append(f"{display_name} x{row['quantity']} ({quality}, {price}G each)")
+
+            if sold_count == 0:
+                return await interaction.response.send_message(
+                    "No weak equipment to sell / 没有比当前装备弱的可卖装备！", ephemeral=True)
+
+            # Add coins
+            from cogs.mmorpg_shop import _add_coins
+            _add_coins(self.uid, total_gold, f"Sell {sold_count} weak equipment")
+
+            # Build result embed
+            detail_lines = "\n".join(sold_details[:20])
+            if len(sold_details) > 20:
+                detail_lines += f"\n... and {len(sold_details) - 20} more"
+
+            embed = discord.Embed(
+                title="💰 Sold Weak Equipment / 弱装出售",
+                description=f"Sold **{sold_count}** items for **{total_gold:,}G**",
+                color=0xF1C40F,
+            )
+            embed.add_field(name="Details / 明细", value=detail_lines or "(none)", inline=False)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        except Exception as e:
+            logger.error(f"Sell weak error (uid={self.uid}): {e}", exc_info=True)
+            try:
+                await interaction.response.send_message(
+                    "处理出错 / Error", ephemeral=True)
+            except Exception:
+                pass
+
 
 class EnhanceSelectView(discord.ui.View):
     """Select dropdown for enhancement target."""
@@ -859,12 +967,15 @@ def _equip_item(user_id: str, item_name: str, item_id: str = None) -> bool:
         # ── Parse stat info from item_name ──
         clean_name, stat_str, stat_val_str, quality = _parse_item_name(row["item_name"])
 
-        # ── Unequip old: subtract its stats from users table ──
-        cur.execute("SELECT stat, stat_value FROM user_equipment WHERE user_id=? AND slot=?", (user_id, slot))
-        old = cur.fetchone()
-        if old:
-            old_stat_str = str(old["stat"])
-            old_val_str = str(old["stat_value"])
+        # ── Unequip old: save info & subtract its stats from users table ──
+        cur.execute(
+            "SELECT item_id, name, stat, stat_value, quality FROM user_equipment WHERE user_id=? AND slot=?",
+            (user_id, slot),
+        )
+        old_eq = cur.fetchone()
+        if old_eq:
+            old_stat_str = str(old_eq["stat"])
+            old_val_str = str(old_eq["stat_value"])
             old_stats = old_stat_str.split(",")
             old_vals = old_val_str.split(",")
             neg_vals = []
@@ -888,6 +999,34 @@ def _equip_item(user_id: str, item_name: str, item_id: str = None) -> bool:
             cur.execute("DELETE FROM user_inventory WHERE item_id=?", (row["item_id"],))
         else:
             cur.execute("UPDATE user_inventory SET quantity=quantity-1 WHERE item_id=?", (row["item_id"],))
+
+        # ── Return old equipment to inventory ──
+        if old_eq:
+            # Reconstruct encoded item_name: "Name|||stat1:val1,stat2:val2|||quality"
+            old_stat_keys = old_eq["stat"].split(",")
+            old_stat_vals = old_eq["stat_value"].split(",")
+            stat_pairs = ",".join(
+                f"{k.strip()}:{v.strip()}"
+                for k, v in zip(old_stat_keys, old_stat_vals)
+            )
+            old_full_name = f"{old_eq['name']}|||{stat_pairs}|||{old_eq['quality']}"
+            old_item_id = old_eq["item_id"]
+            cur.execute(
+                "SELECT quantity FROM user_inventory WHERE user_id=? AND item_id=?",
+                (user_id, old_item_id),
+            )
+            existing = cur.fetchone()
+            if existing:
+                cur.execute(
+                    "UPDATE user_inventory SET quantity=quantity+1 WHERE user_id=? AND item_id=?",
+                    (user_id, old_item_id),
+                )
+            else:
+                cur.execute(
+                    "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) "
+                    "VALUES (?,?,?,1,'equipment')",
+                    (user_id, old_item_id, old_full_name),
+                )
 
         conn.commit()
         logger.info(f"_equip_item: uid={user_id} slot={slot} name={clean_name} stat={stat_str} val={stat_val_str} quality={quality}")
