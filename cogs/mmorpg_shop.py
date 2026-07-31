@@ -890,20 +890,6 @@ class MMORPGMainView(discord.ui.View):
         except discord.InteractionResponded:
             await interaction.followup.edit_message(embed=embed, view=view)
 
-    @discord.ui.button(label="Titles 称号", emoji="\U0001f3c5", style=discord.ButtonStyle.success, row=4, custom_id="mmorpg_main:titles")
-    async def titles_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from cogs.mmorpg_titles import TitlesHubView
-        view = TitlesHubView(self.uid, main_view=self)
-        embed = discord.Embed(
-            title="\U0001f3c5 Titles & Achievements / 称号与成就",
-            description="View your titles and achievements!\n查看你的称号和成就！",
-            color=0x27AE60,
-        )
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
-
     # ═══════════════════════════════════════════════════════════
     # Row 2: Economy / Social  (primary)
     # ═══════════════════════════════════════════════════════════
@@ -1031,26 +1017,17 @@ class MMORPGMainView(discord.ui.View):
         except discord.InteractionResponded:
             await interaction.followup.edit_message(embed=embed, view=view)
 
-    @discord.ui.button(label="Achieve 成就", emoji="\U0001f3c6", style=discord.ButtonStyle.secondary, row=4, custom_id="mmorpg_main:achievements")
-    async def achievements_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from cogs.mmorpg_achievement import AchievementsView, check_and_unlock_all
-        check_and_unlock_all(self.uid)
-        view = AchievementsView(self.uid, main_view=self)
-        embed = view.build_embed()
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
-
 
     # ═══════════════════════════════════════════════════════════
     # Row 4: More Systems Select Menu
     # ═══════════════════════════════════════════════════════════
     @discord.ui.select(
         placeholder="🎮 More Systems / 更多系统",
-        row=5,
+        row=4,
         custom_id="mmorpg_main:more_systems",
         options=[
+            discord.SelectOption(label="Titles 称号", emoji="🏆", value="titles", description="View your titles"),
+            discord.SelectOption(label="Achievements 成就", emoji="🎖️", value="achievements", description="View your achievements"),
             discord.SelectOption(label="World Boss", emoji="🐉", value="worldboss", description="Fight the world boss"),
             discord.SelectOption(label="Fishing 钓鱼", emoji="🎣", value="fishing", description="Go fishing"),
             discord.SelectOption(label="Check-in 签到", emoji="📅", value="checkin", description="Daily check-in"),
@@ -1066,7 +1043,20 @@ class MMORPGMainView(discord.ui.View):
     async def more_systems_callback(self, interaction: discord.Interaction, select: discord.ui.Select):
         value = select.values[0]
 
-        if value == "worldboss":
+        if value == "titles":
+            from cogs.mmorpg_titles import TitlesHubView
+            view = TitlesHubView(self.uid, main_view=self)
+            embed = discord.Embed(
+                title="🏆 Titles / 称号",
+                description="View your titles!\n查看你的称号！",
+                color=0x27AE60,
+            )
+        elif value == "achievements":
+            from cogs.mmorpg_achievement import AchievementsView, check_and_unlock_all
+            check_and_unlock_all(self.uid)
+            view = AchievementsView(self.uid, main_view=self)
+            embed = view.build_embed()
+        elif value == "worldboss":
             from cogs.mmorpg_worldboss import WorldBossView
             view = WorldBossView(self.uid, main_view=self)
             embed = view.build_embed()
