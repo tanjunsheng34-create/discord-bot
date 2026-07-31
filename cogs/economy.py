@@ -7,6 +7,8 @@ GMPT Bot — 经济系统 (Economy) v3
 import asyncio
 import io
 import random
+import sqlite3
+import time
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -911,16 +913,33 @@ async def buy_item(interaction: discord.Interaction, uid: str, item_id: int, bro
 # ---------- 工具函数 ----------
 
 def add_coins(user_id: str, amount: int, reason: str):
-    with get_db_ctx() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING",
-            (user_id,),
-        )
-        cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (amount, user_id))
-        cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
-                     (user_id, amount, reason))
-        conn.commit()
+    """Add coins with retry on 'database is locked'.
+
+    Each retry acquires a *fresh* connection to avoid reusing a locked handle.
+    """
+    last_error = None
+    for attempt in range(3):
+        conn = get_db()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO users (discord_id, username) VALUES (?,'unknown') ON CONFLICT(discord_id) DO NOTHING",
+                (user_id,),
+            )
+            cur.execute("UPDATE users SET score = score + ? WHERE discord_id = ?", (amount, user_id))
+            cur.execute("INSERT INTO transactions (discord_id, amount, reason) VALUES (?,?,?)",
+                         (user_id, amount, reason))
+            conn.commit()
+            return
+        except sqlite3.OperationalError as e:
+            last_error = e
+            if "locked" in str(e).lower() and attempt < 2:
+                time.sleep(0.2 * (attempt + 1))
+                continue
+            raise
+        finally:
+            conn.close()
+    raise last_error
 
 
 def get_balance(user_id: str) -> int:
