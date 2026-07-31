@@ -241,80 +241,125 @@ class EquipmentView(discord.ui.View):
     def build_main_embed(self):
         equipped = _get_equipped(self.uid)
         total_stats = _get_equip_stats(self.uid)
+
         embed = discord.Embed(
             title="⚔️ 装备面板 / Equipment Panel",
-            description="点击下方槽位按钮查看装备详情 / Click a slot button to view equipment",
-            color=0xE67E22,
+            description=(
+                f"ATK: **{total_stats['atk']}** | "
+                f"DEF: **{total_stats['def']}** | "
+                f"HP: **{total_stats['hp']}** | "
+                f"Crit: **{total_stats['crit']}%** | "
+                f"SPD: **{total_stats['spd']}**"
+            ),
+            color=0xF39C12,
         )
+
+        SLOT_EMOJIS = {
+            "weapon": "⚔️", "helmet": "🪖", "armor": "🛡️",
+            "leggings": "👖", "boots": "👢", "accessory": "💍",
+        }
+        QUALITY_COLORS = {
+            "common": "⚪", "rare": "🔵", "epic": "🟣", "legendary": "🟡",
+        }
+
         for slot in EQUIP_SLOTS:
             eq = equipped.get(slot)
+            emoji = SLOT_EMOJIS.get(slot, "⬜")
             if eq:
-                q = QUALITIES.get(eq["quality"], QUALITIES["common"])
+                quality_mark = QUALITY_COLORS.get(eq.get("quality", "common"), "⚪")
                 stat_display = _format_stat_display(eq["stat"], eq["stat_value"])
-                embed.add_field(
-                    name=f"{eq['emoji'] if eq.get('emoji') else q['label'].split()[0]} {EQUIP_SLOT_LABELS_CN[slot]}",
-                    value=f"{eq['name']}\n{stat_display}",
-                    inline=True,
-                )
+                display_name = _strip_stat_suffix(eq["name"])
+                value = f"{quality_mark} **{display_name}**\n{stat_display}"
             else:
-                embed.add_field(
-                    name=f"⬜ {EQUIP_SLOT_LABELS_CN[slot]}",
-                    value="未装备 / Empty",
-                    inline=True,
-                )
-        embed.add_field(name="\u200b", value="\u200b", inline=False)
-        stats_text = f"ATK:{total_stats['atk']} DEF:{total_stats['def']} HP:{total_stats['hp']} Crit:{total_stats['crit']} SPD:{total_stats['spd']}"
-        embed.set_footer(text=f"Total Stats: {stats_text}")
+                value = "⬜ 空 / Empty"
+            embed.add_field(
+                name=f"{emoji} {EQUIP_SLOT_LABELS_CN[slot]}",
+                value=value,
+                inline=True,
+            )
+
         return embed
 
     def _build(self):
         self.clear_items()
         equipped = _get_equipped(self.uid)
 
-        for i, slot in enumerate(EQUIP_SLOTS):
-            eq = equipped.get(slot)
-            if eq:
-                lvl = eq.get('enhance_level', 0)
-                label = f"{eq['emoji']} {EQUIP_SLOT_LABELS_CN[slot]} +{lvl}"[:80]
-            else:
-                label = f"⬜ {EQUIP_SLOT_LABELS_CN[slot]}"
-            btn = discord.ui.Button(
-                label=label,
-                style=discord.ButtonStyle.secondary if eq else discord.ButtonStyle.primary,
-                row=i // 3,
-                custom_id=f"eq_slot_{slot}",
-            )
-            btn.callback = self._make_slot_callback(slot)
-            self.add_item(btn)
-
-        # Row 2: Best Equip | Equip | Enhance | Back
-        best_btn = discord.ui.Button(
-            label="Best Equip 一键最强", emoji="⚡",
-            style=discord.ButtonStyle.primary, row=2,
-            custom_id="eq_best",
-        )
-        best_btn.callback = self._best_equip_callback
-        self.add_item(best_btn)
-
+        # ── Row 0: Operations ──
         equip_btn = discord.ui.Button(
-            label="Equip 装备", emoji="⚔️",
-            style=discord.ButtonStyle.primary, row=2,
+            label="⚔️ Equip 装备", style=discord.ButtonStyle.success, row=0,
             custom_id="eq_equip",
         )
         equip_btn.callback = self._equip_callback
         self.add_item(equip_btn)
 
+        has_any_equipped = any(equipped.get(s) for s in EQUIP_SLOTS)
         unequip_btn = discord.ui.Button(
-            label="Unequip 卸下", emoji="🔴",
-            style=discord.ButtonStyle.danger, row=2,
-            custom_id="eq_unequip",
+            label="🔴 Unequip 卸下", style=discord.ButtonStyle.primary, row=0,
+            custom_id="eq_unequip", disabled=not has_any_equipped,
         )
         unequip_btn.callback = self._unequip_callback
         self.add_item(unequip_btn)
 
+        best_btn = discord.ui.Button(
+            label="⚡ Best Equip 一键最强", style=discord.ButtonStyle.primary, row=0,
+            custom_id="eq_best",
+        )
+        best_btn.callback = self._best_equip_callback
+        self.add_item(best_btn)
+
+        # ── Row 1-2: 6 Slot buttons ──
+        SLOT_EMOJIS = {
+            "weapon": "⚔️", "helmet": "🪖", "armor": "🛡️",
+            "leggings": "👖", "boots": "👢", "accessory": "💍",
+        }
+        QUALITY_MARKS = {
+            "common": "⚪", "rare": "🔵", "epic": "🟣", "legendary": "🟡",
+        }
+        rows_for_slots = [1, 1, 1, 2, 2, 2]  # 3 per row
+        for i, slot in enumerate(EQUIP_SLOTS):
+            emoji = SLOT_EMOJIS.get(slot, "⬜")
+            eq = equipped.get(slot)
+            if eq:
+                lvl = eq.get("enhance_level", 0)
+                mark = QUALITY_MARKS.get(eq.get("quality", "common"), "⚪")
+                short_name = _strip_stat_suffix(eq["name"])[:20]
+                label = f"{emoji} {mark} {short_name} +{lvl}"[:80]
+            else:
+                label = f"{emoji} 空 / Empty"
+            btn = discord.ui.Button(
+                label=label,
+                style=discord.ButtonStyle.secondary,
+                row=rows_for_slots[i],
+                custom_id=f"eq_slot_{slot}",
+            )
+            btn.callback = self._make_slot_callback(slot)
+            self.add_item(btn)
+
+        # ── Row 3: Bag / Sell / Sell Weak ──
+        bag_btn = discord.ui.Button(
+            label="🎒 Bag 背包", style=discord.ButtonStyle.secondary, row=3,
+            custom_id="eq_bag",
+        )
+        bag_btn.callback = self._bag_callback
+        self.add_item(bag_btn)
+
+        sell_equip_btn = discord.ui.Button(
+            label="💲 Sell 卖装备", style=discord.ButtonStyle.secondary, row=3,
+            custom_id="eq_sell",
+        )
+        sell_equip_btn.callback = self._sell_callback
+        self.add_item(sell_equip_btn)
+
+        sell_btn = discord.ui.Button(
+            label="💰 Sell Weak 卖弱装", style=discord.ButtonStyle.secondary, row=3,
+            custom_id="eq_sell_weak",
+        )
+        sell_btn.callback = self._sell_weak_callback
+        self.add_item(sell_btn)
+
+        # ── Row 4: Enhance / Back ──
         enhance_btn = discord.ui.Button(
-            label="Enhance 强化", emoji="🔨",
-            style=discord.ButtonStyle.success, row=2,
+            label="🔨 Enhance 强化", style=discord.ButtonStyle.secondary, row=4,
             custom_id="eq_enhance",
         )
         enhance_btn.callback = self._enhance_callback
@@ -322,36 +367,11 @@ class EquipmentView(discord.ui.View):
 
         if self.main_view:
             back_btn = discord.ui.Button(
-                label="Back to MMORPG / 返回", style=discord.ButtonStyle.danger,
-                row=2, emoji="🏠", custom_id="eq_back",
+                label="🏠 Back 返回", style=discord.ButtonStyle.secondary, row=4,
+                custom_id="eq_back",
             )
             back_btn.callback = self._back_callback
             self.add_item(back_btn)
-
-        # Row 3: Bag | Sell | Sell Weak
-        bag_btn = discord.ui.Button(
-            label="Bag 背包", emoji="🎒",
-            style=discord.ButtonStyle.secondary, row=3,
-            custom_id="eq_bag",
-        )
-        bag_btn.callback = self._bag_callback
-        self.add_item(bag_btn)
-
-        sell_equip_btn = discord.ui.Button(
-            label="Sell 卖装备", emoji="💲",
-            style=discord.ButtonStyle.secondary, row=3,
-            custom_id="eq_sell",
-        )
-        sell_equip_btn.callback = self._sell_callback
-        self.add_item(sell_equip_btn)
-
-        sell_btn = discord.ui.Button(
-            label="Sell Weak 卖弱装", emoji="💰",
-            style=discord.ButtonStyle.secondary, row=3,
-            custom_id="eq_sell_weak",
-        )
-        sell_btn.callback = self._sell_weak_callback
-        self.add_item(sell_btn)
 
     # ── Best Equip / 一键最强 ──
     async def _best_equip_callback(self, interaction: discord.Interaction):
