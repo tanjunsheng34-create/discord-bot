@@ -1048,7 +1048,7 @@ class MMORPGMainView(discord.ui.View):
     # ═══════════════════════════════════════════════════════════
     @discord.ui.select(
         placeholder="🎮 More Systems / 更多系统",
-        row=4,
+        row=5,
         custom_id="mmorpg_main:more_systems",
         options=[
             discord.SelectOption(label="World Boss", emoji="🐉", value="worldboss", description="Fight the world boss"),
