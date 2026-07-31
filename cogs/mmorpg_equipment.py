@@ -344,8 +344,8 @@ class EquipmentView(discord.ui.View):
                     )
 
             # defer → refresh panel → send summary as ephemeral followup
-            self._build()
             await interaction.response.defer()
+            self._build()
             await interaction.edit_original_response(embed=self.build_main_embed(), view=self)
             await interaction.followup.send(embed=embed, ephemeral=True)
         except Exception as e:
@@ -498,7 +498,7 @@ class EquipmentView(discord.ui.View):
                 return await interaction.response.send_message(
                     "No equipment to enhance / 没有可强化的装备！", ephemeral=True)
 
-            view = EnhanceSelectView(self.uid, equipped, self)
+            view = EnhanceSelectView(self.uid, equipped, self, interaction.message)
             select = discord.ui.Select(
                 placeholder="Select equipment to enhance / 选择要强化的装备",
                 options=options,
@@ -583,11 +583,11 @@ class EquipmentView(discord.ui.View):
             label="Unequip 卸下", emoji="🔴",
             style=discord.ButtonStyle.danger, row=0,
         )
-        unequip_btn.callback = self._make_unequip_callback(slot, eq)
+        unequip_btn.callback = self._make_unequip_callback(slot, eq, interaction.message)
         view.add_item(unequip_btn)
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
-    def _make_unequip_callback(self, slot: str, eq: dict):
+    def _make_unequip_callback(self, slot: str, eq: dict, panel_msg=None):
         async def cb(interaction: discord.Interaction):
             try:
                 success = _unequip_item(self.uid, slot)
@@ -595,7 +595,13 @@ class EquipmentView(discord.ui.View):
                     self._build()
                     await interaction.response.edit_message(
                         content=f"✅ 已卸下 / Unequipped: **{eq['name']}**", embed=None, view=None)
-                    # Also try to update the main panel
+                    # Refresh the main panel
+                    if panel_msg:
+                        try:
+                            embed = self.build_main_embed()
+                            await panel_msg.edit(embed=embed, view=self)
+                        except (discord.NotFound, discord.HTTPException) as e:
+                            logger.warning(f"Failed to refresh EquipmentView after unequip: {e}")
                 else:
                     await interaction.response.send_message(
                         "卸下失败 / Unequip failed", ephemeral=True)
@@ -612,11 +618,12 @@ class EquipmentView(discord.ui.View):
 class EnhanceSelectView(discord.ui.View):
     """Select dropdown for enhancement target."""
 
-    def __init__(self, uid: str, equipped: dict, eq_view):
+    def __init__(self, uid: str, equipped: dict, eq_view, panel_msg=None):
         super().__init__(timeout=60)
         self.uid = uid
         self.equipped = equipped
         self.eq_view = eq_view
+        self.panel_msg = panel_msg
 
     async def _select_callback(self, interaction: discord.Interaction):
         deducted = False
@@ -698,8 +705,14 @@ class EnhanceSelectView(discord.ui.View):
             await interaction.followup.send(msg, ephemeral=True)
 
             self.eq_view._build()
+            if self.panel_msg:
+                try:
+                    embed = self.eq_view.build_main_embed()
+                    await self.panel_msg.edit(embed=embed, view=self.eq_view)
+                except (discord.NotFound, discord.HTTPException) as e:
+                    logger.warning(f"Failed to refresh EquipmentView after enhance: {e}")
             try:
-                await interaction.edit_original_response(embed=self.eq_view.build_main_embed(), view=self.eq_view)
+                await interaction.edit_original_response(content="强化完成 / Enhancement complete", embed=None, view=None)
             except Exception:
                 pass
         except Exception as e:
@@ -990,7 +1003,8 @@ def _auto_equip_best(user_id: str) -> dict:
                 "item_id": row["item_id"],
             }
 
-    # Equip each best
+    # Equip each best — only if strictly better than currently equipped
+    equipped = _get_equipped(user_id)
     results = {}
     for slot in EQUIP_SLOTS:
         if slot not in best_by_slot:
@@ -998,11 +1012,31 @@ def _auto_equip_best(user_id: str) -> dict:
             continue
 
         info = best_by_slot[slot]
-        success = _equip_item(user_id, info["item_name"])
+
+        # Compare against currently equipped item; keep if already better or equal
+        current = equipped.get(slot)
+        if current:
+            current_val_str = str(current.get("stat_value", "0"))
+            try:
+                current_val = sum(int(v.strip()) for v in current_val_str.split(","))
+            except (ValueError, AttributeError):
+                current_val = 0
+            if info["score"] <= current_val:
+                results[slot] = {
+                    "name": current.get("name", slot),
+                    "quality": current.get("quality", "common"),
+                    "stat": current.get("stat", "atk"),
+                    "stat_value": current_val_str,
+                    "emoji": current.get("emoji", "⚪"),
+                }
+                continue
+
+        # Inventory item is strictly better — equip it with exact item_id
+        success = _equip_item(user_id, info["item_name"], item_id=info["item_id"])
         if success:
             # Read back what was equipped
-            equipped = _get_equipped(user_id)
-            eq = equipped.get(slot, {})
+            equipped_refresh = _get_equipped(user_id)
+            eq = equipped_refresh.get(slot, {})
             results[slot] = {
                 "name": eq.get("name", info["item_name"]),
                 "quality": eq.get("quality", "common"),
