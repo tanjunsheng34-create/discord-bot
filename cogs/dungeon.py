@@ -45,6 +45,30 @@ DUNGEON_MONSTERS = {
         {"name": "魔王 Demon Lord", "hp": 650, "atk": 70, "def": 16, "exp": 550, "coins": 1300, "emoji": "👹"},
         {"name": "远古巫妖 Ancient Lich", "hp": 500, "atk": 80, "def": 14, "exp": 600, "coins": 1400, "emoji": "💀"},
     ],
+    6: [  # Floor 6 — Twisted Treeline (Lv.20-28)
+        {"name": "魔沼蛙 Gromp", "hp": 420, "atk": 62, "def": 22, "exp": 220, "coins": 520, "emoji": "🐸"},
+        {"name": "暗影狼 Murk Wolf", "hp": 380, "atk": 68, "def": 18, "exp": 240, "coins": 550, "emoji": "🐺"},
+        {"name": "锋喙鸟 Crimson Raptor", "hp": 400, "atk": 58, "def": 24, "exp": 230, "coins": 530, "emoji": "🦅"},
+    ],
+    7: [  # Floor 7 — Summoner's Rift (Lv.28-36)
+        {"name": "近战兵 Melee Minion", "hp": 500, "atk": 72, "def": 28, "exp": 300, "coins": 700, "emoji": "⚔️"},
+        {"name": "远程兵 Caster Minion", "hp": 440, "atk": 82, "def": 22, "exp": 320, "coins": 720, "emoji": "🔮"},
+        {"name": "炮车兵 Siege Minion", "hp": 620, "atk": 65, "def": 35, "exp": 350, "coins": 800, "emoji": "💣"},
+    ],
+    8: [  # Floor 8 — Dragon Pit (Lv.36-45)
+        {"name": "炼狱亚龙 Infernal Drake", "hp": 700, "atk": 95, "def": 30, "exp": 450, "coins": 1100, "emoji": "🔥"},
+        {"name": "海洋亚龙 Ocean Drake", "hp": 750, "atk": 85, "def": 35, "exp": 430, "coins": 1050, "emoji": "🌊"},
+        {"name": "云端亚龙 Cloud Drake", "hp": 650, "atk": 90, "def": 28, "exp": 460, "coins": 1150, "emoji": "☁️"},
+        {"name": "山脉亚龙 Mountain Drake", "hp": 800, "atk": 80, "def": 40, "exp": 420, "coins": 1000, "emoji": "⛰️"},
+    ],
+    9: [  # Floor 9 — Baron Pit (Lv.45-55)
+        {"name": "峡谷先锋 Rift Herald", "hp": 950, "atk": 110, "def": 38, "exp": 600, "coins": 1500, "emoji": "🦀"},
+        {"name": "纳什男爵 Baron Nashor", "hp": 1100, "atk": 120, "def": 42, "exp": 700, "coins": 1800, "emoji": "🐍"},
+    ],
+    10: [  # Floor 10 — Elder Pit (Lv.55+)
+        {"name": "远古巨龙 Elder Dragon", "hp": 1400, "atk": 140, "def": 45, "exp": 900, "coins": 2500, "emoji": "🐉"},
+        {"name": "龙王 Aurelion Sol", "hp": 1600, "atk": 155, "def": 40, "exp": 1000, "coins": 3000, "emoji": "🌟"},
+    ],
 }
 
 FLOOR_NAMES = {
@@ -53,6 +77,11 @@ FLOOR_NAMES = {
     3: "烈焰深渊 Fire Abyss",
     4: "风暴之巅 Storm Peak",
     5: "魔王宫殿 Demon Lord's Palace",
+    6: "扭曲丛林 Twisted Treeline",
+    7: "召唤师峡谷 Summoner's Rift",
+    8: "龙坑 Dragon Pit",
+    9: "男爵坑 Baron Pit",
+    10: "远古龙坑 Elder Pit",
 }
 
 EXTRA_RUN_COST = 200
@@ -143,20 +172,51 @@ class DungeonView(discord.ui.View):
         self.clear_items()
         free, extra = _get_dungeon_runs(self.uid)
 
-        for floor in range(1, 6):
-            btn = discord.ui.Button(
-                label=f"第{floor}层 Floor {floor} | {FLOOR_NAMES[floor]}",
-                style=discord.ButtonStyle.primary if floor <= 3 else discord.ButtonStyle.danger,
-                row=floor - 1,
-                custom_id=f"dungeon_f{floor}",
+        options = []
+        for floor in range(1, 11):
+            if floor == 6:
+                desc = "Lv.20-28 | LOL 扭曲丛林"
+                emoji = "🟣"
+            elif floor == 7:
+                desc = "Lv.28-36 | LOL 召唤师峡谷"
+                emoji = "🟣"
+            elif floor == 8:
+                desc = "Lv.36-45 | LOL 龙坑"
+                emoji = "🟣"
+            elif floor == 9:
+                desc = "Lv.45-55 | LOL 男爵坑"
+                emoji = "🟣"
+            elif floor == 10:
+                desc = "Lv.55+ | LOL 远古龙坑"
+                emoji = "🟣"
+            else:
+                desc = None
+                emoji = None
+            options.append(
+                discord.SelectOption(
+                    label=f"第{floor}层 Floor {floor} | {FLOOR_NAMES[floor]}",
+                    value=str(floor),
+                    description=desc,
+                    emoji=emoji,
+                )
             )
-            btn.callback = self._make_floor_callback(floor)
-            self.add_item(btn)
+
+        select = discord.ui.Select(
+            placeholder="选择楼层 / Select a floor...",
+            options=options,
+            custom_id="dungeon_floor_select",
+        )
+        select.callback = self._select_floor_callback
+        self.add_item(select)
 
     def _make_floor_callback(self, floor: int):
         async def cb(interaction: discord.Interaction):
             await self._start_floor(interaction, floor)
         return cb
+
+    async def _select_floor_callback(self, interaction: discord.Interaction):
+        floor = int(interaction.data["values"][0])
+        await self._start_floor(interaction, floor)
 
     async def _start_floor(self, interaction: discord.Interaction, floor: int):
         free, extra = _get_dungeon_runs(self.uid)
@@ -293,11 +353,18 @@ class DungeonView(discord.ui.View):
                 color=0x2ECC71,
             )
 
-            # Floor 5 special: chance for equipment drop
-            if floor == 5 and random.random() < 0.3:
+            # Floors 5-10: 30% chance for equipment drop
+            if floor >= 5 and random.random() < 0.3:
                 embed.add_field(
                     name="🎁 额外掉落 Bonus Drop!",
                     value="⚔️ 获得随机装备一件！/ Random equipment obtained! (type /gmpt-equipment to view)",
+                    inline=False,
+                )
+            # Floor 10 special: 15% chance for LOL legendary equipment
+            if floor == 10 and random.random() < 0.15:
+                embed.add_field(
+                    name="🏆 LOL 传说装备 Legendary Drop!",
+                    value="⚔️ 获得 LOL 传说装备一件！/ LOL Legendary equipment obtained!",
                     inline=False,
                 )
         else:
@@ -347,7 +414,12 @@ class Dungeon(CogBase):
                 "**2F 亡灵墓穴 Undead Tomb** — Lv.5-10\n"
                 "**3F 烈焰深渊 Fire Abyss** — Lv.10-15\n"
                 "**4F 风暴之巅 Storm Peak** — Lv.15-20\n"
-                "**5F 魔王宫殿 Demon Lord's Palace** — Lv.20+ 👑"
+                "**5F 魔王宫殿 Demon Lord's Palace** — Lv.20+ 👑\n"
+                "**6F 扭曲丛林 Twisted Treeline** — Lv.20-28 🟣\n"
+                "**7F 召唤师峡谷 Summoner's Rift** — Lv.28-36 🟣\n"
+                "**8F 龙坑 Dragon Pit** — Lv.36-45 🟣\n"
+                "**9F 男爵坑 Baron Pit** — Lv.45-55 🟣\n"
+                "**10F 远古龙坑 Elder Pit** — Lv.55+ 🟣"
             ),
             inline=False,
         )
@@ -390,8 +462,8 @@ class DungeonLobbyView(discord.ui.View):
         embed = discord.Embed(
             title="🏰 Dungeon / 地下城",
             description=(
-                "5 层随机怪物，奖励随层数递增！\n"
-                "5 floors, rewards increase with depth!\n\n"
+                "10 层随机怪物，奖励随层数递增！\n"
+                "10 floors, rewards increase with depth!\n\n"
                 f"🆓 今日免费 / Free today: **{free_left}**\n"
                 f"💵 额外探索 / Extra: **200G**\n"
                 f"🪙 余额 / Balance: **{bal:,}**"
@@ -446,7 +518,12 @@ class DungeonLobbyView(discord.ui.View):
                 "**2F 亡灵墓穴 Undead Tomb** — Lv.5-10\n"
                 "**3F 烈焰深渊 Fire Abyss** — Lv.10-15\n"
                 "**4F 风暴之巅 Storm Peak** — Lv.15-20\n"
-                "**5F 魔王宫殿 Demon Lord's Palace** — Lv.20+ 👑"
+                "**5F 魔王宫殿 Demon Lord's Palace** — Lv.20+ 👑\n"
+                "**6F 扭曲丛林 Twisted Treeline** — Lv.20-28 🟣\n"
+                "**7F 召唤师峡谷 Summoner's Rift** — Lv.28-36 🟣\n"
+                "**8F 龙坑 Dragon Pit** — Lv.36-45 🟣\n"
+                "**9F 男爵坑 Baron Pit** — Lv.45-55 🟣\n"
+                "**10F 远古龙坑 Elder Pit** — Lv.55+ 🟣"
             ),
             inline=False,
         )
