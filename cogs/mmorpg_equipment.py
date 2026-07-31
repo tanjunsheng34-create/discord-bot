@@ -435,12 +435,15 @@ class EquipmentView(discord.ui.View):
                     emoji = "🔵"
                 options.append(discord.SelectOption(
                     label=display_name,
-                    value=row["item_name"],
+                    value=row["item_id"],
                     description=f"x{qty} | {emoji}",
                     emoji=emoji,
                 ))
 
             view = EquipSelectView(self.uid, self, interaction.message)
+            # Populate item_map so _select_callback can resolve item_id → item_name
+            for row in rows:
+                view.item_map[row["item_id"]] = row["item_name"]
             select = discord.ui.Select(
                 placeholder="选择要装备的装备 / Select equipment to equip",
                 options=options[:25],
@@ -1146,6 +1149,7 @@ class EquipSelectView(discord.ui.View):
         self.uid = uid
         self.main_view = main_view
         self.panel_msg = panel_msg  # The EquipmentView panel message to refresh after equip
+        self.item_map = {}  # item_id → item_name mapping for exact match in _select_callback
 
     async def _select_callback(self, interaction: discord.Interaction):
         item_name = interaction.data["values"][0]
