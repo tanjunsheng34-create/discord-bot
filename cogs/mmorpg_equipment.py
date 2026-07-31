@@ -250,7 +250,8 @@ class EquipmentView(discord.ui.View):
                 f"DEF: **{total_stats['def']}** | "
                 f"HP: **{total_stats['hp']}** | "
                 f"Crit: **{total_stats['crit']}%** | "
-                f"SPD: **{total_stats['spd']}**"
+                f"SPD: **{total_stats['spd']}**\n"
+                "⚪普通  🔵稀有  🟣史诗  🟡传说"
             ),
             color=0xF39C12,
         )
@@ -259,22 +260,23 @@ class EquipmentView(discord.ui.View):
             "weapon": "⚔️", "helmet": "🪖", "armor": "🛡️",
             "leggings": "👖", "boots": "👢", "accessory": "💍",
         }
-        QUALITY_COLORS = {
+        QUALITY_MARKS = {
             "common": "⚪", "rare": "🔵", "epic": "🟣", "legendary": "🟡",
         }
 
         for slot in EQUIP_SLOTS:
             eq = equipped.get(slot)
             emoji = SLOT_EMOJIS.get(slot, "⬜")
+            slot_label = EQUIP_SLOT_LABELS_CN[slot].split(" ")[0]
             if eq:
-                quality_mark = QUALITY_COLORS.get(eq.get("quality", "common"), "⚪")
+                mark = QUALITY_MARKS.get(eq.get("quality", "common"), "⚪")
                 stat_display = _format_stat_display(eq["stat"], eq["stat_value"])
-                display_name = _strip_stat_suffix(eq["name"])
-                value = f"{quality_mark} **{display_name}**\n{stat_display}"
+                short_name = _strip_stat_suffix(eq["name"]).split(" ")[0][:12]
+                value = f"{mark} {short_name}\n{stat_display}"
             else:
-                value = "⬜ 空 / Empty"
+                value = "⬜ 空"
             embed.add_field(
-                name=f"{emoji} {EQUIP_SLOT_LABELS_CN[slot]}",
+                name=f"{emoji} {slot_label}",
                 value=value,
                 inline=True,
             )
@@ -323,10 +325,15 @@ class EquipmentView(discord.ui.View):
             if eq:
                 lvl = eq.get("enhance_level", 0)
                 mark = QUALITY_MARKS.get(eq.get("quality", "common"), "⚪")
-                short_name = _strip_stat_suffix(eq["name"])[:20]
-                label = f"{emoji} {mark} {short_name} +{lvl}"[:80]
+                cn_name = _strip_stat_suffix(eq["name"]).split(" ")[0]
+                if len(cn_name) > 15:
+                    cn_name = cn_name[:14] + "…"
+                label = f"{emoji} {mark} {cn_name}"
+                if lvl > 0:
+                    label += f" +{lvl}"
+                label = label[:80]
             else:
-                label = f"{emoji} 空 / Empty"
+                label = f"{emoji} 空"
             btn = discord.ui.Button(
                 label=label,
                 style=discord.ButtonStyle.secondary,
