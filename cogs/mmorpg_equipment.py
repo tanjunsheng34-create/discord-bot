@@ -902,7 +902,7 @@ def _unequip_item(user_id: str, slot: str) -> bool:
         encoded_name = f"{eq['name']}|||{eq['stat']}:{eq['stat_value']}|||{eq['quality']}"
 
         # Use the original item_id from user_equipment if available, else fallback
-        item_id = eq.get("item_id") or f"eq_{slot}_{eq['name'].split(' ')[0]}"
+        item_id = eq["item_id"] if eq["item_id"] else f"eq_{slot}_{eq['name'].split(' ')[0]}"
 
         # Delete from user_equipment
         cur.execute("DELETE FROM user_equipment WHERE user_id=? AND slot=?", (user_id, slot))
