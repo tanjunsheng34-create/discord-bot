@@ -450,6 +450,7 @@ class FishingWaitView(discord.ui.View):
         self.fishing_view = fishing_view
         self.wait_time = wait_time
         self._bite_ready = False
+        self._task_started = False
 
     def build_wait_embed(self) -> discord.Embed:
         if self._bite_ready:
@@ -465,21 +466,20 @@ class FishingWaitView(discord.ui.View):
         )
 
     async def _schedule_bite(self, interaction: discord.Interaction):
-        await asyncio.sleep(self.wait_time)
+        await asyncio.sleep(random.uniform(2, 6))
         self._bite_ready = True
-        self.clear_items()
-        pull_btn = discord.ui.Button(label="Pull 拉杆", emoji="🎣", style=discord.ButtonStyle.danger, row=0)
-        pull_btn.callback = self._pull_callback
-        self.add_item(pull_btn)
+        self.waiting_indicator.label = "🎣 Pull!"
+        self.waiting_indicator.style = discord.ButtonStyle.danger
         embed = self.build_wait_embed()
         try:
             await interaction.edit_original_response(embed=embed, view=self)
         except Exception:
             pass
 
-    @discord.ui.button(label="... waiting ... ", style=discord.ButtonStyle.secondary, disabled=True, row=0)
+    @discord.ui.button(label="... waiting ... ", style=discord.ButtonStyle.secondary, disabled=False, row=0)
     async def waiting_indicator(self, interaction: discord.Interaction, button: discord.ui.Button):
-        pass
+        if self._bite_ready:
+            await self._pull_callback(interaction)
 
     async def _pull_callback(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
@@ -518,9 +518,9 @@ class FishingWaitView(discord.ui.View):
         if str(interaction.user.id) != self.uid:
             await interaction.response.send_message("Not your panel / 不是你的面板", ephemeral=True)
             return False
-        if not self._bite_ready:
-            # Start bite scheduler on first non-bite interaction
-            self.bot_task = asyncio.create_task(self._schedule_bite(interaction))
+        if not self._bite_ready and not self._task_started:
+            self._task_started = True
+            asyncio.create_task(self._schedule_bite(interaction))
             await interaction.response.defer()
             return False
         return True
