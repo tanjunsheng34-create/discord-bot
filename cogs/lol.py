@@ -782,8 +782,8 @@ class GMPT(CogBase):
             cur.execute("SELECT created_by, status FROM tournaments WHERE id=?", (match_id,))
             t = cur.fetchone()
             if not t: return await interaction.response.send_message("比赛不存在。", ephemeral=True)
-            if str(interaction.user.id) != t["created_by"]:
-                return await interaction.response.send_message("只有创建者可以取消。", ephemeral=True)
+            if str(interaction.user.id) != t["created_by"] and not interaction.user.guild_permissions.administrator:
+                return await interaction.response.send_message("只有创建者或管理员可以取消。", ephemeral=True)
             cur.execute("DELETE FROM registrations WHERE tournament_id=?", (match_id,))
             cur.execute("DELETE FROM teams WHERE tournament_id=?", (match_id,))
             cur.execute("DELETE FROM results WHERE tournament_id=?", (match_id,))
