@@ -65,8 +65,8 @@ class Pets(CogBase):
         logger.info(f"[Pets] cog_load — 已注册 {len(cmds)} 个命令: {', '.join(cmds)}")
 
     pet_group = app_commands.Group(
-        name="gmpt-pet",
-        description="🐾 宠物系统 / Pet System"
+        name="gmpt-pet-legacy",
+        description="🐾 宠物系统 / Pet System (legacy)"
     )
 
     @app_commands.command(name="gmpt-pets", description="🐾 宠物面板 / Pet button panel")
@@ -79,7 +79,7 @@ class Pets(CogBase):
         pet_info = "\n".join(f"{v['emoji']} {v.get('zh', k)} — 🪙 {v['price']:,}" for k, v in PET_TYPES.items())
         embed.add_field(name="🐾 可领养宠物 / Available Pets", value=pet_info, inline=False)
         embed.add_field(name="按钮功能", value="领养 | 查看 | 喂养 | 玩耍 | 改名", inline=False)
-        embed.set_footer(text="保留原 /gmpt-pet 子命令组")
+        embed.set_footer(text="保留原 /gmpt-pet-legacy 子命令组")
         view = PetPanelView()
         await interaction.response.send_message(embed=embed, view=view)
 
@@ -130,7 +130,7 @@ class Pets(CogBase):
         )
         embed.add_field(name="💰 花费 / Cost", value=_format_coins(info["price"]), inline=True)
         embed.add_field(name="❤️ 心情 / Happiness", value="50/100", inline=True)
-        embed.set_footer(text="使用 /gmpt-pet status 查看 | /gmpt-pet feed 喂食 | /gmpt-pet play 玩耍")
+        embed.set_footer(text="使用 /gmpt-pet-legacy status 查看 | /gmpt-pet-legacy feed 喂食 | /gmpt-pet-legacy play 玩耍")
 
         await interaction.response.send_message(embed=embed)
 
@@ -146,7 +146,7 @@ class Pets(CogBase):
 
         if not row:
             return await interaction.response.send_message(
-                "你还没有宠物！使用 /gmpt-pet adopt 领养一只 / No pet yet! Use /gmpt-pet adopt.",
+                "你还没有宠物！使用 /gmpt-pet-legacy adopt 领养一只 / No pet yet! Use /gmpt-pet-legacy adopt.",
                 ephemeral=True,
             )
 
@@ -168,7 +168,7 @@ class Pets(CogBase):
         )
         embed.add_field(name="❤️ 心情 / Happiness", value=f"{row['happiness']}/100", inline=True)
         embed.add_field(name="📅 领养日期 / Adopted", value=adopted_date, inline=True)
-        embed.set_footer(text="/gmpt-pet feed | /gmpt-pet play | /gmpt-pet rename")
+        embed.set_footer(text="/gmpt-pet-legacy feed | /gmpt-pet-legacy play | /gmpt-pet-legacy rename")
 
         await interaction.response.send_message(embed=embed)
 

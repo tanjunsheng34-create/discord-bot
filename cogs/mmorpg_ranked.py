@@ -545,4 +545,4 @@ class RankedStatsView(discord.ui.View):
 async def setup(bot):
     await bot.add_cog(RankedCog(bot))
     # Start background matchmaker
-    bot.loop.create_task(_match_maker())
+    asyncio.create_task(_match_maker())
