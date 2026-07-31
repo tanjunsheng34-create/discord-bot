@@ -849,18 +849,8 @@ class MMORPGMainView(discord.ui.View):
 
     @discord.ui.button(label="PVP 竞技", emoji="\u2694\uFE0F", style=discord.ButtonStyle.success, row=1, custom_id="mmorpg_main:pvp")
     async def pvp_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        try:
-            from cogs.mmorpg_pvp import PVPView
-            view = PVPView(self.uid, main_view=self)
-        except (ImportError, AttributeError):
-            embed = discord.Embed(
-                title="\u2694\uFE0F PVP Arena / PVP竞技场",
-                description="PVP coming soon!\nPVP功能即将开放！",
-                color=0xE67E22,
-            )
-            view = MMORPGMainView(self.uid)
-            await interaction.response.edit_message(embed=embed, view=view)
-            return
+        from cogs.mmorpg_pvp import PVPLobbyView
+        view = PVPLobbyView(self.uid, main_view=self)
         embed = discord.Embed(
             title="\u2694\uFE0F PVP Arena / PVP竞技场",
             description="Challenge other players!\n挑战其他玩家！",
@@ -1915,7 +1905,7 @@ class EquipmentGachaView(discord.ui.View):
     async def back_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         uid = str(interaction.user.id)
         embed = build_main_embed(uid, interaction.user.display_name)
-        view = MMORPGMainView(uid)
+        view = self.main_view
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
@@ -2009,21 +1999,15 @@ class EquipmentGachaView(discord.ui.View):
             color=0x9B59B6,
         )
 
-        frames = [
-            f"🎰 {uname} 转动抽奖机...",
-            f"💫 光芒闪耀！",
-            f"✨ {'十连抽' if count == 10 else '单抽'} 结果揭晓！",
-            f"🎁 {uname} 获得了新装备！",
-        ]
-
         try:
-            from utils.animations import play_animation
-            await play_animation(interaction, frames, result_embed)
+            from utils.animations import loot_animation
+            await loot_animation(interaction, f"{'十连抽' if count == 10 else '单抽'} Gacha", "🎰")
         except (ImportError, AttributeError):
-            try:
-                await interaction.response.edit_message(embed=result_embed, view=self)
-            except discord.InteractionResponded:
-                await interaction.edit_original_response(embed=result_embed, view=self)
+            pass
+        try:
+            await interaction.response.edit_message(embed=result_embed, view=self)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=result_embed, view=self)
 
     @staticmethod
     def _roll_quality() -> str:
