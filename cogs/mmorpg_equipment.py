@@ -491,7 +491,7 @@ class EquipmentView(discord.ui.View):
 
             # Build select options
             options = []
-            for row in rows:
+            for i, row in enumerate(rows):
                 display_name = _strip_stat_suffix(row["item_name"])[:100]
                 qty = row["quantity"]
                 name_lower = row["item_name"].lower()
@@ -504,15 +504,16 @@ class EquipmentView(discord.ui.View):
                     emoji = "🔵"
                 options.append(discord.SelectOption(
                     label=display_name,
-                    value=row["item_id"],
+                    value=str(i),
                     description=f"x{qty} | {emoji}",
                     emoji=emoji,
                 ))
 
             view = EquipSelectView(self.uid, self, interaction.message)
-            # Populate item_map so _select_callback can resolve item_id → item_name
-            for row in rows:
-                view.item_map[row["item_id"]] = row["item_name"]
+            # Populate mappings so _select_callback can resolve index → item_name + real item_id
+            for i, row in enumerate(rows):
+                view.item_map[str(i)] = row["item_name"]
+                view.item_id_map[str(i)] = row["item_id"]
             select = discord.ui.Select(
                 placeholder="选择要装备的装备 / Select equipment to equip",
                 options=options[:25],
@@ -1753,13 +1754,15 @@ class EquipSelectView(discord.ui.View):
         self.uid = uid
         self.main_view = main_view
         self.panel_msg = panel_msg  # The EquipmentView panel message to refresh after equip
-        self.item_map = {}  # item_id → item_name mapping for exact match in _select_callback
+        self.item_map = {}  # index → item_name mapping for _select_callback
+        self.item_id_map = {}  # index → real item_id mapping for DB queries
 
     async def _select_callback(self, interaction: discord.Interaction):
-        item_id = interaction.data["values"][0]
-        item_name = self.item_map.get(item_id)
+        idx = interaction.data["values"][0]
+        item_name = self.item_map.get(idx)
+        real_item_id = self.item_id_map.get(idx, idx)
         try:
-            success = _equip_item(self.uid, item_name, item_id=item_id)
+            success = _equip_item(self.uid, item_name, item_id=real_item_id)
             if success:
                 display_name = _strip_stat_suffix(item_name)
                 logger.info(f"Equip success: uid={self.uid} item={item_name} -> parsed name={display_name}")
