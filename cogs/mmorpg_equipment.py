@@ -937,12 +937,7 @@ async def _do_single_enhance(uid: str, slot: str, eq: dict, lvl: int) -> tuple:
             new_lvl = lvl + 1
             new_stat = int(eq["stat_value"] * (1 + 0.1) / (1 + lvl * 0.1) * (1 + new_lvl * 0.1)) if isinstance(eq["stat_value"], (int, float)) else eq["stat_value"]
         else:
-            if lvl <= 5:
-                new_lvl = lvl
-            elif lvl <= 10:
-                new_lvl = max(0, lvl - 1)
-            else:
-                new_lvl = max(0, lvl - 3)
+            new_lvl = max(0, lvl - 1)
             if new_lvl == lvl:
                 new_stat = eq["stat_value"]
             else:
