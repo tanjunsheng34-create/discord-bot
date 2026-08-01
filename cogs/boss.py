@@ -1,15 +1,6 @@
 """
-GMPT Bot — MMORPG Boss 多人团战系统 / Multiplayer Boss Raid
-/gmpt-boss create     — 创建Boss房间 / Create boss room
-/gmpt-boss join       — 加入房间 / Join room
-/gmpt-boss attack     — 攻击Boss（可选技能）/ Attack boss (optional skill)
-/gmpt-boss use-potion — 战斗中使用药水 / Use potion in battle
-/gmpt-boss invite     — 邀请成员 / Invite members
-/gmpt-boss kick       — 踢出成员 / Kick member
-/gmpt-boss status     — 查看战况 / View status
-/gmpt-boss dungeon    — 副本列表 / Dungeon list
-/gmpt-boss leaderboard— 排行榜 / Leaderboard
-/gmpt-boss stats      — 个人统计 / Personal stats
+GMPT Bot — MMORPG Boss 多人团战系统 / Multiplayer Boss Raid (Button-Driven)
+/gmpt-boss lobby — 打开Boss大厅面板 / Open Boss lobby panel
 """
 import asyncio
 import random
@@ -30,7 +21,6 @@ logger = logging.getLogger(__name__)
 
 # ══════════════════════════════════════════════════════════════
 # Module‑level room storage — shared across all Bot instances
-# so Bot 1 (full) and Bot 2 (mmorpg) see each other's rooms.
 # ══════════════════════════════════════════════════════════════
 _boss_rooms: dict[str, dict] = {}
 _boss_rooms_lock = asyncio.Lock()
@@ -42,12 +32,12 @@ _boss_rooms_lock = asyncio.Lock()
 BOSS_TYPES = {
     "金龙": {
         "name": "金龙",
-        "emoji": "🐉",
+        "emoji": "\U0001f409",
         "desc": "Gold Dragon — 喷吐金色火焰！",
         "base_hp": (600, 1000),
         "base_atk": (25, 55),
         "skills": ["龙息", "龙尾扫", "金币雨"],
-        "rage_skill": "🔥 龙神之怒！伤害×2",
+        "rage_skill": "\U0001f525 龙神之怒！伤害×2",
         "loot_table": [
             (0.15, "龙鳞碎片", 300), (0.10, "金龙宝珠", 800),
             (0.05, "龙牙项链", 2000), (0.02, "金龙坐骑碎片", 5000),
@@ -56,12 +46,12 @@ BOSS_TYPES = {
     },
     "暗影领主": {
         "name": "暗影领主",
-        "emoji": "👹",
+        "emoji": "\U0001f479",
         "desc": "Shadow Lord — 暗影之力笼罩战场！",
         "base_hp": (600, 1000),
         "base_atk": (25, 55),
         "skills": ["暗影斩", "黑洞", "恐惧凝视"],
-        "rage_skill": "🌑 无尽暗影！全体伤害",
+        "rage_skill": "\U0001f311 无尽暗影！全体伤害",
         "loot_table": [
             (0.15, "暗影碎片", 350), (0.10, "暗影之心", 900),
             (0.05, "暗影披风", 2200), (0.02, "暗影王冠", 5500),
@@ -70,12 +60,12 @@ BOSS_TYPES = {
     },
     "冰霜巨人": {
         "name": "冰霜巨人",
-        "emoji": "🧊",
+        "emoji": "\U0001f9ca",
         "desc": "Frost Giant — 冻结一切！",
         "base_hp": (600, 1000),
         "base_atk": (25, 55),
         "skills": ["冰锥", "暴风雪", "永冻"],
-        "rage_skill": "❄️ 绝对零度！攻击附带冰冻",
+        "rage_skill": "\u2744\ufe0f 绝对零度！攻击附带冰冻",
         "loot_table": [
             (0.15, "冰晶碎片", 400), (0.10, "冰霜核心", 1000),
             (0.05, "冰封之盾", 2500), (0.02, "永冻王冠", 6000),
@@ -84,12 +74,12 @@ BOSS_TYPES = {
     },
     "地狱犬": {
         "name": "地狱犬",
-        "emoji": "🔥",
+        "emoji": "\U0001f525",
         "desc": "Hellhound — 三头地狱犬喷吐烈焰！",
         "base_hp": (600, 1000),
         "base_atk": (25, 55),
         "skills": ["三重撕咬", "地狱火", "咆哮"],
-        "rage_skill": "💥 地狱烈焰！全体灼烧",
+        "rage_skill": "\U0001f4a5 地狱烈焰！全体灼烧",
         "loot_table": [
             (0.15, "地狱火碎片", 450), (0.10, "地狱核心", 1100),
             (0.05, "地狱护符", 2800), (0.02, "三头犬缰绳", 7000),
@@ -99,12 +89,13 @@ BOSS_TYPES = {
 }
 
 DIFFICULTY = {
-    "简单": {"label": "Easy / 简单", "hp_mult": 1.0, "atk_mult": 0.7, "reward_mult": 0.5, "color": 0x2ECC71, "stars": "⭐"},
-    "普通": {"label": "Normal / 普通", "hp_mult": 2.0, "atk_mult": 1.0, "reward_mult": 1.0, "color": 0xF39C12, "stars": "⭐⭐"},
-    "困难": {"label": "Hard / 困难", "hp_mult": 4.0, "atk_mult": 1.5, "reward_mult": 2.0, "color": 0xE74C3C, "stars": "⭐⭐⭐"},
+    "简单": {"label": "Easy / 简单", "hp_mult": 1.0, "atk_mult": 0.7, "reward_mult": 0.5, "color": 0x2ECC71, "stars": "\u2b50"},
+    "普通": {"label": "Normal / 普通", "hp_mult": 2.0, "atk_mult": 1.0, "reward_mult": 1.0, "color": 0xF39C12, "stars": "\u2b50\u2b50"},
+    "困难": {"label": "Hard / 困难", "hp_mult": 4.0, "atk_mult": 1.5, "reward_mult": 2.0, "color": 0xE74C3C, "stars": "\u2b50\u2b50\u2b50"},
 }
 
 RAGE_HP_RATIO = 0.5
+
 
 # ══════════════════════════════════════════════════════════════
 # Helpers
@@ -152,15 +143,1095 @@ def _get_equipped_skills(uid: str) -> list[dict]:
     return result
 
 
-def _format_bar(current: int, maximum: int, length: int = 10, filled: str = "█", empty: str = "░") -> str:
+def _get_potions(uid: str) -> list[dict]:
+    """Get player's potions from inventory."""
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT item_name, quantity FROM user_inventory WHERE user_id = ? AND item_type = 'potion' AND quantity > 0",
+            (uid,),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def _consume_potion(uid: str, potion_name: str) -> dict | None:
+    """Remove 1 potion from inventory, return POTION_CATALOG dict or None."""
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT quantity FROM user_inventory WHERE user_id = ? AND item_name = ? AND item_type = 'potion'",
+            (uid, potion_name),
+        )
+        inv_row = cur.fetchone()
+    if not inv_row or inv_row["quantity"] <= 0:
+        return None
+    if inv_row["quantity"] > 1:
+        with get_db_ctx() as conn:
+            conn.cursor().execute(
+                "UPDATE user_inventory SET quantity = quantity - 1 WHERE user_id = ? AND item_name = ? AND item_type = 'potion'",
+                (uid, potion_name),
+            )
+            conn.commit()
+    else:
+        with get_db_ctx() as conn:
+            conn.cursor().execute(
+                "DELETE FROM user_inventory WHERE user_id = ? AND item_name = ? AND item_type = 'potion'",
+                (uid, potion_name),
+            )
+            conn.commit()
+    return POTION_CATALOG.get(potion_name)
+
+
+def _format_bar(current: int, maximum: int, length: int = 10, filled: str = "\u2588", empty: str = "\u2591") -> str:
     ratio = max(0, min(1, current / max(1, maximum)))
     f = int(ratio * length)
     e = length - f
     return filled * f + empty * e + f" {current}/{maximum}"
 
 
+# ══════════════════════════════════════════════════════════════
+# Create Boss Modal
+# ══════════════════════════════════════════════════════════════
+
+class CreateBossModal(discord.ui.Modal, title="Create Boss Room / 创建Boss房间"):
+    """Modal for creating a new boss room."""
+
+    boss_name = discord.ui.TextInput(
+        label="Boss Name / Boss名称",
+        placeholder="金龙 / 暗影领主 / 冰霜巨人 / 地狱犬",
+        required=True,
+        max_length=32,
+    )
+    boss_hp = discord.ui.TextInput(
+        label="Boss HP (blank = random) / Boss血量（留空=随机）",
+        placeholder="800",
+        required=False,
+        max_length=10,
+    )
+    difficulty_input = discord.ui.TextInput(
+        label="Difficulty / 难度",
+        placeholder="简单 / 普通 / 困难",
+        required=False,
+        default="普通",
+        max_length=10,
+    )
+
+    def __init__(self, cog, channel_id: str, user_id: str, username: str, lobby_msg):
+        super().__init__()
+        self.cog = cog
+        self.channel_id = channel_id
+        self.user_id = user_id
+        self.username = username
+        self.lobby_msg = lobby_msg
+
+    async def on_submit(self, interaction: discord.Interaction):
+        boss_name_raw = self.boss_name.value.strip()
+        hp_raw = self.boss_hp.value.strip()
+        diff_raw = self.difficulty_input.value.strip()
+
+        # Validate / resolve boss type
+        if boss_name_raw in BOSS_TYPES:
+            boss_type = boss_name_raw
+        else:
+            # Try fuzzy match
+            matched = None
+            for key in BOSS_TYPES:
+                if boss_name_raw in key or key in boss_name_raw:
+                    matched = key
+                    break
+            if matched:
+                boss_type = matched
+            else:
+                types_str = " / ".join(BOSS_TYPES.keys())
+                await interaction.response.send_message(
+                    f"Invalid Boss! Options / 无效Boss！可选: {types_str}", ephemeral=True)
+                return
+
+        # Validate difficulty
+        if diff_raw not in DIFFICULTY:
+            diffs = " / ".join(DIFFICULTY.keys())
+            await interaction.response.send_message(
+                f"Invalid Difficulty! Options / 无效难度！可选: {diffs}", ephemeral=True)
+            return
+
+        # Check channel room
+        for rid, room in _boss_rooms.items():
+            if room.get("channel_id") == self.channel_id and room.get("status") in ("waiting", "fighting"):
+                await interaction.response.send_message(
+                    "本频道已有进行中的 Boss 战！/ Boss battle already in progress!", ephemeral=True)
+                return
+
+        # Check cooldown
+        cd = self.cog._get_cooldown_remaining(self.user_id, boss_type, diff_raw)
+        if cd > 0:
+            m, s = divmod(cd, 60)
+            await interaction.response.send_message(
+                f"\u23f3 冷却中！{m}分{s}秒后可挑战", ephemeral=True)
+            return
+
+        boss = BOSS_TYPES[boss_type]
+        diff = DIFFICULTY[diff_raw]
+
+        if hp_raw:
+            try:
+                max_hp = int(hp_raw)
+                if max_hp < 50:
+                    max_hp = 50
+                if max_hp > 100000:
+                    max_hp = 100000
+            except ValueError:
+                max_hp = int(random.randint(*boss["base_hp"]) * diff["hp_mult"])
+        else:
+            max_hp = int(random.randint(*boss["base_hp"]) * diff["hp_mult"])
+
+        atk = int(random.randint(*boss["base_atk"]) * diff["atk_mult"])
+
+        stats = _get_user_combat_stats(self.user_id)
+
+        room_id = f"{self.channel_id}_{int(time.time())}"
+
+        room = {
+            "room_id": room_id,
+            "channel_id": self.channel_id,
+            "host_id": self.user_id,
+            "boss": boss,
+            "boss_hp": max_hp,
+            "boss_max_hp": max_hp,
+            "boss_atk": atk,
+            "phase": 1,
+            "difficulty": diff_raw,
+            "diff_label": diff["label"],
+            "diff_color": diff["color"],
+            "reward_mult": diff["reward_mult"],
+            "status": "waiting",
+            "turn": 0,
+            "start_time": time.time(),
+            "players": {},
+            "loot_log": [],
+            "battle_msg": None,
+        }
+
+        room["players"][self.user_id] = {
+            "hp": stats["hp"],
+            "mp": stats["mp"],
+            "max_hp": stats["max_hp"],
+            "max_mp": stats["max_mp"],
+            "atk": stats["attack"],
+            "def": stats["defense"],
+            "damage_dealt": 0,
+            "buff_atk": 0,
+            "buff_def": 0,
+            "buff_atk_turns": 0,
+            "buff_def_turns": 0,
+            "dot_dmg": 0,
+            "dot_turns": 0,
+            "frozen": False,
+            "username": self.username,
+        }
+
+        _boss_rooms[room_id] = room
+
+        # Update lobby embed
+        embed = self.cog._build_room_embed(room)
+        await interaction.response.edit_message(
+            content=f"{boss['emoji']} **{self.username}** created a Boss raid / 创建了 Boss 团战房间！\n"
+                    f"Click **Join** to join / 点击 **Join** 加入 | "
+                    f"Host can click **Invite** to invite / 队长可点击 **Invite** 邀请",
+            embed=embed,
+            view=BossLobbyView(self.user_id, self.cog, room, self.lobby_msg),
+        )
+
+
+# ══════════════════════════════════════════════════════════════
+# Boss Battle View — Select-driven
+# ══════════════════════════════════════════════════════════════
+
+class BossBattleView(discord.ui.View):
+    """Select-driven Boss battle view. Any alive player can pick an action."""
+
+    def __init__(self, cog, room: dict, lobby_msg):
+        super().__init__(timeout=600)
+        self.cog = cog
+        self.room = room
+        self.lobby_msg = lobby_msg
+        self._lock = asyncio.Lock()
+        self._build_select()
+
+    def _build_select(self):
+        self.clear_items()
+        options = [
+            discord.SelectOption(
+                label="Attack / 普通攻击",
+                value="attack",
+                emoji="\u2694\ufe0f",
+                description="Basic physical attack / 基础物理攻击",
+            ),
+            discord.SelectOption(
+                label="Flee / 逃跑",
+                value="flee",
+                emoji="\U0001f3c3",
+                description="Run away from battle / 逃离战斗",
+            ),
+        ]
+
+        # Add skill options (generic — validated per-player in callback)
+        skill_ids = set()
+        for pid in self.room["players"]:
+            for sk in _get_equipped_skills(pid):
+                sid = sk["skill_id"]
+                if sid not in skill_ids:
+                    skill_ids.add(sid)
+                    options.append(discord.SelectOption(
+                        label=f"{sk['emoji']} {sk['name']} (MP:{sk['mp_cost']})",
+                        value=f"skill:{sid}",
+                        description=sk.get("description", "")[:100],
+                    ))
+
+        # Add potion options (generic — validated per-player in callback)
+        potion_keys = set()
+        for pid in self.room["players"]:
+            for pot in _get_potions(pid):
+                pk = pot["item_name"]
+                if pk not in potion_keys:
+                    potion_keys.add(pk)
+                    pcat = POTION_CATALOG.get(pk)
+                    if pcat:
+                        options.append(discord.SelectOption(
+                            label=f"{pcat['emoji']} {pcat['name_cn']} / {pcat['name_en']}",
+                            value=f"potion:{pk}",
+                            description=f"x{pot['quantity']} — {pcat.get('effect_type', '')}",
+                        ))
+
+        select = discord.ui.Select(
+            placeholder="\u2694\ufe0f Choose your action / 选择行动...",
+            options=options[:25],
+            row=0,
+        )
+        select.callback = self._on_action_select
+        self.add_item(select)
+
+    async def _on_action_select(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+
+        # Check if player is in room and alive
+        if uid not in self.room["players"]:
+            await interaction.response.send_message(
+                "You are not in this battle! / 你不在战斗中！", ephemeral=True)
+            return
+
+        player = self.room["players"][uid]
+        if player["hp"] <= 0:
+            await interaction.response.send_message(
+                "You are dead! / 你已阵亡！", ephemeral=True)
+            return
+
+        if self.room["status"] != "fighting":
+            await interaction.response.send_message(
+                "Battle not started or already finished! / 战斗未开始或已结束！", ephemeral=True)
+            return
+
+        value = interaction.data["values"][0]
+
+        # Use lock to prevent concurrent state modifications
+        async with self._lock:
+            # Re-check state after acquiring lock
+            room = _boss_rooms.get(self.room["room_id"])
+            if not room or room["status"] != "fighting":
+                try:
+                    await interaction.response.defer()
+                except Exception:
+                    pass
+                return
+
+            pdata = room["players"].get(uid)
+            if not pdata or pdata["hp"] <= 0:
+                await interaction.response.send_message(
+                    "You are dead! / 你已阵亡！", ephemeral=True)
+                return
+
+            await interaction.response.defer()
+
+            result_lines = []
+
+            # ── Check frozen ──
+            if pdata["frozen"]:
+                pdata["frozen"] = False
+                result_lines.append(f"\u2744\ufe0f **{pdata['username']}** 被冻结，跳过本回合！/ Frozen! Turn skipped.")
+            else:
+                # ── Tick player's dot on boss ──
+                dot_log = ""
+                if pdata["dot_dmg"] > 0 and pdata["dot_turns"] > 0:
+                    dot_log = f"\u2620\ufe0f Boss受到 {pdata['dot_dmg']} 毒伤！"
+                    room["boss_hp"] = max(0, room["boss_hp"] - pdata["dot_dmg"])
+                    pdata["dot_turns"] -= 1
+                    if pdata["dot_turns"] <= 0:
+                        pdata["dot_dmg"] = 0
+
+                # ── Phase check ──
+                phase_announced = False
+                if room["boss_hp"] <= room["boss_max_hp"] * RAGE_HP_RATIO and room["phase"] == 1:
+                    room["phase"] = 2
+                    room["boss_atk"] = int(room["boss_atk"] * 1.5)
+                    phase_announced = True
+                    result_lines.append(
+                        f"\U0001f525 **Phase 2!** Boss gets stronger! (ATK x1.5) / Boss 进入暴怒阶段！（攻击力 x1.5）"
+                    )
+
+                if dot_log:
+                    result_lines.append(dot_log)
+
+                # ── Process action ──
+                action_log = self._process_action(room, uid, value)
+                result_lines.append(action_log)
+
+                # ── Decrement buff turns ──
+                self._tick_buffs(pdata)
+
+                # ── Boss counter-attack (single target) ──
+                if room["boss_hp"] > 0:
+                    boss_log = self._boss_counter(room, uid)
+                    result_lines.append(boss_log)
+
+                room["turn"] += 1
+
+            # ── Check boss death ──
+            if room["boss_hp"] <= 0:
+                room["status"] = "finished"
+                duration_sec = time.time() - room["start_time"]
+                result_lines.append("")
+                result_lines.append(
+                    f"**{room['boss']['name']}** defeated! / 被击败！({duration_sec:.0f}s)"
+                )
+                reward_lines = self.cog._distribute_rewards(room, duration_sec)
+                result_lines.append("\n**Rewards / 奖励分配:**")
+                result_lines.extend(reward_lines)
+
+            # ── Build result embed ──
+            desc = "\n".join(result_lines)
+            desc += f"\n\nBoss HP: {_format_bar(room['boss_hp'], room['boss_max_hp'])}"
+            if room["phase"] == 2:
+                desc += f"\nPhase: **Phase 2** | Turn: {room['turn']}"
+
+            result_embed = discord.Embed(
+                description=desc,
+                color=room["diff_color"],
+            )
+            result_embed.set_footer(text=f"Turn / 回合: {room['turn']} | Status: {room['status']}")
+
+            # Update the battle message
+            self._build_select()  # Refresh Select options after state changes
+            target_msg = self.lobby_msg or interaction.message
+            try:
+                if target_msg:
+                    await target_msg.edit(content=None, embed=result_embed, view=self)
+            except (discord.NotFound, discord.HTTPException):
+                pass
+
+            # ── End battle cleanup ──
+            if room["status"] == "finished":
+                # Save stats
+                for pid, pdata in room["players"].items():
+                    _save_combat_stats(pid, pdata)
+                # Clean up
+                rid = room.get("room_id")
+                if rid and rid in _boss_rooms:
+                    del _boss_rooms[rid]
+                # Disable view
+                for child in self.children:
+                    child.disabled = True
+                try:
+                    if target_msg:
+                        await target_msg.edit(view=self)
+                except Exception:
+                    pass
+
+    def _process_action(self, room: dict, uid: str, value: str) -> str:
+        """Process the selected action and return a log line."""
+        pdata = room["players"][uid]
+        name = pdata["username"]
+
+        if value == "attack":
+            base_atk = pdata["atk"] + pdata["buff_atk"]
+            dmg = base_atk + random.randint(1, 10)
+            if random.random() < 0.1:
+                dmg = int(dmg * 2)
+                line = f"\u2694\ufe0f **{name}** \U0001f4a5 暴击！— **{dmg}** 伤害"
+            else:
+                line = f"\u2694\ufe0f **{name}** 普通攻击 — {dmg} 伤害"
+            room["boss_hp"] = max(0, room["boss_hp"] - dmg)
+            pdata["damage_dealt"] += dmg
+            return line
+
+        elif value == "flee":
+            pdata["hp"] = 0  # Mark as dead/fled
+            return f"\U0001f3c3 **{name}** fled from battle! / 逃离了战斗！"
+
+        elif value.startswith("skill:"):
+            skill_id = value.split(":", 1)[1]
+            if skill_id not in SKILLS:
+                return f"\u26a0\ufe0f Unknown skill / 未知技能"
+
+            # Check if player has this skill equipped
+            equipped = _get_equipped_skills(uid)
+            equipped_ids = [s["skill_id"] for s in equipped]
+            if skill_id not in equipped_ids:
+                return f"\u26a0\ufe0f **{name}** doesn't have this skill! / 未装备此技能！"
+
+            skill_def = SKILLS[skill_id]
+            if pdata["mp"] < skill_def["mp_cost"]:
+                # Not enough MP — auto basic attack
+                dmg = pdata["atk"] + random.randint(1, 10)
+                room["boss_hp"] = max(0, room["boss_hp"] - dmg)
+                pdata["damage_dealt"] += dmg
+                return f"\u26a1 Not enough MP! Auto attack — **{dmg}** DMG / MP 不足，自动普攻"
+
+            pdata["mp"] -= skill_def["mp_cost"]
+
+            if skill_id == "fireball":
+                dmg = 35
+                room["boss_hp"] = max(0, room["boss_hp"] - dmg)
+                pdata["damage_dealt"] += dmg
+                return f"\U0001f525 **火球术！** — {dmg} 伤害"
+
+            elif skill_id == "ice_shard":
+                dmg = 25
+                room["boss_hp"] = max(0, room["boss_hp"] - dmg)
+                pdata["damage_dealt"] += dmg
+                msg = f"\u2744\ufe0f **冰锥术！** — {dmg} 伤害"
+                if random.random() < 0.3:
+                    msg += " | \U0001f9ca Boss 被冻结一回合！"
+                return msg
+
+            elif skill_id == "thunder":
+                dmg = 50
+                room["boss_hp"] = max(0, room["boss_hp"] - dmg)
+                pdata["damage_dealt"] += dmg
+                msg = f"\u26a1 **雷霆一击！** — {dmg} 伤害"
+                if random.random() < 0.1:
+                    self_dmg = int(dmg * 0.3)
+                    pdata["hp"] = max(0, pdata["hp"] - self_dmg)
+                    msg += f" | \u26a1 反噬！自己受到 {self_dmg} 伤害"
+                return msg
+
+            elif skill_id == "heal":
+                heal_val = skill_def.get("heal", 40)
+                healed = min(heal_val, pdata["max_hp"] - pdata["hp"])
+                pdata["hp"] += healed
+                return f"\U0001f49a **治愈术！** 恢复了 {healed} HP（{pdata['hp']}/{pdata['max_hp']}）"
+
+            elif skill_id == "berserk":
+                pdata["buff_atk"] += 20
+                pdata["buff_atk_turns"] = 3
+                return f"\U0001f621 **狂暴！** 攻击力 +20，持续 3 回合"
+
+            elif skill_id == "shield":
+                pdata["buff_def"] += 15
+                pdata["buff_def_turns"] = 3
+                return f"\U0001f6e1\ufe0f **圣盾术！** 防御力 +15，持续 3 回合"
+
+            elif skill_id == "poison":
+                dot_val = skill_def.get("dot", 10)
+                dot_dur = skill_def.get("dot_duration", 3)
+                pdata["dot_dmg"] = dot_val
+                pdata["dot_turns"] = dot_dur
+                return f"\u2620\ufe0f **毒雾！** Boss 中毒，每回合扣 {dot_val} HP，持续 {dot_dur} 回合"
+
+            elif skill_id == "steal":
+                return f"\U0001f4b0 偷窃只对玩家有效，无法对 Boss 使用！"
+
+            else:
+                dmg = skill_def.get("damage", 20)
+                room["boss_hp"] = max(0, room["boss_hp"] - dmg)
+                pdata["damage_dealt"] += dmg
+                return f"{skill_def['emoji']} **{skill_def['name']}** — {dmg} 伤害"
+
+        elif value.startswith("potion:"):
+            potion_name = value.split(":", 1)[1]
+            potion = _consume_potion(uid, potion_name)
+            if not potion:
+                return f"背包中没有 **{potion_name}**！/ Not in your bag!"
+
+            effect_type = potion["effect_type"]
+            effect_value = potion["effect_value"]
+            duration = potion.get("duration", 3)
+
+            if effect_type == "heal_hp":
+                healed = min(effect_value, pdata["max_hp"] - pdata["hp"])
+                pdata["hp"] += healed
+                return f"\U0001f9ea **{name}** used {potion['name_cn']} / {potion['name_en']} — Restored {healed} HP / 恢复了 {healed} HP"
+            elif effect_type == "heal_mp":
+                healed = min(effect_value, pdata["max_mp"] - pdata["mp"])
+                pdata["mp"] += healed
+                return f"\U0001f9ea **{name}** used {potion['name_cn']} / {potion['name_en']} — Restored {healed} MP / 恢复了 {healed} MP"
+            elif effect_type == "buff_atk":
+                pdata["buff_atk"] += effect_value
+                pdata["buff_atk_turns"] = max(pdata["buff_atk_turns"], duration)
+                return f"\U0001f9ea **{name}** used {potion['name_cn']} / {potion['name_en']} — ATK +{effect_value} for {duration} turns"
+            elif effect_type == "buff_def":
+                pdata["buff_def"] += effect_value
+                pdata["buff_def_turns"] = max(pdata["buff_def_turns"], duration)
+                return f"\U0001f9ea **{name}** used {potion['name_cn']} / {potion['name_en']} — DEF +{effect_value} for {duration} turns"
+            elif effect_type == "buff_spd":
+                return f"\U0001f9ea **{name}** used {potion['name_cn']} / {potion['name_en']} — SPD +{effect_value}% for {duration} turns"
+            elif effect_type == "buff_crit":
+                return f"\U0001f9ea **{name}** used {potion['name_cn']} / {potion['name_en']} — Crit +{effect_value}% for {duration} turns"
+            elif effect_type == "purify":
+                # Remove debuffs
+                pdata["dot_dmg"] = 0
+                pdata["dot_turns"] = 0
+                pdata["frozen"] = False
+                return f"\U0001f9ea **{name}** used {potion['name_cn']} / {potion['name_en']} — All debuffs removed / 负面状态已移除"
+            elif effect_type == "revive":
+                if pdata["hp"] > 0:
+                    return f"\U0001f9ea **{name}** still alive! Revival ineffective / 还活着，复活药水无效！"
+                restore_pct = max(1, int(pdata["max_hp"] * effect_value / 100))
+                pdata["hp"] = restore_pct
+                pdata["mp"] = pdata["max_mp"]
+                return f"\u2728 **{name}** used {potion['name_cn']} / {potion['name_en']} — Revived! HP {pdata['hp']}, MP full / 复活！"
+            elif effect_type == "buff_exp":
+                return f"\U0001f9ea **{name}** used {potion['name_cn']} / {potion['name_en']} — EXP +{effect_value}% for {duration} min"
+
+        return f"\u26a0\ufe0f Unknown action / 未知操作"
+
+    def _boss_counter(self, room: dict, target_uid: str) -> str:
+        """Boss single-target counter-attack against the acting player."""
+        if room["boss_hp"] <= 0:
+            return ""
+
+        pdata = room["players"].get(target_uid)
+        if not pdata or pdata["hp"] <= 0:
+            return ""
+
+        boss_atk = room["boss_atk"]
+        boss_name = room["boss"]["name"]
+        boss_emoji = room["boss"]["emoji"]
+
+        # 80% normal, 20% crit
+        if random.random() < 0.2:
+            dmg = int(boss_atk * random.uniform(1.5, 2.5))
+            crit_text = " \U0001f4a5 CRIT! / 暴击！"
+        else:
+            dmg = int(boss_atk * random.uniform(0.7, 1.3))
+            crit_text = ""
+
+        # Defense reduction
+        def_reduce = random.randint(0, (pdata["def"] + pdata["buff_def"]) // 3)
+        actual_dmg = max(1, dmg - def_reduce)
+        pdata["hp"] = max(0, pdata["hp"] - actual_dmg)
+
+        status = ""
+        if pdata["hp"] <= 0:
+            status = f" \U0001f480 {pdata['username']} 阵亡！"
+
+        phase_tag = " (Phase 2 \U0001f525)" if room["phase"] == 2 else ""
+        return (
+            f"\n{boss_emoji} **{boss_name}**{phase_tag} counter-attacks{crit_text}!\n"
+            f"\u3000\u2192 **{pdata['username']}**: -{actual_dmg} HP \u2192 {pdata['hp']}/{pdata['max_hp']}{status}"
+        )
+
+    def _tick_buffs(self, pdata: dict):
+        if pdata["buff_atk_turns"] > 0:
+            pdata["buff_atk_turns"] -= 1
+            if pdata["buff_atk_turns"] <= 0:
+                pdata["buff_atk"] = 0
+        if pdata["buff_def_turns"] > 0:
+            pdata["buff_def_turns"] -= 1
+            if pdata["buff_def_turns"] <= 0:
+                pdata["buff_def"] = 0
+
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+
+
+# ══════════════════════════════════════════════════════════════
+# Boss Lobby View — Full button-driven lobby
+# ══════════════════════════════════════════════════════════════
+
+class BossLobbyView(discord.ui.View):
+    """Boss大厅面板 / Boss lobby panel — all button-driven."""
+
+    def __init__(self, user_id: str, cog, room: dict | None = None, lobby_msg=None, main_view=None):
+        super().__init__(timeout=600)
+        self.uid = user_id
+        self.cog = cog
+        self.room = room
+        self.lobby_msg = lobby_msg
+        self.main_view = main_view
+        self._build()
+
+    def build_main_embed(self):
+        bal = get_balance(self.uid)
+        embed = discord.Embed(
+            title="\U0001f409 Boss Raid / Boss 团战",
+            description=(
+                "与其他玩家组队挑战强大的Boss！\n"
+                "Team up with others to defeat powerful bosses!\n\n"
+                f"\U0001fa99 你的余额 / Your balance: **{bal:,}**"
+            ),
+            color=0xC0392B,
+        )
+        embed.add_field(
+            name="\U0001f3f0 可挑战Boss / Available Bosses",
+            value="\n".join(f"{b['emoji']} **{b['name']}** — {b['desc']}" for b in BOSS_TYPES.values()),
+            inline=False,
+        )
+        embed.add_field(
+            name="\u2694\ufe0f 如何开始 / How to Start",
+            value="1. Click **Create** to create a room / 点击 **Create** 创建房间\n"
+                  "2. Others click **Join** / 其他人点击 **Join** 加入\n"
+                  "3. Host clicks **Start** to begin / 队长点击 **Start** 开始战斗",
+            inline=False,
+        )
+        embed.set_footer(text="Boss 战消耗技能和药水，请做好准备！/ Prepare your skills and potions!")
+        return embed
+
+    def _build(self):
+        self.clear_items()
+
+        # Row 0: Create | Join | Leave | Invite | Kick
+        create_btn = discord.ui.Button(
+            label="Create / 创建", style=discord.ButtonStyle.success,
+            row=0, emoji="\U0001f3f0",
+        )
+        create_btn.callback = self._create_callback
+        self.add_item(create_btn)
+
+        join_btn = discord.ui.Button(
+            label="Join / 加入", style=discord.ButtonStyle.primary,
+            row=0, emoji="\U0001f4cb",
+        )
+        join_btn.callback = self._join_callback
+        self.add_item(join_btn)
+
+        leave_btn = discord.ui.Button(
+            label="Leave / 离开", style=discord.ButtonStyle.secondary,
+            row=0, emoji="\U0001f6aa",
+        )
+        leave_btn.callback = self._leave_callback
+        self.add_item(leave_btn)
+
+        invite_btn = discord.ui.Button(
+            label="Invite / 邀请", style=discord.ButtonStyle.primary,
+            row=0, emoji="\U0001f465",
+        )
+        invite_btn.callback = self._invite_callback
+        self.add_item(invite_btn)
+
+        kick_btn = discord.ui.Button(
+            label="Kick / 踢人", style=discord.ButtonStyle.danger,
+            row=0, emoji="\U0001f462",
+        )
+        kick_btn.callback = self._kick_callback
+        self.add_item(kick_btn)
+
+        # Row 1: Start | Back
+        start_btn = discord.ui.Button(
+            label="Start / 开始", style=discord.ButtonStyle.success,
+            row=1, emoji="\u2694\ufe0f",
+        )
+        start_btn.callback = self._start_callback
+        self.add_item(start_btn)
+
+        back_btn = discord.ui.Button(
+            label="Back / 返回", style=discord.ButtonStyle.danger,
+            row=1, emoji="\U0001f519",
+        )
+        back_btn.callback = self._back_callback
+        self.add_item(back_btn)
+
+    async def _create_callback(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        chid = str(interaction.channel_id)
+
+        # Check existing room in channel
+        for rid, room in _boss_rooms.items():
+            if room.get("channel_id") == chid and room.get("status") in ("waiting", "fighting"):
+                await interaction.response.send_message(
+                    "本频道已有进行中的 Boss 战！/ Boss battle already in progress!", ephemeral=True)
+                return
+
+        modal = CreateBossModal(
+            self.cog, chid, uid,
+            interaction.user.display_name,
+            interaction.message,
+        )
+        await interaction.response.send_modal(modal)
+
+    async def _join_callback(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        chid = str(interaction.channel_id)
+
+        # First check if there's a room in this channel
+        local_room = None
+        for rid, room in _boss_rooms.items():
+            if room.get("channel_id") == chid and room.get("status") in ("waiting", "fighting"):
+                local_room = room
+                break
+
+        if local_room:
+            # Join the local room directly
+            if uid in local_room["players"]:
+                await interaction.response.send_message(
+                    "You are already in this room! / 你已经在了！", ephemeral=True)
+                return
+
+            stats = _get_user_combat_stats(uid)
+            local_room["players"][uid] = {
+                "hp": stats["hp"],
+                "mp": stats["mp"],
+                "max_hp": stats["max_hp"],
+                "max_mp": stats["max_mp"],
+                "atk": stats["attack"],
+                "def": stats["defense"],
+                "damage_dealt": 0,
+                "buff_atk": 0,
+                "buff_def": 0,
+                "buff_atk_turns": 0,
+                "buff_def_turns": 0,
+                "dot_dmg": 0,
+                "dot_turns": 0,
+                "frozen": False,
+                "username": interaction.user.display_name,
+            }
+
+            embed = self.cog._build_room_embed(local_room)
+            await interaction.response.edit_message(
+                content=f"**{interaction.user.display_name}** joined the raid! / 加入了副本！",
+                embed=embed,
+                view=self,
+            )
+            return
+
+        # No local room — show all waiting rooms globally via Select
+        waiting_rooms = []
+        for rid, room in _boss_rooms.items():
+            if room.get("status") == "waiting":
+                waiting_rooms.append((rid, room))
+
+        if not waiting_rooms:
+            await interaction.response.send_message(
+                "No active rooms to join! Create one first! / 没有可加入的房间！先创建一个！", ephemeral=True)
+            return
+
+        options = []
+        for rid, room in waiting_rooms[:25]:
+            boss = room["boss"]
+            host_name = room["players"].get(room["host_id"], {}).get("username", "Unknown")
+            player_count = len(room["players"])
+            options.append(discord.SelectOption(
+                label=f"{boss['emoji']} {boss['name']} ({room['difficulty']})",
+                value=rid,
+                description=f"Host: {host_name} | Players: {player_count} | HP: {room['boss_hp']}",
+            ))
+
+        view = discord.ui.View(timeout=30)
+        select = discord.ui.Select(
+            placeholder="Choose a room to join / 选择要加入的房间...",
+            options=options,
+        )
+
+        async def join_select_callback(sel_interaction: discord.Interaction):
+            rid = sel_interaction.data["values"][0]
+            target_room = _boss_rooms.get(rid)
+            if not target_room or target_room["status"] != "waiting":
+                await sel_interaction.response.send_message(
+                    "Room no longer available! / 房间已不可用！", ephemeral=True)
+                return
+
+            sel_uid = str(sel_interaction.user.id)
+            if sel_uid in target_room["players"]:
+                await sel_interaction.response.send_message(
+                    "Already in this room! / 你已经在了！", ephemeral=True)
+                return
+
+            stats = _get_user_combat_stats(sel_uid)
+            target_room["players"][sel_uid] = {
+                "hp": stats["hp"],
+                "mp": stats["mp"],
+                "max_hp": stats["max_hp"],
+                "max_mp": stats["max_mp"],
+                "atk": stats["attack"],
+                "def": stats["defense"],
+                "damage_dealt": 0,
+                "buff_atk": 0,
+                "buff_def": 0,
+                "buff_atk_turns": 0,
+                "buff_def_turns": 0,
+                "dot_dmg": 0,
+                "dot_turns": 0,
+                "frozen": False,
+                "username": sel_interaction.user.display_name,
+            }
+
+            await sel_interaction.response.send_message(
+                f"Joined **{target_room['boss']['emoji']} {target_room['boss']['name']}** ({target_room['difficulty']})! / 加入成功！",
+                ephemeral=True,
+            )
+
+        select.callback = join_select_callback
+        view.add_item(select)
+        await interaction.response.send_message(
+            "Select a room to join / 选择要加入的房间:", view=view, ephemeral=True)
+
+    async def _leave_callback(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        chid = str(interaction.channel_id)
+
+        room = self.cog._find_room_by_channel(chid)
+        if not room:
+            await interaction.response.send_message(
+                "No active room in this channel! / 本频道没有进行中的房间！", ephemeral=True)
+            return
+
+        if uid not in room["players"]:
+            await interaction.response.send_message(
+                "You are not in this room! / 你不在房间中！", ephemeral=True)
+            return
+
+        username = room["players"][uid]["username"]
+        del room["players"][uid]
+
+        # If host left and room is waiting, transfer host or disband
+        if uid == room.get("host_id") and room["status"] == "waiting":
+            if room["players"]:
+                new_host = next(iter(room["players"]))
+                room["host_id"] = new_host
+                room["players"][new_host]["username"] = room["players"][new_host].get("username", "Unknown")
+                await interaction.response.send_message(
+                    f"\U0001f6aa **{username}** left. New host: **{room['players'][new_host]['username']}**")
+            else:
+                room["status"] = "finished"
+                await interaction.response.send_message(
+                    f"\U0001f6aa **{username}** left. Room disbanded / 房间已解散。")
+                return
+        else:
+            await interaction.response.send_message(
+                f"\U0001f6aa **{username}** left the room! / 离开了房间！")
+
+        if room["status"] == "waiting":
+            embed = self.cog._build_room_embed(room)
+            await interaction.message.edit(embed=embed, view=self)
+
+    async def _invite_callback(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        chid = str(interaction.channel_id)
+
+        room = self.cog._find_room_by_channel(chid)
+        if not room:
+            await interaction.response.send_message(
+                "No active room! / 没有进行中的房间！", ephemeral=True)
+            return
+
+        if uid != room.get("host_id"):
+            await interaction.response.send_message(
+                "Only the host can invite! / 只有队长可以邀请！", ephemeral=True)
+            return
+
+        if room["status"] not in ("waiting", "fighting"):
+            await interaction.response.send_message(
+                "Battle is over! / 战斗已结束！", ephemeral=True)
+            return
+
+        # Get online members in guild
+        guild = interaction.guild
+        if not guild:
+            await interaction.response.send_message("Guild not found!", ephemeral=True)
+            return
+
+        online_members = [m for m in guild.members
+                          if m.status != discord.Status.offline
+                          and not m.bot
+                          and str(m.id) != uid
+                          and str(m.id) not in room["players"]]
+
+        if not online_members:
+            await interaction.response.send_message(
+                "No online players to invite! / 没有可邀请的在线玩家！", ephemeral=True)
+            return
+
+        options = []
+        for m in online_members[:25]:
+            options.append(discord.SelectOption(
+                label=m.display_name,
+                value=str(m.id),
+                description=f"@{m.name}",
+            ))
+
+        view = discord.ui.View(timeout=60)
+        select = discord.ui.Select(
+            placeholder="Choose a player to invite / 选择要邀请的玩家...",
+            options=options,
+        )
+
+        async def invite_select_callback(sel_interaction: discord.Interaction):
+            target_id = sel_interaction.data["values"][0]
+            member = guild.get_member(int(target_id))
+            if not member:
+                await sel_interaction.response.send_message(
+                    "Player not found! / 玩家未找到！", ephemeral=True)
+                return
+
+            try:
+                invite_embed = discord.Embed(
+                    title=f"{room['boss']['emoji']} Boss Raid Invite / Boss 团战邀请！",
+                    description=(
+                        f"**{interaction.user.display_name}** invites you to a raid! / 邀请你加入副本！\n"
+                        f"Boss: **{room['boss']['name']}** | Difficulty / 难度: **{room['difficulty']}**\n"
+                        f"Go to {interaction.channel.mention} and click **Join** / 前往并点击 **Join**！"
+                    ),
+                    color=room["diff_color"],
+                )
+                await member.send(embed=invite_embed)
+            except discord.Forbidden:
+                pass
+
+            await sel_interaction.response.send_message(
+                f"\u2709\ufe0f Invite sent to **{member.display_name}**! / 邀请已发送！", ephemeral=True)
+
+        select.callback = invite_select_callback
+        view.add_item(select)
+        await interaction.response.send_message(
+            "Select a player to invite / 选择要邀请的玩家:", view=view, ephemeral=True)
+
+    async def _kick_callback(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        chid = str(interaction.channel_id)
+
+        room = self.cog._find_room_by_channel(chid)
+        if not room:
+            await interaction.response.send_message(
+                "No active room! / 没有进行中的房间！", ephemeral=True)
+            return
+
+        if uid != room.get("host_id"):
+            await interaction.response.send_message(
+                "Only the host can kick! / 只有队长可以踢人！", ephemeral=True)
+            return
+
+        if room["status"] != "waiting":
+            await interaction.response.send_message(
+                "Can only kick during waiting phase! / 只能在等待阶段踢人！", ephemeral=True)
+            return
+
+        # List room players (excluding host)
+        kickable = {pid: pdata for pid, pdata in room["players"].items() if pid != uid}
+        if not kickable:
+            await interaction.response.send_message(
+                "No players to kick! / 没有可踢出的玩家！", ephemeral=True)
+            return
+
+        options = []
+        for pid, pdata in kickable.items():
+            options.append(discord.SelectOption(
+                label=pdata["username"],
+                value=pid,
+            ))
+
+        view = discord.ui.View(timeout=30)
+        select = discord.ui.Select(
+            placeholder="Choose a player to kick / 选择要踢出的玩家...",
+            options=options[:25],
+        )
+
+        async def kick_select_callback(sel_interaction: discord.Interaction):
+            target_id = sel_interaction.data["values"][0]
+            if target_id not in room["players"]:
+                await sel_interaction.response.send_message(
+                    "Player not found! / 玩家未找到！", ephemeral=True)
+                return
+
+            kicked_name = room["players"][target_id]["username"]
+            del room["players"][target_id]
+
+            await sel_interaction.response.send_message(
+                f"\U0001f462 **{kicked_name}** has been kicked! / 已被踢出！", ephemeral=True)
+
+            # Refresh lobby
+            embed = self.cog._build_room_embed(room)
+            try:
+                await interaction.message.edit(embed=embed, view=self)
+            except Exception:
+                pass
+
+        select.callback = kick_select_callback
+        view.add_item(select)
+        await interaction.response.send_message(
+            "Select a player to kick / 选择要踢出的玩家:", view=view, ephemeral=True)
+
+    async def _start_callback(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        chid = str(interaction.channel_id)
+
+        room = self.cog._find_room_by_channel(chid)
+        if not room:
+            await interaction.response.send_message(
+                "No active room! / 没有进行中的房间！", ephemeral=True)
+            return
+
+        if uid != room.get("host_id"):
+            await interaction.response.send_message(
+                "Only the host can start! / 只有队长可以开始！", ephemeral=True)
+            return
+
+        if room["status"] != "waiting":
+            await interaction.response.send_message(
+                "Battle already started! / 战斗已经开始！", ephemeral=True)
+            return
+
+        alive = sum(1 for p in room["players"].values() if p["hp"] > 0)
+        if alive < 1:
+            await interaction.response.send_message(
+                "No alive players! / 没有存活的玩家！", ephemeral=True)
+            return
+
+        room["status"] = "fighting"
+        room["start_time"] = time.time()
+
+        battle_view = BossBattleView(self.cog, room, interaction.message)
+
+        embed = self.cog._build_room_embed(room)
+        embed.description = (
+            f"**Battle Start! / 战斗开始！**\n"
+            f"Use the Select dropdown to choose your action!\n"
+            f"使用下拉菜单选择你的行动！"
+        )
+
+        await interaction.response.edit_message(
+            content=None,
+            embed=embed,
+            view=battle_view,
+        )
+
+    async def _back_callback(self, interaction: discord.Interaction):
+        if self.main_view:
+            from cogs.mmorpg_shop import _get_user_stats
+            uid = str(self.uid)
+            stats = _get_user_stats(uid)
+            bal = get_balance(uid)
+            embed = discord.Embed(
+                title="MMORPG Main Panel / MMORPG 主面板",
+                description=(
+                    f"\u2764\ufe0f HP: **{stats['hp']}/{stats['max_hp']}**  "
+                    f"\U0001f52e MP: **{stats['mp']}/{stats['max_mp']}**\n"
+                    f"\u2694\ufe0f ATK: **{stats['attack']}**  \U0001f6e1\ufe0f DEF: **{stats['defense']}**  "
+                    f"\u2b50 Lv.**{stats['level']}**  \U0001fa99 **{bal:,}**\n\n"
+                    "Click a button below / 点击下方按钮："
+                ),
+                color=0x9B59B6,
+            )
+            try:
+                await interaction.response.edit_message(embed=embed, view=self.main_view)
+            except discord.InteractionResponded:
+                await interaction.edit_original_response(embed=embed, view=self.main_view)
+
+
+# ══════════════════════════════════════════════════════════════
+# Boss Cog — simplified, only /gmpt-boss lobby
+# ══════════════════════════════════════════════════════════════
+
 class BossCog(CogBase):
-    """MMORPG 多人团战系统 / Multiplayer Boss Raid"""
+    """MMORPG Boss 团战系统 / Boss Raid — button-driven."""
 
     gmpt_boss_group = app_commands.Group(
         name="gmpt-boss",
@@ -170,892 +1241,37 @@ class BossCog(CogBase):
     def __init__(self, bot):
         super().__init__()
         self.bot = bot
-        # Rooms are stored at module‑level (_boss_rooms) so that
-        # Bot 1 (full) and Bot 2 (mmorpg) share the same data source.
 
     # ══════════════════════════════════════════════════════════
-    # Autocomplete: equipped skills for attack command
+    # /gmpt-boss lobby — the only slash command
     # ══════════════════════════════════════════════════════════
 
-    async def _skill_autocomplete(
-        self, interaction: discord.Interaction, current: str
-    ) -> list[app_commands.Choice[str]]:
+    @gmpt_boss_group.command(
+        name="lobby",
+        description="打开Boss大厅面板 / Open Boss lobby panel"
+    )
+    async def boss_lobby(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
-        skills = _get_equipped_skills(uid)
-        choices = []
-        for s in skills:
-            display = f"{s['emoji']} {s['name']} (MP:{s['mp_cost']})"
-            choices.append(app_commands.Choice(name=display, value=s["skill_id"]))
-        # Add "普通攻击" option
-        choices.insert(0, app_commands.Choice(name="⚔️ 普通攻击", value="__normal__"))
-        if current:
-            choices = [c for c in choices if current.lower() in c.name.lower()]
-        return choices[:25]
+        chid = str(interaction.channel_id)
 
-    async def _potion_autocomplete(
-        self, interaction: discord.Interaction, current: str
-    ) -> list[app_commands.Choice[str]]:
-        uid = str(interaction.user.id)
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT item_name FROM user_inventory WHERE user_id = ? AND item_type = 'potion' AND quantity > 0",
-                (uid,),
-            )
-            rows = cur.fetchall()
-        choices = []
-        for r in rows:
-            key = r["item_name"]
-            p = POTION_CATALOG.get(key)
-            if p:
-                display = f"{p['emoji']} {p['name_cn']} / {p['name_en']}"
+        # Check if there's an active room in this channel
+        existing_room = self._find_room_by_channel(chid)
+
+        if existing_room:
+            if existing_room["status"] == "fighting":
+                # Show battle view
+                battle_view = BossBattleView(self, existing_room, None)
+                embed = self._build_room_embed(existing_room)
+                await interaction.response.send_message(embed=embed, view=battle_view)
             else:
-                display = key
-            if not current or current.lower() in display.lower():
-                choices.append(app_commands.Choice(name=display, value=key))
-        return choices[:25]
-
-    # ══════════════════════════════════════════════════════════
-    # /gmpt-boss dungeon
-    # ══════════════════════════════════════════════════════════
-
-    @gmpt_boss_group.command(
-        name="dungeon",
-        description="查看所有副本Boss与冷却 / View all dungeon bosses & cooldowns"
-    )
-    async def boss_dungeon(self, interaction: discord.Interaction):
-        uid = str(interaction.user.id)
-        embed = discord.Embed(
-            title="Dungeon Hall / 副本大厅",
-            description="Choose a boss to challenge! Cooldowns are per difficulty.\n选择 Boss 发起挑战！所有冷却按难度独立计算。",
-            color=0x9B59B6,
-        )
-        for boss_name, boss in BOSS_TYPES.items():
-            lines = []
-            for diff, diff_cfg in DIFFICULTY.items():
-                remaining = self._get_cooldown_remaining(uid, boss_name, diff)
-                if remaining <= 0:
-                    status = "Ready / 可挑战"
-                else:
-                    m, s = divmod(remaining, 60)
-                    status = f"Cooldown / 冷却: {m}m{s}s"
-                lines.append(f"{diff_cfg['stars']} {diff}: {status}")
-            lines.append(f"Loot / 掉落: {', '.join(f'{name}({val}₲)' for _, name, val in boss['loot_table'][:2])}")
-            embed.add_field(
-                name=f"{boss['emoji']} {boss_name}",
-                value="\n".join(lines),
-                inline=True,
-            )
-        embed.set_footer(text="Use /gmpt-boss create <Boss> <Difficulty> / 使用 /gmpt-boss create <Boss> <难度> 创建副本")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
-    # ══════════════════════════════════════════════════════════
-    # /gmpt-boss leaderboard
-    # ══════════════════════════════════════════════════════════
-
-    @gmpt_boss_group.command(
-        name="leaderboard",
-        description="Boss击杀排行榜 / Boss kill leaderboard"
-    )
-    @app_commands.describe(
-        boss_type="Boss类型 (留空显示全部)",
-        difficulty="难度 (留空显示全部)",
-    )
-    async def boss_leaderboard(
-        self,
-        interaction: discord.Interaction,
-        boss_type: str = None,
-        difficulty: str = None,
-    ):
-        embed = discord.Embed(title="Boss Leaderboard / Boss排行榜", color=0xF1C40F)
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
-            if boss_type:
-                query = """
-                    SELECT user_id, boss_name, difficulty, kills, top_damage, last_kill_at
-                    FROM boss_player_kills WHERE boss_name = ?
-                """
-                params = [boss_type]
-                if difficulty:
-                    query += " AND difficulty = ?"
-                    params.append(difficulty)
-                query += " ORDER BY kills DESC, top_damage DESC LIMIT 10"
-                cur.execute(query, params)
-                rows = cur.fetchall()
-                embed.title += f" — {boss_type}" + (f" ({difficulty})" if difficulty else "")
-                if not rows:
-                    embed.description = "No kills yet / 暂无击杀记录"
-                else:
-                    lines = []
-                    for i, row in enumerate(rows, 1):
-                        uid, bname, diff, kills, top_dmg, _ = row
-                        medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, f"#{i}")
-                        lines.append(f"{medal} <@{uid}> — {kills} kills {diff} | Top DMG: {top_dmg}")
-                    embed.description = "\n".join(lines)
-            else:
-                cur.execute("""
-                    SELECT boss_name, difficulty, kill_count, fastest_clear_seconds, first_clear_by
-                    FROM boss_kill_stats ORDER BY kill_count DESC LIMIT 12
-                """)
-                rows = cur.fetchall()
-                if not rows:
-                    embed.description = "No kills yet / 暂无击杀记录"
-                else:
-                    for bname, diff, kills, fastest, first_clearer in rows:
-                        fastest_str = f"{fastest:.0f}s" if fastest else "-"
-                        embed.add_field(
-                            name=f"{bname} {DIFFICULTY.get(diff, {}).get('stars', '')} {diff}",
-                            value=f"Kills: {kills} | Fastest: {fastest_str} | First Clear: <@{first_clearer}>",
-                            inline=True,
-                        )
-        await interaction.response.send_message(embed=embed)
-
-    # ══════════════════════════════════════════════════════════
-    # /gmpt-boss stats
-    # ══════════════════════════════════════════════════════════
-
-    @gmpt_boss_group.command(
-        name="stats",
-        description="查看个人Boss统计 / Personal boss stats"
-    )
-    async def boss_stats(self, interaction: discord.Interaction):
-        uid = str(interaction.user.id)
-        embed = discord.Embed(
-            title=f"Dungeon Stats / 副本统计 — {interaction.user.display_name}",
-            color=0x3498DB,
-        )
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
-            cur.execute("""
-                SELECT boss_name, difficulty, kills, top_damage, last_kill_at
-                FROM boss_player_kills WHERE user_id = ?
-                ORDER BY kills DESC
-            """, (uid,))
-            rows = cur.fetchall()
-        if not rows:
-            embed.description = "No boss kills yet / 尚未击杀任何Boss"
+                # Show lobby with existing room
+                view = BossLobbyView(uid, self, existing_room, None)
+                embed = self._build_room_embed(existing_room)
+                await interaction.response.send_message(embed=embed, view=view)
         else:
-            total_kills = sum(r[2] for r in rows)
-            embed.description = f"Total Kills / 总计击杀: **{total_kills}**"
-            for boss_name, diff, kills, top_dmg, _ in rows:
-                embed.add_field(
-                    name=f"{BOSS_TYPES.get(boss_name, {}).get('emoji', '')} {boss_name} ({diff})",
-                    value=f"Kills: {kills} | Top DMG: {top_dmg}",
-                    inline=True,
-                )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
-    # ══════════════════════════════════════════════════════════
-    # /gmpt-boss create
-    # ══════════════════════════════════════════════════════════
-
-    @gmpt_boss_group.command(
-        name="create",
-        description="创建副本Boss房间 / Create dungeon boss room"
-    )
-    @app_commands.describe(
-        boss_type="Boss: 金龙 / 暗影领主 / 冰霜巨人 / 地狱犬",
-        difficulty="难度: 简单 / 普通 / 困难",
-    )
-    async def boss_create(
-        self,
-        interaction: discord.Interaction,
-        boss_type: str = "金龙",
-        difficulty: str = "普通",
-    ):
-        chid = str(interaction.channel_id)
-        uid = str(interaction.user.id)
-
-        # Check existing room in channel
-        for rid, room in _boss_rooms.items():
-            if room.get("channel_id") == chid and room.get("status") in ("waiting", "fighting"):
-                return await interaction.response.send_message(
-                    "本频道已有进行中的 Boss 战！/ Boss battle already in progress!", ephemeral=True)
-
-        if boss_type not in BOSS_TYPES:
-            types_str = " / ".join(BOSS_TYPES.keys())
-            return await interaction.response.send_message(
-                f"无效Boss！可选: {types_str}", ephemeral=True)
-
-        if difficulty not in DIFFICULTY:
-            diffs = " / ".join(DIFFICULTY.keys())
-            return await interaction.response.send_message(
-                f"无效难度！可选: {diffs}", ephemeral=True)
-
-        # Check personal cooldown
-        cd = self._get_cooldown_remaining(uid, boss_type, difficulty)
-        if cd > 0:
-            m, s = divmod(cd, 60)
-            return await interaction.response.send_message(
-                f"⏳ 冷却中！{m}分{s}秒后可挑战", ephemeral=True)
-
-        boss = BOSS_TYPES[boss_type]
-        diff = DIFFICULTY[difficulty]
-        base_hp = random.randint(*boss["base_hp"])
-        max_hp = int(base_hp * diff["hp_mult"])
-        atk = int(random.randint(*boss["base_atk"]) * diff["atk_mult"])
-
-        # Get host combat stats
-        stats = _get_user_combat_stats(uid)
-
-        room_id = f"{chid}_{int(time.time())}"
-
-        room = {
-            "room_id": room_id,
-            "channel_id": chid,
-            "host_id": uid,
-            "boss": boss,
-            "boss_hp": max_hp,
-            "boss_max_hp": max_hp,
-            "boss_atk": atk,
-            "phase": 1,
-            "difficulty": difficulty,
-            "diff_label": diff["label"],
-            "diff_color": diff["color"],
-            "reward_mult": diff["reward_mult"],
-            "status": "waiting",
-            "turn": 0,
-            "start_time": time.time(),
-            "players": {},
-            "loot_log": [],
-        }
-
-        room["players"][uid] = {
-            "hp": stats["hp"],
-            "mp": stats["mp"],
-            "max_hp": stats["max_hp"],
-            "max_mp": stats["max_mp"],
-            "atk": stats["attack"],
-            "def": stats["defense"],
-            "damage_dealt": 0,
-            "buff_atk": 0,
-            "buff_def": 0,
-            "buff_atk_turns": 0,
-            "buff_def_turns": 0,
-            "dot_dmg": 0,
-            "dot_turns": 0,
-            "frozen": False,
-            "username": interaction.user.display_name,
-        }
-
-        _boss_rooms[room_id] = room
-
-        # 🎬 Boss entrance animation
-        await interaction.response.defer()
-        await boss_entrance_animation(
-            interaction, boss_type, boss["emoji"],
-            diff["label"], 1,
-        )
-        await asyncio.sleep(0.5)
-
-        embed = self._build_room_embed(room)
-        await interaction.edit_original_response(
-            content=f"{boss['emoji']} **{interaction.user.display_name}** created a Boss raid / 创建了 Boss 团战房间！\n"
-                    f"Use `/gmpt-boss join` within 60s / 60秒内 `/gmpt-boss join` 加入 | "
-                    f"Host can `/gmpt-boss invite` / 队长可使用 `/gmpt-boss invite` 邀请成员",
-            embed=embed,
-        )
-
-        # Start timer
-        self.bot.loop.create_task(self._boss_start_timer(room_id, interaction.channel))
-
-    async def _boss_start_timer(self, room_id: str, channel):
-        await asyncio.sleep(60)
-        room = _boss_rooms.get(room_id)
-        if not room or room["status"] != "waiting":
-            return
-        if len(room["players"]) < 1:
-            room["status"] = "finished"
-            await channel.send("⏰ 副本已取消（无玩家加入）/ Dungeon cancelled (no players).")
-            return
-        room["status"] = "fighting"
-        room["start_time"] = time.time()
-        alive = sum(1 for p in room["players"].values() if p["hp"] > 0)
-        await channel.send(
-            f"Dungeon begins! / 副本开始！\n"
-            f"Players: {len(room['players'])} | Alive: {alive}\n"
-            f"Use `/gmpt-boss attack` to attack / 使用 `/gmpt-boss attack` 攻击！"
-            f"Use `/gmpt-boss use-potion` for potions / 使用 `/gmpt-boss use-potion` 喝药水！"
-        )
-
-    # ══════════════════════════════════════════════════════════
-    # /gmpt-boss join
-    # ══════════════════════════════════════════════════════════
-
-    @gmpt_boss_group.command(
-        name="join",
-        description="加入副本 / Join dungeon"
-    )
-    async def boss_join(self, interaction: discord.Interaction):
-        chid = str(interaction.channel_id)
-        uid = str(interaction.user.id)
-
-        room = self._find_room_by_channel(chid)
-        if not room:
-            return await interaction.response.send_message("本频道无进行中的副本 / No active dungeon.", ephemeral=True)
-
-        if uid in room["players"]:
-            return await interaction.response.send_message("你已经加入了！/ You already joined!", ephemeral=True)
-
-        if room["status"] == "fighting":
-            # Late join during fight – allowed but starts with current in-memory HP
-            pass
-
-        cd = self._get_cooldown_remaining(uid, room["boss"]["name"], room["difficulty"])
-        if cd > 0:
-            m, s = divmod(cd, 60)
-            return await interaction.response.send_message(
-                f"⏳ 该Boss冷却中！{m}分{s}秒后可加入", ephemeral=True)
-
-        stats = _get_user_combat_stats(uid)
-        room["players"][uid] = {
-            "hp": stats["hp"],
-            "mp": stats["mp"],
-            "max_hp": stats["max_hp"],
-            "max_mp": stats["max_mp"],
-            "atk": stats["attack"],
-            "def": stats["defense"],
-            "damage_dealt": 0,
-            "buff_atk": 0,
-            "buff_def": 0,
-            "buff_atk_turns": 0,
-            "buff_def_turns": 0,
-            "dot_dmg": 0,
-            "dot_turns": 0,
-            "frozen": False,
-            "username": interaction.user.display_name,
-        }
-
-        embed = self._build_room_embed(room)
-        await interaction.response.send_message(
-            f"**{interaction.user.display_name}** joined the raid! / 加入了副本！",
-            embed=embed,
-        )
-
-    # ══════════════════════════════════════════════════════════
-    # /gmpt-boss invite
-    # ══════════════════════════════════════════════════════════
-
-    @gmpt_boss_group.command(
-        name="invite",
-        description="邀请成员加入副本 / Invite a member to the dungeon"
-    )
-    @app_commands.describe(member="要邀请的成员 / Member to invite")
-    async def boss_invite(self, interaction: discord.Interaction, member: discord.Member):
-        chid = str(interaction.channel_id)
-        uid = str(interaction.user.id)
-
-        room = self._find_room_by_channel(chid)
-        if not room:
-            return await interaction.response.send_message("本频道无进行中的副本 / No active dungeon.", ephemeral=True)
-
-        if uid != room["host_id"]:
-            return await interaction.response.send_message("只有队长可以邀请成员！/ Only the host can invite!", ephemeral=True)
-
-        if room["status"] not in ("waiting", "fighting"):
-            return await interaction.response.send_message("战斗已结束，无法邀请 / Battle already finished.", ephemeral=True)
-
-        target_id = str(member.id)
-        if target_id in room["players"]:
-            return await interaction.response.send_message(f"{member.display_name} 已经在副本中了！", ephemeral=True)
-
-        try:
-            invite_embed = discord.Embed(
-                title=f"{room['boss']['emoji']} Boss Raid Invite / Boss 团战邀请！",
-                description=f"**{interaction.user.display_name}** invites you to a raid / 邀请你加入副本！\n"
-                           f"Boss: **{room['boss']['name']}** | Difficulty / 难度: **{room['difficulty']}**\n"
-                           f"Go to {interaction.channel.mention} and use `/gmpt-boss join` to join!",
-                color=room["diff_color"],
-            )
-            await member.send(embed=invite_embed)
-        except discord.Forbidden:
-            pass
-
-        await interaction.response.send_message(
-            f"Invitation sent to {member.mention} / 已向 {member.display_name} 发送邀请！"
-        )
-
-    # ══════════════════════════════════════════════════════════
-    # /gmpt-boss kick
-    # ══════════════════════════════════════════════════════════
-
-    @gmpt_boss_group.command(
-        name="kick",
-        description="踢出成员 / Kick a member from the dungeon"
-    )
-    @app_commands.describe(member="要踢出的成员 / Member to kick")
-    async def boss_kick(self, interaction: discord.Interaction, member: discord.Member):
-        chid = str(interaction.channel_id)
-        uid = str(interaction.user.id)
-
-        room = self._find_room_by_channel(chid)
-        if not room:
-            return await interaction.response.send_message("本频道无进行中的副本 / No active dungeon.", ephemeral=True)
-
-        if uid != room["host_id"]:
-            return await interaction.response.send_message("只有队长可以踢人！/ Only the host can kick!", ephemeral=True)
-
-        if room["status"] != "waiting":
-            return await interaction.response.send_message("只能在等待阶段踢人！/ Can only kick during waiting phase!", ephemeral=True)
-
-        target_id = str(member.id)
-        if target_id not in room["players"]:
-            return await interaction.response.send_message(f"{member.display_name} 不在副本中！", ephemeral=True)
-
-        if target_id == uid:
-            return await interaction.response.send_message("不能踢自己！/ Cannot kick yourself!", ephemeral=True)
-
-        del room["players"][target_id]
-        await interaction.response.send_message(f"👢 **{member.display_name}** 已被移出副本！/ Kicked from dungeon!")
-
-    # ══════════════════════════════════════════════════════════
-    # /gmpt-boss attack
-    # ══════════════════════════════════════════════════════════
-
-    @gmpt_boss_group.command(
-        name="attack",
-        description="攻击Boss（可选技能）/ Attack boss (optional skill)"
-    )
-    @app_commands.describe(skill_id="技能（留空=普通攻击）/ Skill (leave empty = normal attack)")
-    @app_commands.autocomplete(skill_id=_skill_autocomplete)
-    @app_commands.checks.cooldown(1, 8.0, key=lambda i: i.user.id)
-    async def boss_attack(
-        self,
-        interaction: discord.Interaction,
-        skill_id: str = None,
-    ):
-        chid = str(interaction.channel_id)
-        uid = str(interaction.user.id)
-
-        room = self._find_room_by_channel(chid)
-        if not room:
-            return await interaction.response.send_message("本频道没有进行中的副本 / No active dungeon.", ephemeral=True)
-
-        if room["status"] == "waiting":
-            return await interaction.response.send_message("副本尚未开始！请等待 / Dungeon hasn't started yet!", ephemeral=True)
-
-        if room["status"] == "finished":
-            return await interaction.response.send_message("副本已结束 / Dungeon already finished.", ephemeral=True)
-
-        if uid not in room["players"]:
-            return await interaction.response.send_message("请先 `/gmpt-boss join` 加入 / Join first!", ephemeral=True)
-
-        player = room["players"][uid]
-        if player["hp"] <= 0:
-            return await interaction.response.send_message("你已阵亡！等待副本结束 / You are dead!", ephemeral=True)
-
-        use_skill = False
-        skill_def = None
-        if skill_id and skill_id != "__normal__":
-            if skill_id not in SKILLS:
-                return await interaction.response.send_message("技能不存在 / Skill not found.", ephemeral=True)
-            skill_def = SKILLS[skill_id]
-            # Check if player has this skill equipped
-            equipped = _get_equipped_skills(uid)
-            equipped_ids = [s["skill_id"] for s in equipped]
-            if skill_id not in equipped_ids:
-                return await interaction.response.send_message("你还没有装备这个技能！/ Skill not equipped!", ephemeral=True)
-            if player["mp"] < skill_def["mp_cost"]:
-                return await interaction.response.send_message(
-                    f"MP 不足！需要 {skill_def['mp_cost']} MP，当前 {player['mp']} MP", ephemeral=True)
-            player["mp"] -= skill_def["mp_cost"]
-            use_skill = True
-
-        # ═══ Phase check ═══
-        if room["boss_hp"] <= room["boss_max_hp"] * RAGE_HP_RATIO and room["phase"] == 1:
-            room["phase"] = 2
-            room["boss_atk"] = int(room["boss_atk"] * 1.5)
-
-        # ═══ Pre-attack: tick dot on boss ═══
-        dot_log = ""
-        if player["dot_dmg"] > 0 and player["dot_turns"] > 0:
-            dot_log = f"☠️ Boss受到 {player['dot_dmg']} 毒伤！"
-            room["boss_hp"] = max(0, room["boss_hp"] - player["dot_dmg"])
-            player["dot_turns"] -= 1
-            if player["dot_turns"] <= 0:
-                player["dot_dmg"] = 0
-
-        # ═══ Check frozen ═══
-        if player["frozen"]:
-            player["frozen"] = False
-            lines = [
-                f"Frozen! Turn skipped / 被冻结，跳过本回合！— {player['username']}",
-            ]
-            # Boss still counter-attacks
-            boss_log = self._boss_aoe_attack(room)
-            lines.append(boss_log)
-            await interaction.response.send_message("\n".join(lines))
-            # Check if boss died after AOE counter-attack
-            if room["boss_hp"] <= 0:
-                await self._distribute_rewards(room, interaction)
-                self._boss_rooms.pop(room["channel_id"], None)
-            return
-
-        # ═══ Calculate damage ═══
-        dmg = 0
-        dmg_text = ""
-
-        if use_skill:
-            skill_dmg = skill_def.get("damage", 0)
-            heal_val = skill_def.get("heal", 0)
-            buff_atk = skill_def.get("buff_atk", 0)
-            buff_def = skill_def.get("buff_def", 0)
-            dot_val = skill_def.get("dot", 0)
-            dot_dur = skill_def.get("dot_duration", 0)
-            duration = skill_def.get("duration", 3)
-
-            if skill_id == "fireball":
-                dmg = 35
-                dmg_text = f"🔥 **火球术！** — {dmg} 伤害"
-            elif skill_id == "ice_shard":
-                dmg = 25
-                dmg_text = f"❄️ **冰锥术！** — {dmg} 伤害"
-                if random.random() < 0.3:
-                    room["players"][uid]["frozen_effect"] = True  # mark boss gets frozen-like
-                    dmg_text += " | 🧊 Boss 被冻结一回合！"
-            elif skill_id == "thunder":
-                dmg = 50
-                dmg_text = f"⚡ **雷霆一击！** — {dmg} 伤害"
-                if random.random() < 0.1:
-                    self_dmg = int(dmg * 0.3)
-                    player["hp"] = max(0, player["hp"] - self_dmg)
-                    dmg_text += f" | ⚡ 反噬！自己受到 {self_dmg} 伤害"
-            elif skill_id == "heal":
-                healed = min(heal_val, player["max_hp"] - player["hp"])
-                player["hp"] += healed
-                dmg_text = f"💚 **治愈术！** 恢复了 {healed} HP（{player['hp']}/{player['max_hp']}）"
-                dmg = 0
-            elif skill_id == "berserk":
-                player["buff_atk"] += 20
-                player["buff_atk_turns"] = duration
-                dmg_text = f"😡 **狂暴！** 攻击力 +20，持续 {duration} 回合"
-                dmg = 0
-            elif skill_id == "shield":
-                player["buff_def"] += 15
-                player["buff_def_turns"] = duration
-                dmg_text = f"🛡️ **圣盾术！** 防御力 +15，持续 {duration} 回合"
-                dmg = 0
-            elif skill_id == "poison":
-                # Apply dot to boss (stored on player for tracking)
-                player["dot_dmg"] = dot_val
-                player["dot_turns"] = dot_dur
-                dmg_text = f"☠️ **毒雾！** Boss 中毒，每回合扣 {dot_val} HP，持续 {dot_dur} 回合"
-                dmg = 0
-            elif skill_id == "steal":
-                dmg_text = "💰 偷窃只对玩家有效，无法对 Boss 使用！"
-                dmg = 0
-            else:
-                dmg = skill_dmg
-                dmg_text = f"{skill_def['emoji']} **{skill_def['name']}！** — {dmg} 伤害"
-        else:
-            # Normal attack
-            base_atk = player["atk"] + player["buff_atk"]
-            dmg = base_atk + random.randint(1, 10)
-            # Critical check
-            if random.random() < 0.1:
-                dmg = int(dmg * 2)
-                dmg_text = f"⚔️ {player['username']} 暴击！— **{dmg}** 伤害"
-            else:
-                dmg_text = f"⚔️ {player['username']} 普通攻击 — {dmg} 伤害"
-
-        # Apply damage
-        if dmg > 0:
-            room["boss_hp"] = max(0, room["boss_hp"] - dmg)
-            player["damage_dealt"] += dmg
-
-        room["turn"] += 1
-
-        # ═══ Decrement buff turns ═══
-        if player["buff_atk_turns"] > 0:
-            player["buff_atk_turns"] -= 1
-            if player["buff_atk_turns"] <= 0:
-                player["buff_atk"] = 0
-        if player["buff_def_turns"] > 0:
-            player["buff_def_turns"] -= 1
-            if player["buff_def_turns"] <= 0:
-                player["buff_def"] = 0
-
-        # ═══ Boss AOE counter-attack ═══
-        boss_log = self._boss_aoe_attack(room)
-
-        lines = [dmg_text]
-        if dot_log:
-            lines.append(dot_log)
-
-        # Phase 2 announcement
-        room_id = room["room_id"]
-        phase_lines = []
-        if room["phase"] == 2:
-            phase_lines = [
-                f"Phase 2! Boss gets stronger! (ATK x1.5) / Boss 进入第二阶段！变得更强了！（攻击力 x1.5）",
-                f"Boss HP restored to {room['boss_max_hp']} / Boss HP 已回复至 {room['boss_max_hp']}！",
-            ]
-            # Reset boss HP to max on phase 2 entry
-            if room["boss_hp"] > 0 and room.get("_phase2_announced") != room_id:
-                room["boss_hp"] = room["boss_max_hp"]
-                room["_phase2_announced"] = room_id
-
-        # ═══ Check boss death ═══
-        reward_lines = []
-        if room["boss_hp"] <= 0:
-            room["status"] = "finished"
-            duration_sec = time.time() - room["start_time"]
-            reward_lines = self._distribute_rewards(room, duration_sec)
-
-        # 🎬 Battle animation (3-frame swing)
-        await interaction.response.defer()
-        is_crit = "暴击" in dmg_text or "Critical" in dmg_text
-        is_skill_hit = use_skill and dmg > 0
-        if is_skill_hit and skill_def:
-            anim_base = f"{skill_def['emoji']} {player['username']} {skill_def['name']}"
-        else:
-            anim_base = f"⚔️ {player['username']} 攻击中"
-        for i in range(1, 4):
-            dots = "." * i
-            anim_embed = discord.Embed(description=f"## {anim_base}{dots}", color=0xFF6600)
-            await interaction.edit_original_response(embed=anim_embed)
-            await asyncio.sleep(0.5)
-
-        # Build final result
-        result_lines = [dmg_text]
-        if dot_log:
-            result_lines.append(dot_log)
-        for pl in phase_lines:
-            result_lines.append(pl)
-        result_lines.append(boss_log)
-        result_lines.append(f"Boss HP: {_format_bar(room['boss_hp'], room['boss_max_hp'])}")
-        if room["phase"] == 2:
-            result_lines.append(f"Phase: **Phase 2** | Turn: {room['turn']}")
-
-        if room["boss_hp"] <= 0:
-            duration_sec = time.time() - room["start_time"]
-            result_lines.append("")
-            result_lines.append(f"**{room['boss']['name']}** defeated! / 被击败！({duration_sec:.0f}s)")
-            result_lines.append("\n**Rewards / 奖励分配:**")
-            result_lines.extend(reward_lines)
-
-        result_embed = discord.Embed(
-            description="\n".join(result_lines),
-            color=0xFF0000 if is_crit else 0x5865F2,
-        )
-        await interaction.edit_original_response(content=None, embed=result_embed)
-
-        if room["status"] == "finished":
-            embed = self._build_room_embed(room, defeated=True)
-            await interaction.channel.send(embed=embed)
-            # Save final HP/MP states
-            for pid, pdata in room["players"].items():
-                _save_combat_stats(pid, pdata)
-            # Clean up stale room reference
-            rid = room.get("room_id")
-            if rid and rid in _boss_rooms:
-                del _boss_rooms[rid]
-
-    def _boss_aoe_attack(self, room: dict) -> str:
-        """Boss AOE counter-attack against all alive players."""
-        if room["boss_hp"] <= 0:
-            return ""
-        players = room["players"]
-        boss_atk = room["boss_atk"]
-        num_players = len(players)
-        aoe_base = int(boss_atk * (1 + 0.1 * num_players))
-        phase_tag = " (Phase 2 🔥)" if room["phase"] == 2 else ""
-
-        log_parts = [f"\n{room['boss']['emoji']} Boss 反击全体{phase_tag}！"]
-
-        for pid, pdata in players.items():
-            if pdata["hp"] <= 0:
-                continue
-            # Random defense reduction
-            def_reduce = random.randint(0, (pdata["def"] + pdata["buff_def"]) // 3)
-            actual_dmg = max(1, aoe_base - def_reduce)
-            pdata["hp"] = max(0, pdata["hp"] - actual_dmg)
-            status = ""
-            if pdata["hp"] <= 0:
-                status = " 💀 阵亡！"
-            log_parts.append(f"　- **{pdata['username']}**: -{actual_dmg} HP → {pdata['hp']}/{pdata['max_hp']}{status}")
-
-        return "\n".join(log_parts)
-
-    def _distribute_rewards(self, room: dict, duration_sec: float) -> list[str]:
-        """Distribute coins and loot based on damage_dealt proportion."""
-        players = room["players"]
-        total_dmg = sum(p["damage_dealt"] for p in players.values())
-        reward_pool = int(room["boss_max_hp"] * room["reward_mult"] * 0.8)
-
-        # Find MVP
-        mvp_uid = max(players.items(), key=lambda x: x[1]["damage_dealt"])[0]
-        mvp_name = players[mvp_uid]["username"]
-        mvp_extra = int(reward_pool * 0.1)
-
-        lines = [f"🏆 MVP: **{mvp_name}** ({players[mvp_uid]['damage_dealt']} DMG) — Bonus / 额外 +{mvp_extra}₲"]
-
-        for pid, pdata in players.items():
-            if total_dmg <= 0:
-                share = 0
-            else:
-                share = int(reward_pool * pdata["damage_dealt"] / total_dmg)
-
-            # Daily first kill bonus
-            if self._get_daily_first_kill(pid):
-                share = int(share * 2)
-                first_bonus = " (First Kill x2! / 首杀双倍！)"
-            else:
-                first_bonus = ""
-
-            # Loot drops
-            drops = self._roll_loot(room["boss"]["name"])
-            loot_text = ""
-            loot_total = 0
-            for item_name, value in drops:
-                loot_total += value
-                loot_text += f" + 🎁 {item_name}({value}₲)"
-
-            # MVP bonus
-            mvp_bonus = 0
-            mvp_str = ""
-            if pid == mvp_uid:
-                mvp_bonus = mvp_extra
-                mvp_str = f" + 🏆 MVP Bonus / MVP额外+{mvp_extra}₲"
-
-            total_earn = share + loot_total + mvp_bonus
-            if total_earn > 0:
-                add_coins(pid, total_earn, f"Boss Raid Reward / Boss副本奖励: {room['boss']['name']} {room['difficulty']}")
-                # Quest progress: kill
-                from cogs.daily_quest import _update_progress
-                _update_progress(pid, "kill")
-
-            # Record kill
-            self._set_cooldown(pid, room["boss"]["name"], room["difficulty"])
-            self._record_kill(room["boss"]["name"], room["difficulty"], pid, pdata["damage_dealt"], duration_sec)
-
-            lines.append(
-                f"- **{pdata['username']}**: {pdata['damage_dealt']} DMG → +{total_earn}₲{first_bonus}{loot_text}{mvp_str}"
-            )
-
-        return lines
-
-    # ══════════════════════════════════════════════════════════
-    # /gmpt-boss use-potion
-    # ══════════════════════════════════════════════════════════
-
-    @gmpt_boss_group.command(
-        name="use-potion",
-        description="战斗中使用药水 / Use a potion during battle"
-    )
-    @app_commands.describe(name="药水名称 / Potion name")
-    @app_commands.autocomplete(name=_potion_autocomplete)
-    @app_commands.checks.cooldown(1, 3.0, key=lambda i: i.user.id)
-    async def boss_use_potion(self, interaction: discord.Interaction, name: str):
-        chid = str(interaction.channel_id)
-        uid = str(interaction.user.id)
-
-        room = self._find_room_by_channel(chid)
-        if not room:
-            return await interaction.response.send_message("本频道没有进行中的副本 / No active dungeon.", ephemeral=True)
-
-        if uid not in room["players"]:
-            return await interaction.response.send_message("你不在副本中！/ You are not in the dungeon!", ephemeral=True)
-
-        player = room["players"][uid]
-
-        # Check inventory (do this before hp check so revive can be used while dead)
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT quantity FROM user_inventory WHERE user_id = ? AND item_name = ? AND item_type = 'potion'",
-                (uid, name),
-            )
-            inv_row = cur.fetchone()
-
-        if not inv_row or inv_row["quantity"] <= 0:
-            return await interaction.response.send_message(
-                f"背包中没有 **{name}**！/ Not in your bag!", ephemeral=True)
-
-        # Get potion from catalog
-        potion = POTION_CATALOG.get(name)
-        effect_type = potion["effect_type"]
-        effect_value = potion["effect_value"]
-
-        # Consume from inventory
-        if inv_row["quantity"] > 1:
-            with get_db_ctx() as conn:
-                cur = conn.cursor()
-                cur.execute("UPDATE user_inventory SET quantity = quantity - 1 WHERE user_id = ? AND item_name = ? AND item_type = 'potion'", (uid, name))
-                conn.commit()
-        else:
-            with get_db_ctx() as conn:
-                cur = conn.cursor()
-                cur.execute("DELETE FROM user_inventory WHERE user_id = ? AND item_name = ? AND item_type = 'potion'", (uid, name))
-                conn.commit()
-
-        # Apply effect to in-memory player
-        result_text = ""
-        if effect_type == "heal_hp":
-            healed = min(effect_value, player["max_hp"] - player["hp"])
-            player["hp"] += healed
-            result_text = f"Restored **{healed}** HP / 恢复了 **{healed}** HP！（{player['hp']}/{player['max_hp']}）"
-        elif effect_type == "heal_mp":
-            healed = min(effect_value, player["max_mp"] - player["mp"])
-            player["mp"] += healed
-            result_text = f"Restored **{healed}** MP / 恢复了 **{healed}** MP！（{player['mp']}/{player['max_mp']}）"
-        elif effect_type == "buff_atk":
-            player["buff_atk"] += effect_value
-            player["buff_atk_turns"] = max(player["buff_atk_turns"], potion.get("duration", 3))
-            result_text = f"ATK **+{effect_value}** for {potion.get('duration', 3)} turns / 攻击力 **+{effect_value}**，持续 {potion.get('duration', 3)} 回合！"
-        elif effect_type == "buff_def":
-            player["buff_def"] += effect_value
-            player["buff_def_turns"] = max(player["buff_def_turns"], potion.get("duration", 3))
-            result_text = f"DEF **+{effect_value}** for {potion.get('duration', 3)} turns / 防御力 **+{effect_value}**，持续 {potion.get('duration', 3)} 回合！"
-        elif effect_type == "buff_spd":
-            result_text = f"SPD **+{effect_value}%** for {potion.get('duration', 2)} turns / 速度 **+{effect_value}%**，持续 {potion.get('duration', 2)} 回合！"
-        elif effect_type == "buff_crit":
-            result_text = f"Crit Rate **+{effect_value}%** for {potion.get('duration', 2)} turns / 暴击率 **+{effect_value}%**，持续 {potion.get('duration', 2)} 回合！"
-        elif effect_type == "buff_exp":
-            result_text = f"EXP **+{effect_value}%** for {potion.get('duration', 5)} min / 经验 **+{effect_value}%**，持续 {potion.get('duration', 5)} 分钟！"
-        elif effect_type == "purify":
-            result_text = f"All debuffs removed / 所有负面状态已移除！"
-        elif effect_type == "revive":
-            if player["hp"] > 0:
-                # Refund
-                with get_db_ctx() as conn:
-                    cur = conn.cursor()
-                    cur.execute(
-                        "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) VALUES (?, ?, ?, 1, 'potion')",
-                        (uid, potion["id"], name),
-                    )
-                    conn.commit()
-                return await interaction.response.send_message(
-                    "你还活着！复活药水只能在 HP=0 时使用。/ You're still alive! Revival potion only usable when HP=0.",
-                    ephemeral=True)
-            restore_pct = max(1, int(player["max_hp"] * effect_value / 100))
-            player["hp"] = restore_pct
-            player["mp"] = player["max_mp"]
-            result_text = f"Revived! HP restored to {player['hp']}/{player['max_hp']}, MP full! / 复活！HP 恢复到 {player['hp']}/{player['max_hp']}，MP 全满！"
-
-        embed = discord.Embed(
-            title=f"{potion['emoji']} {player['username']} used {potion['name_cn']} / {potion['name_en']}",
-            description=result_text,
-            color=0x2ECC71,
-        )
-        await interaction.response.send_message(embed=embed)
-
-    # ══════════════════════════════════════════════════════════
-    # /gmpt-boss status
-    # ══════════════════════════════════════════════════════════
-
-    @gmpt_boss_group.command(
-        name="status",
-        description="查看副本战况 / View dungeon status"
-    )
-    async def boss_status(self, interaction: discord.Interaction):
-        chid = str(interaction.channel_id)
-        room = self._find_room_by_channel(chid)
-        if not room:
-            return await interaction.response.send_message("本频道无进行中的副本 / No active dungeon.", ephemeral=True)
-
-        embed = self._build_room_embed(room)
-        await interaction.response.send_message(embed=embed)
+            view = BossLobbyView(uid, self)
+            embed = view.build_main_embed()
+            await interaction.response.send_message(embed=embed, view=view)
 
     # ══════════════════════════════════════════════════════════
     # Room helpers
@@ -1109,7 +1325,7 @@ class BossCog(CogBase):
         # Player list with HP/MP bars and buffs
         player_lines = []
         for pid, p in room["players"].items():
-            alive_mark = "" if p["hp"] > 0 else "💀"
+            alive_mark = "" if p["hp"] > 0 else "\U0001f480"
             hp_bar = _format_bar(p["hp"], p["max_hp"], 10)
             mp_bar = _format_bar(p["mp"], p["max_mp"], 6)
 
@@ -1126,9 +1342,9 @@ class BossCog(CogBase):
             buff_str = f" [{', '.join(buffs)}]" if buffs else ""
             line = (
                 f"{alive_mark} **{p['username']}**\n"
-                f"　HP: {hp_bar}\n"
-                f"　MP: {mp_bar}\n"
-                f"　DMG: {p['damage_dealt']}{buff_str}"
+                f"\u3000HP: {hp_bar}\n"
+                f"\u3000MP: {mp_bar}\n"
+                f"\u3000DMG: {p['damage_dealt']}{buff_str}"
             )
             player_lines.append(line)
 
@@ -1138,8 +1354,18 @@ class BossCog(CogBase):
             inline=False,
         )
 
-        status_text = {"waiting": "Waiting / 等待开始", "fighting": "Fighting / 战斗中", "finished": "Finished / 已结束"}
-        embed.set_footer(text=f"Status / 状态: {status_text.get(room['status'], room['status'])} | /gmpt-boss attack to fight / 攻击")
+        status_text = {
+            "waiting": "Waiting / 等待开始",
+            "fighting": "Fighting / 战斗中",
+            "finished": "Finished / 已结束",
+        }
+        status = room.get("status", "unknown")
+        footer = f"Status / 状态: {status_text.get(status, status)}"
+        if status == "fighting":
+            footer += " | Select an action from dropdown / 从下拉菜单选择行动"
+        elif status == "waiting":
+            footer += " | Host click Start to begin / 队长点击 Start 开始"
+        embed.set_footer(text=footer)
         return embed
 
     # ══════════════════════════════════════════════════════════
@@ -1207,104 +1433,67 @@ class BossCog(CogBase):
                 drops.append((item_name, value))
         return drops
 
+    def _distribute_rewards(self, room: dict, duration_sec: float) -> list[str]:
+        """Distribute coins and loot based on damage_dealt proportion."""
+        players = room["players"]
+        total_dmg = sum(p["damage_dealt"] for p in players.values())
+        reward_pool = int(room["boss_max_hp"] * room["reward_mult"] * 0.8)
+
+        # Find MVP
+        mvp_uid = max(players.items(), key=lambda x: x[1]["damage_dealt"])[0]
+        mvp_name = players[mvp_uid]["username"]
+        mvp_extra = int(reward_pool * 0.1)
+
+        lines = [f"\U0001f3c6 MVP: **{mvp_name}** ({players[mvp_uid]['damage_dealt']} DMG) — Bonus / 额外 +{mvp_extra}\U000020B0"]
+
+        for pid, pdata in players.items():
+            if total_dmg <= 0:
+                share = 0
+            else:
+                share = int(reward_pool * pdata["damage_dealt"] / total_dmg)
+
+            # Daily first kill bonus
+            if self._get_daily_first_kill(pid):
+                share = int(share * 2)
+                first_bonus = " (First Kill x2! / 首杀双倍！)"
+            else:
+                first_bonus = ""
+
+            # Loot drops
+            drops = self._roll_loot(room["boss"]["name"])
+            loot_text = ""
+            loot_total = 0
+            for item_name, value in drops:
+                loot_total += value
+                loot_text += f" + \U0001f381 {item_name}({value}\U000020B0)"
+
+            # MVP bonus
+            mvp_bonus = 0
+            mvp_str = ""
+            if pid == mvp_uid:
+                mvp_bonus = mvp_extra
+                mvp_str = f" + \U0001f3c6 MVP Bonus / MVP额外+{mvp_extra}\U000020B0"
+
+            total_earn = share + loot_total + mvp_bonus
+            if total_earn > 0:
+                add_coins(pid, total_earn, f"Boss Raid Reward / Boss副本奖励: {room['boss']['name']} {room['difficulty']}")
+                # Quest progress: kill
+                try:
+                    from cogs.daily_quest import _update_progress
+                    _update_progress(pid, "kill")
+                except Exception:
+                    pass
+
+            # Record kill
+            self._set_cooldown(pid, room["boss"]["name"], room["difficulty"])
+            self._record_kill(room["boss"]["name"], room["difficulty"], pid, pdata["damage_dealt"], duration_sec)
+
+            lines.append(
+                f"- **{pdata['username']}**: {pdata['damage_dealt']} DMG \u2192 +{total_earn}\U000020B0{first_bonus}{loot_text}{mvp_str}"
+            )
+
+        return lines
+
 
 async def setup(bot):
     await bot.add_cog(BossCog(bot))
-
-
-# ══════════════════════════════════════════════════════════════
-# Boss Lobby View — Interactive Boss hub
-# ══════════════════════════════════════════════════════════════
-class BossLobbyView(discord.ui.View):
-    """Boss大厅面板 / Boss lobby panel."""
-
-    def __init__(self, user_id: str, main_view=None):
-        super().__init__(timeout=300)
-        self.uid = user_id
-        self.main_view = main_view
-        self._build()
-
-    def build_main_embed(self):
-        bal = get_balance(self.uid)
-        embed = discord.Embed(
-            title="🐉 Boss Raid / Boss 团战",
-            description=(
-                "与其他玩家组队挑战强大的Boss！\n"
-                "Team up with others to defeat powerful bosses!\n\n"
-                f"🪙 你的余额 / Your balance: **{bal:,}**"
-            ),
-            color=0xC0392B,
-        )
-        embed.add_field(
-            name="🏰 副本列表 / Dungeons",
-            value="查看可用Boss副本：`/gmpt-boss dungeon`",
-            inline=False,
-        )
-        embed.add_field(
-            name="⚔️ 创建/加入房间",
-            value="创建房间：`/gmpt-boss create`\n加入房间：`/gmpt-boss join`\n邀请成员：`/gmpt-boss invite`",
-            inline=False,
-        )
-        embed.set_footer(text="Boss 战消耗技能和药水，请做好准备！")
-        return embed
-
-    def _build(self):
-        self.clear_items()
-        dungeon_btn = discord.ui.Button(
-            label="🏰 Dungeons / 副本", style=discord.ButtonStyle.primary,
-            row=0, custom_id="boss_dungeon",
-        )
-        dungeon_btn.callback = self._dungeon_info_callback
-        self.add_item(dungeon_btn)
-
-        status_btn = discord.ui.Button(
-            label="📊 Status / 战况", style=discord.ButtonStyle.secondary,
-            row=0, custom_id="boss_status",
-        )
-        status_btn.callback = self._status_info_callback
-        self.add_item(status_btn)
-
-        if self.main_view:
-            back_btn = discord.ui.Button(
-                label="Back to MMORPG / 返回", style=discord.ButtonStyle.danger,
-                row=1, emoji="🏠", custom_id="boss_back",
-            )
-            back_btn.callback = self._back_callback
-            self.add_item(back_btn)
-
-    async def _dungeon_info_callback(self, interaction: discord.Interaction):
-        await interaction.response.send_message(
-            "🏰 **Boss 副本 / Dungeons:**\n"
-            "在聊天中使用 `/gmpt-boss dungeon` 查看所有可用Boss\n"
-            "Use `/gmpt-boss create` 创建房间后邀请队友！",
-            ephemeral=True,
-        )
-
-    async def _status_info_callback(self, interaction: discord.Interaction):
-        await interaction.response.send_message(
-            "📊 使用 `/gmpt-boss status` 查看当前Boss战况\n"
-            "Use `/gmpt-boss leaderboard` 查看排行榜",
-            ephemeral=True,
-        )
-
-    async def _back_callback(self, interaction: discord.Interaction):
-        if self.main_view:
-            from cogs.mmorpg_shop import _get_user_stats
-            uid = str(self.uid)
-            stats = _get_user_stats(uid)
-            bal = get_balance(uid)
-            embed = discord.Embed(
-                title="MMORPG Main Panel / MMORPG 主面板",
-                description=(
-                    f"❤️ HP: **{stats['hp']}/{stats['max_hp']}**  "
-                    f"🔮 MP: **{stats['mp']}/{stats['max_mp']}**\n"
-                    f"⚔️ ATK: **{stats['attack']}**  🛡️ DEF: **{stats['defense']}**  "
-                    f"⭐ Lv.**{stats['level']}**  🪙 **{bal:,}**\n\n"
-                    f"Click a button below / 点击下方按钮："
-                ),
-                color=0x9B59B6,
-            )
-            try:
-                await interaction.response.edit_message(embed=embed, view=self.main_view)
-            except discord.InteractionResponded:
-                await interaction.edit_original_response(embed=embed, view=self.main_view)
