@@ -229,7 +229,8 @@ class MarketCog(CogBase):
                     )
                 else:
                     cur.execute(
-                        "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) VALUES (?, ?, ?, 1, 'equipment')",
+                        "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) VALUES (?, ?, ?, 1, 'equipment') "
+                        "ON CONFLICT(user_id, item_id) DO UPDATE SET quantity = quantity + 1",
                         (uid, listing["item_id"], listing["item_name"]),
                     )
 

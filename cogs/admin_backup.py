@@ -172,7 +172,7 @@ class AdminBackup(CogBase):
                     cur.execute("DELETE FROM user_inventory")
                     for inv in data["user_inventory"]:
                         cur.execute(
-                            "INSERT INTO user_inventory (user_id, item_id, quantity) "
+                            "INSERT OR REPLACE INTO user_inventory (user_id, item_id, quantity) "
                             "VALUES (?, ?, ?)",
                             (inv.get("user_id"), inv.get("item_id"), inv.get("quantity", 1)),
                         )

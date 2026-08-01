@@ -396,7 +396,8 @@ class AuctionBuyView(discord.ui.View):
             item_id = f"auction_buy_{listing['id']}"
             cur.execute(
                 "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) "
-                "VALUES (?, ?, ?, 1, 'equipment')",
+                "VALUES (?, ?, ?, 1, 'equipment') "
+                "ON CONFLICT(user_id, item_id) DO UPDATE SET quantity = quantity + 1",
                 (uid, item_id, listing["item_name"]),
             )
             conn.commit()

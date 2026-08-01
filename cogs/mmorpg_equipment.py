@@ -1457,7 +1457,8 @@ def _equip_item(user_id: str, item_name: str, item_id: str = None) -> bool:
             else:
                 cur.execute(
                     "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) "
-                    "VALUES (?,?,?,1,'equipment')",
+                    "VALUES (?,?,?,1,'equipment') "
+                    "ON CONFLICT(user_id, item_id) DO UPDATE SET quantity = quantity + 1",
                     (user_id, old_item_id, old_full_name),
                 )
 
@@ -1519,7 +1520,8 @@ def _unequip_item(user_id: str, slot: str) -> bool:
         else:
             cur.execute(
                 "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) "
-                "VALUES (?, ?, ?, 1, 'equipment')",
+                "VALUES (?, ?, ?, 1, 'equipment') "
+                "ON CONFLICT(user_id, item_id) DO UPDATE SET quantity = quantity + 1",
                 (user_id, item_id, encoded_name),
             )
 

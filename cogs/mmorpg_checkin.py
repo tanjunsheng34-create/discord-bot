@@ -145,7 +145,8 @@ def _do_checkin(uid: str) -> tuple:
         with get_db_ctx() as conn:
             cur = conn.cursor()
             cur.execute(
-                "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) VALUES (?, ?, ?, 1, 'equipment')",
+                "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) VALUES (?, ?, ?, 1, 'equipment') "
+                "ON CONFLICT(user_id, item_id) DO UPDATE SET quantity = quantity + 1",
                 (uid, f"checkin_{gear_name}", f"Check-in {eq_quality.title()} Gear|||hp:{10 + new_streak * 3}|||{eq_quality}"),
             )
             conn.commit()

@@ -401,7 +401,8 @@ class PotionShop(CogBase):
                 )
             else:
                 cur.execute(
-                    "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) VALUES (?, ?, ?, ?, 'potion')",
+                    "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) VALUES (?, ?, ?, ?, 'potion') "
+                    "ON CONFLICT(user_id, item_id) DO UPDATE SET quantity = quantity + excluded.quantity",
                     (uid, p["id"], potion_key, quantity),
                 )
             conn.commit()
@@ -578,7 +579,8 @@ class PotionShop(CogBase):
                 with get_db_ctx() as conn:
                     cur = conn.cursor()
                     cur.execute(
-                        "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) VALUES (?, ?, ?, 1, 'potion')",
+                        "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) VALUES (?, ?, ?, 1, 'potion') "
+                        "ON CONFLICT(user_id, item_id) DO UPDATE SET quantity = quantity + 1",
                         (uid, p["id"], potion_key),
                     )
                     conn.commit()
@@ -1367,7 +1369,8 @@ class PotionBagView(discord.ui.View):
                 with get_db_ctx() as conn:
                     cur = conn.cursor()
                     cur.execute(
-                        "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) VALUES (?, ?, ?, 1, 'potion')",
+                        "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) VALUES (?, ?, ?, 1, 'potion') "
+                        "ON CONFLICT(user_id, item_id) DO UPDATE SET quantity = quantity + 1",
                         (uid, p["id"], potion_key),
                     )
                     conn.commit()
@@ -1875,7 +1878,8 @@ class EquipmentShopView(discord.ui.View):
                         encoded_name = f"{item['name']}|||{item['stat']}:{item['stat_value']}|||{item['quality']}"
                         conn.execute(
                             "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) "
-                            "VALUES (?, ?, ?, 1, 'equipment')",
+                            "VALUES (?, ?, ?, 1, 'equipment') "
+                            "ON CONFLICT(user_id, item_id) DO UPDATE SET quantity = quantity + 1",
                             (uid, item_id, encoded_name),
                         )
                     conn.commit()
@@ -2124,7 +2128,8 @@ class EquipmentGachaView(discord.ui.View):
                 else:
                     conn.execute(
                         "INSERT INTO user_inventory (user_id, item_id, item_name, quantity, item_type) "
-                        "VALUES (?, ?, ?, 1, 'equipment')",
+                        "VALUES (?, ?, ?, 1, 'equipment') "
+                        "ON CONFLICT(user_id, item_id) DO UPDATE SET quantity = quantity + 1",
                         (uid, item_id, encoded_name),
                     )
             conn.commit()
