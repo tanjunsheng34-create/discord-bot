@@ -1107,7 +1107,7 @@ class EnhanceTargetView(discord.ui.View):
         self._locked = True
         try:
             await interaction.response.defer()
-            success, new_lvl, msg = _do_single_enhance(self.uid, self.slot, self.eq, self.lvl)
+            success, new_lvl, msg = await _do_single_enhance(self.uid, self.slot, self.eq, self.lvl)
             self.lvl = new_lvl
             equipped = _get_equipped(self.uid)
             self.eq = equipped.get(self.slot, self.eq)
@@ -1155,7 +1155,7 @@ class EnhanceTargetView(discord.ui.View):
                     messages.append(f"Insufficient coins (need {cost:,}G)")
                     break
 
-                success, new_lvl, _ = _do_single_enhance(self.uid, self.slot, self.eq, self.lvl)
+                success, new_lvl, _ = await _do_single_enhance(self.uid, self.slot, self.eq, self.lvl)
                 self.lvl = new_lvl
                 equipped = _get_equipped(self.uid)
                 self.eq = equipped.get(self.slot, self.eq)
@@ -1216,7 +1216,7 @@ class EnhanceTargetView(discord.ui.View):
                     messages.append(f"Insufficient coins (need {cost:,}G)")
                     break
 
-                success, new_lvl, _ = _do_single_enhance(self.uid, self.slot, self.eq, self.lvl)
+                success, new_lvl, _ = await _do_single_enhance(self.uid, self.slot, self.eq, self.lvl)
                 self.lvl = new_lvl
                 equipped = _get_equipped(self.uid)
                 self.eq = equipped.get(self.slot, self.eq)
