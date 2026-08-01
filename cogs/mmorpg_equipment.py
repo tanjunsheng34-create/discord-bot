@@ -912,8 +912,84 @@ class EquipmentView(discord.ui.View):
                 pass
 
 
+
+async def _do_single_enhance(uid: str, slot: str, eq: dict, lvl: int) -> tuple:
+    """执行单次强化。返回 (success: bool, new_level: int, message: str)。"""
+    from cogs.mmorpg_shop import _get_balance, _add_coins
+
+    if lvl >= 15:
+        return (False, lvl, "Already max level +15 / 已达最大强化等级！")
+
+    cost = _get_enhance_cost(lvl)
+    rate = _get_enhance_rate(lvl)
+
+    bal = _get_balance(uid)
+    if bal < cost:
+        return (False, lvl, f"Insufficient coins / 金币不足！Need {cost:,}, you have {bal:,}")
+
+    reason = f"Enhance {eq['name']} +{lvl}→+{lvl+1}"
+
+    try:
+        _add_coins(uid, -cost, reason)
+
+        success = random.random() < rate
+        if success:
+            new_lvl = lvl + 1
+            new_stat = int(eq["stat_value"] * (1 + 0.1) / (1 + lvl * 0.1) * (1 + new_lvl * 0.1)) if isinstance(eq["stat_value"], (int, float)) else eq["stat_value"]
+        else:
+            if lvl <= 5:
+                new_lvl = lvl
+            elif lvl <= 10:
+                new_lvl = max(0, lvl - 1)
+            else:
+                new_lvl = max(0, lvl - 3)
+            if new_lvl == lvl:
+                new_stat = eq["stat_value"]
+            else:
+                new_stat = int(eq["stat_value"] * (1 + new_lvl * 0.1) / (1 + lvl * 0.1)) if isinstance(eq["stat_value"], (int, float)) else eq["stat_value"]
+
+        with get_db_ctx() as conn:
+            conn.execute(
+                "UPDATE user_equipment SET enhance_level = ?, stat_value = ? WHERE user_id = ? AND slot = ?",
+                (new_lvl, new_stat, uid, slot),
+            )
+            conn.commit()
+
+        new_bal = _get_balance(uid)
+        if success:
+            msg = (
+                f"## ✨ Enhancement Success / 强化成功！\n"
+                f"**{eq['name']}**: +{lvl} → **+{new_lvl}**\n"
+                f"STAT: {eq['stat_value']} → **{new_stat}**\n"
+                f"Cost / 花费: {cost:,}G  |  Balance / 余额: **{new_bal:,}**"
+            )
+        else:
+            if new_lvl < lvl:
+                msg = (
+                    f"## 💥 Enhancement Failed / 强化失败！\n"
+                    f"**{eq['name']}**: +{lvl} → **+{new_lvl}** (Dropped / 降级)\n"
+                    f"Cost / 花费: {cost:,}G  |  Balance / 余额: **{new_bal:,}**"
+                )
+            else:
+                msg = (
+                    f"## 💥 Enhancement Failed / 强化失败！\n"
+                    f"**{eq['name']}**: +{lvl} (No change / 不变)\n"
+                    f"Cost / 花费: {cost:,}G  |  Balance / 余额: **{new_bal:,}**"
+                )
+
+        return (success, new_lvl, msg)
+    except Exception as e:
+        logger.error(f"_do_single_enhance error (uid={uid}, slot={slot}, lvl={lvl}): {e}", exc_info=True)
+        try:
+            _add_coins(uid, cost, f"Refund: {reason}")
+            logger.info(f"Refunded {cost} to {uid} after enhance failure")
+        except Exception as re_err:
+            logger.error(f"Refund failed for {uid}: {re_err}")
+        return (False, lvl, f"Enhancement error: {e}")
+
+
 class EnhanceSelectView(discord.ui.View):
-    """Select dropdown for enhancement target."""
+    """Select dropdown for enhancement target. Opens EnhanceTargetView on selection."""
 
     def __init__(self, uid: str, equipped: dict, eq_view, panel_msg=None):
         super().__init__(timeout=60)
@@ -923,9 +999,7 @@ class EnhanceSelectView(discord.ui.View):
         self.panel_msg = panel_msg
 
     async def _select_callback(self, interaction: discord.Interaction):
-        deducted = False
-        cost = 0
-        reason = ""
+        """On slot selected, open EnhanceTargetView."""
         try:
             slot = interaction.data["values"][0]
             eq = self.equipped.get(slot)
@@ -937,69 +1011,106 @@ class EnhanceSelectView(discord.ui.View):
                 return await interaction.response.send_message(
                     "Already max level +15 / 已达最大强化等级！", ephemeral=True)
 
-            cost = _get_enhance_cost(lvl)
-            rate = _get_enhance_rate(lvl)
+            target_view = EnhanceTargetView(self.uid, slot, eq, lvl, self.eq_view, self.panel_msg)
+            embed = target_view._build_embed()
+            await interaction.response.edit_message(content="", embed=embed, view=target_view)
+        except Exception as e:
+            logger.error(f"EnhanceSelectView _select_callback error (uid={self.uid}): {e}", exc_info=True)
+            try:
+                await interaction.response.send_message(
+                    "强化面板加载出错 / Error loading enhancement panel", ephemeral=True)
+            except Exception:
+                logger.error("Enhance select error send_message failed", exc_info=True)
 
-            from cogs.mmorpg_shop import _get_balance as _bal, _add_coins
-            bal = _bal(self.uid)
-            if bal < cost:
-                return await interaction.response.send_message(
-                    f"Insufficient coins / 金币不足！Need {cost:,}, you have {bal:,}", ephemeral=True)
 
-            reason = f"Enhance {eq['name']} +{lvl}→+{lvl+1}"
-            _add_coins(self.uid, -cost, reason)
-            deducted = True
+class EnhanceTargetView(discord.ui.View):
+    """Enhancement panel with +1, Max, and Target Level buttons."""
 
-            import random, asyncio
+    def __init__(self, uid: str, slot: str, eq: dict, lvl: int, eq_view, panel_msg=None):
+        super().__init__(timeout=300)
+        self.uid = uid
+        self.slot = slot
+        self.eq = eq
+        self.lvl = lvl
+        self.eq_view = eq_view
+        self.panel_msg = panel_msg
+        self._locked = False
 
-            success = random.random() < rate
-            if success:
-                new_lvl = lvl + 1
-                new_stat = int(eq["stat_value"] * (1 + 0.1) / (1 + lvl * 0.1) * (1 + new_lvl * 0.1)) if isinstance(eq["stat_value"], (int, float)) else eq["stat_value"]
-            else:
-                if lvl <= 5:
-                    new_lvl = lvl
-                elif lvl <= 10:
-                    new_lvl = max(0, lvl - 1)
-                else:
-                    new_lvl = max(0, lvl - 3)
-                if new_lvl == lvl:
-                    new_stat = eq["stat_value"]
-                else:
-                    new_stat = int(eq["stat_value"] * (1 + new_lvl * 0.1) / (1 + lvl * 0.1)) if isinstance(eq["stat_value"], (int, float)) else eq["stat_value"]
+        # ── Target level select (row 0) ──
+        target_options = []
+        for target in range(lvl + 1, 16):
+            cost_est = sum(_get_enhance_cost(l) for l in range(lvl, target))
+            target_options.append(discord.SelectOption(
+                label=f"🎯 +{target}",
+                value=str(target),
+                description=f"Est. cost: {cost_est:,}G" if target <= lvl + 3 else f"Target +{target}",
+            ))
 
-            await enhance_animation(interaction, lvl, new_lvl, success)
+        if target_options:
+            self._target_select = discord.ui.Select(
+                placeholder=f"Target level / 目标等级 (current +{lvl})",
+                options=target_options[:25],
+                row=0,
+            )
+            self._target_select.callback = self._target_callback
+            self.add_item(self._target_select)
 
-            with get_db_ctx() as conn:
-                conn.execute(
-                    "UPDATE user_equipment SET enhance_level = ?, stat_value = ? WHERE user_id = ? AND slot = ?",
-                    (new_lvl, new_stat, self.uid, slot),
-                )
-                conn.commit()
+        # ── Buttons: +1, Max (row 1) ──
+        self._plus_one_btn = discord.ui.Button(
+            label="🔨 +1 强化一次", style=discord.ButtonStyle.primary, row=1,
+        )
+        self._plus_one_btn.callback = self._plus_one_callback
+        self.add_item(self._plus_one_btn)
 
-            new_bal = _bal(self.uid)
-            if success:
-                msg = (
-                    f"## ✨ Enhancement Success / 强化成功！\n"
-                    f"**{eq['name']}**: +{lvl} → **+{new_lvl}**\n"
-                    f"STAT: {eq['stat_value']} → **{new_stat}**\n"
-                    f"Cost / 花费: {cost:,}G  |  Balance / 余额: **{new_bal:,}**"
-                )
-            else:
-                if new_lvl < lvl:
-                    msg = (
-                        f"## 💥 Enhancement Failed / 强化失败！\n"
-                        f"**{eq['name']}**: +{lvl} → **+{new_lvl}** (Dropped / 降级)\n"
-                        f"Cost / 花费: {cost:,}G  |  Balance / 余额: **{new_bal:,}**"
-                    )
-                else:
-                    msg = (
-                        f"## 💥 Enhancement Failed / 强化失败！\n"
-                        f"**{eq['name']}**: +{lvl} (No change / 不变)\n"
-                        f"Cost / 花费: {cost:,}G  |  Balance / 余额: **{new_bal:,}**"
-                    )
+        self._max_btn = discord.ui.Button(
+            label="⚡ 强化至最高", style=discord.ButtonStyle.success, row=1,
+        )
+        self._max_btn.callback = self._max_callback
+        self.add_item(self._max_btn)
 
-            await interaction.followup.send(msg, ephemeral=True)
+        # ── Back button (row 2) ──
+        self._back_btn = discord.ui.Button(
+            label="↩ 返回 Back", style=discord.ButtonStyle.secondary, row=2,
+        )
+        self._back_btn.callback = self._back_callback
+        self.add_item(self._back_btn)
+
+    def _build_embed(self):
+        cost = _get_enhance_cost(self.lvl)
+        rate = _get_enhance_rate(self.lvl)
+        from cogs.mmorpg_shop import _get_balance
+        bal = _get_balance(self.uid)
+
+        embed = discord.Embed(
+            title=f"🔨 Enhance: {self.eq['name']}",
+            description=(
+                f"**Current Level / 当前等级**: +{self.lvl}\n"
+                f"**Next Success Rate / 下一级成功率**: {int(rate*100)}%\n"
+                f"**Next Cost / 下一级花费**: {cost:,}G\n"
+                f"**Balance / 余额**: {bal:,}G"
+            ),
+            color=0xE67E22,
+        )
+        return embed
+
+    async def _refresh_view(self, interaction: discord.Interaction, msg_content: str = ""):
+        """Refresh the embed + view."""
+        try:
+            embed = self._build_embed()
+            await interaction.edit_original_response(content=msg_content, embed=embed, view=self)
+        except Exception as e:
+            logger.error(f"EnhanceTargetView _refresh_view error: {e}")
+
+    async def _plus_one_callback(self, interaction: discord.Interaction):
+        if self._locked:
+            return await interaction.response.send_message("Processing... / 处理中...", ephemeral=True)
+        self._locked = True
+        try:
+            await interaction.response.defer()
+            success, new_lvl, msg = _do_single_enhance(self.uid, self.slot, self.eq, self.lvl)
+            self.lvl = new_lvl
+            equipped = _get_equipped(self.uid)
+            self.eq = equipped.get(self.slot, self.eq)
 
             self.eq_view._build()
             if self.panel_msg:
@@ -1007,26 +1118,157 @@ class EnhanceSelectView(discord.ui.View):
                     embed = self.eq_view.build_main_embed()
                     await self.panel_msg.edit(embed=embed, view=self.eq_view)
                 except (discord.NotFound, discord.HTTPException) as e:
-                    logger.debug(f"Failed to refresh EquipmentView after enhance: {e}")
+                    logger.debug(f"Failed to refresh EquipmentView: {e}")
+
+            if self.lvl >= 15:
+                self._plus_one_btn.disabled = True
+                self._max_btn.disabled = True
+            await self._refresh_view(interaction, msg_content=f"**+1 Result**: {msg[:300]}")
+        except Exception as e:
+            logger.error(f"EnhanceTargetView _plus_one_callback error: {e}", exc_info=True)
             try:
-                await interaction.edit_original_response(content="强化完成 / Enhancement complete", embed=None, view=None)
+                await interaction.followup.send(f"Error: {e}", ephemeral=True)
             except Exception:
                 pass
-        except Exception as e:
-            logger.error(f"Enhance _select_callback error (uid={self.uid}): {e}", exc_info=True)
-            if deducted:
+        finally:
+            self._locked = False
+
+    async def _max_callback(self, interaction: discord.Interaction):
+        if self._locked:
+            return await interaction.response.send_message("Processing... / 处理中...", ephemeral=True)
+        self._locked = True
+        try:
+            await interaction.response.defer()
+            from cogs.mmorpg_shop import _get_balance
+            import asyncio
+
+            messages = []
+            attempts = 0
+            while True:
+                if self.lvl >= 15:
+                    messages.append("Already max +15!")
+                    break
+
+                cost = _get_enhance_cost(self.lvl)
+                bal = _get_balance(self.uid)
+                if bal < cost:
+                    messages.append(f"Insufficient coins (need {cost:,}G)")
+                    break
+
+                success, new_lvl, _ = _do_single_enhance(self.uid, self.slot, self.eq, self.lvl)
+                self.lvl = new_lvl
+                equipped = _get_equipped(self.uid)
+                self.eq = equipped.get(self.slot, self.eq)
+
+                if success:
+                    attempts += 1
+                    messages.append(f"+{new_lvl} ✓")
+                    await self._refresh_view(interaction, msg_content=" | ".join(messages[-5:]))
+                    await asyncio.sleep(0.6)
+                else:
+                    if new_lvl < (self.lvl if success else self.lvl):
+                        messages.append(f"Failed → +{new_lvl} ✗")
+                    else:
+                        messages.append(f"Failed (no change) ✗")
+                    break
+
+            self.eq_view._build()
+            if self.panel_msg:
                 try:
-                    _add_coins(self.uid, cost, f"Refund: {reason}")
-                    logger.info(f"Refunded {cost} to {self.uid} after enhance failure")
-                except Exception as re:
-                    logger.error(f"Refund failed for {self.uid}: {re}")
+                    embed = self.eq_view.build_main_embed()
+                    await self.panel_msg.edit(embed=embed, view=self.eq_view)
+                except (discord.NotFound, discord.HTTPException) as e:
+                    logger.debug(f"Failed to refresh EquipmentView: {e}")
+
+            self._plus_one_btn.disabled = True
+            self._max_btn.disabled = True
+            summary = f"## ⚡ Max Enhance Complete\n" + "\n".join(messages[-12:])
+            await self._refresh_view(interaction, msg_content=summary)
+        except Exception as e:
+            logger.error(f"EnhanceTargetView _max_callback error: {e}", exc_info=True)
             try:
-                await interaction.response.send_message(
-                    "Enhancement failed due to an error. Any deducted coins have been refunded. / 强化出错，已退还金币。",
-                    ephemeral=True,
-                )
+                await interaction.followup.send(f"Error: {e}", ephemeral=True)
             except Exception:
-                logger.error("Enhance failed send_message error", exc_info=True)
+                pass
+        finally:
+            self._locked = False
+
+    async def _target_callback(self, interaction: discord.Interaction):
+        if self._locked:
+            return await interaction.response.send_message("Processing... / 处理中...", ephemeral=True)
+        self._locked = True
+        try:
+            await interaction.response.defer()
+            target = int(interaction.data["values"][0])
+
+            from cogs.mmorpg_shop import _get_balance
+            import asyncio
+
+            messages = []
+            while self.lvl < target:
+                if self.lvl >= 15:
+                    messages.append("Already max +15!")
+                    break
+
+                cost = _get_enhance_cost(self.lvl)
+                bal = _get_balance(self.uid)
+                if bal < cost:
+                    messages.append(f"Insufficient coins (need {cost:,}G)")
+                    break
+
+                success, new_lvl, _ = _do_single_enhance(self.uid, self.slot, self.eq, self.lvl)
+                self.lvl = new_lvl
+                equipped = _get_equipped(self.uid)
+                self.eq = equipped.get(self.slot, self.eq)
+
+                if success:
+                    messages.append(f"+{new_lvl} ✓")
+                    await self._refresh_view(interaction, msg_content=f"Target +{target} | " + " | ".join(messages[-5:]))
+                    await asyncio.sleep(0.6)
+                else:
+                    if new_lvl < self.lvl - 1:  # dropped
+                        messages.append(f"Failed → +{new_lvl} ✗")
+                    else:
+                        messages.append(f"Failed (no change) ✗")
+                    break
+
+            self.eq_view._build()
+            if self.panel_msg:
+                try:
+                    embed = self.eq_view.build_main_embed()
+                    await self.panel_msg.edit(embed=embed, view=self.eq_view)
+                except (discord.NotFound, discord.HTTPException) as e:
+                    logger.debug(f"Failed to refresh EquipmentView: {e}")
+
+            target_reached = self.lvl >= target
+            icon = "✅" if target_reached else "❌"
+            status = "Reached" if target_reached else "Not Reached"
+            summary = f"## {icon} Target +{target} {status}\n" + "\n".join(messages[-12:])
+            if not target_reached:
+                self._plus_one_btn.disabled = (self.lvl >= 15)
+                self._max_btn.disabled = (self.lvl >= 15)
+            else:
+                self._plus_one_btn.disabled = (self.lvl >= 15)
+                self._max_btn.disabled = (self.lvl >= 15)
+            await self._refresh_view(interaction, msg_content=summary)
+        except Exception as e:
+            logger.error(f"EnhanceTargetView _target_callback error: {e}", exc_info=True)
+            try:
+                await interaction.followup.send(f"Error: {e}", ephemeral=True)
+            except Exception:
+                pass
+        finally:
+            self._locked = False
+
+    async def _back_callback(self, interaction: discord.Interaction):
+        """Return to EquipmentView."""
+        try:
+            await interaction.response.defer()
+            self.eq_view._build()
+            embed = self.eq_view.build_main_embed()
+            await interaction.edit_original_response(embed=embed, view=self.eq_view, content="")
+        except Exception as e:
+            logger.error(f"EnhanceTargetView _back_callback error: {e}", exc_info=True)
 
 
 def _format_stat_display(stat: str, stat_value) -> str:
