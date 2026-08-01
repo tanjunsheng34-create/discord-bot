@@ -1,9 +1,8 @@
 """
 cogs/dungeon.py — 地下城 / Dungeon
-5 floors, random monsters per floor, daily 1 free run (+200G per extra).
-Floor rewards increase with depth.
+Select-driven turn-based battle. Multi-floor sequential run from selected floor.
+5F/10F Boss floors with equipment drops. Daily 1 free run (+200G per extra).
 """
-
 import random
 import time
 import asyncio
@@ -13,59 +12,59 @@ from discord import app_commands
 
 from database import get_db_ctx
 from utils.cog_base import CogBase
-from utils.animations import battle_animation, progress_bar
+from utils.animations import progress_bar
 from cogs.economy import add_coins, get_balance
 
 logger = logging.getLogger(__name__)
 
 # ── Dungeon Monsters ──
 DUNGEON_MONSTERS = {
-    1: [  # Floor 1 — Newbie-friendly, ATK buffed to threaten lightly geared players
+    1: [
         {"name": "史莱姆 Slime", "hp": 60, "atk": 15, "def": 2, "exp": 20, "coins": 50, "emoji": "🟢"},
         {"name": "哥布林 Goblin", "hp": 80, "atk": 18, "def": 3, "exp": 30, "coins": 70, "emoji": "👺"},
         {"name": "巨型老鼠 Giant Rat", "hp": 55, "atk": 16, "def": 1, "exp": 25, "coins": 60, "emoji": "🐀"},
     ],
-    2: [  # Floor 2 — Early gear test
+    2: [
         {"name": "骷髅战士 Skeleton Warrior", "hp": 110, "atk": 25, "def": 5, "exp": 50, "coins": 120, "emoji": "💀"},
         {"name": "暗影法师 Shadow Mage", "hp": 85, "atk": 30, "def": 3, "exp": 55, "coins": 130, "emoji": "🧙‍♂️"},
         {"name": "石像鬼 Gargoyle", "hp": 130, "atk": 20, "def": 7, "exp": 45, "coins": 110, "emoji": "🗿"},
     ],
-    3: [  # Floor 3 — Mid-game challenge
+    3: [
         {"name": "牛头人 Minotaur", "hp": 180, "atk": 40, "def": 10, "exp": 100, "coins": 250, "emoji": "🐂"},
         {"name": "亡灵骑士 Death Knight", "hp": 200, "atk": 38, "def": 12, "exp": 110, "coins": 280, "emoji": "⚰️"},
         {"name": "地狱犬 Hellhound", "hp": 150, "atk": 45, "def": 8, "exp": 95, "coins": 230, "emoji": "🐺"},
     ],
-    4: [  # Floor 4 — Requires serious gear
+    4: [
         {"name": "狮鹫 Griffin", "hp": 280, "atk": 55, "def": 15, "exp": 180, "coins": 450, "emoji": "🦅"},
         {"name": "九头蛇 Hydra", "hp": 350, "atk": 50, "def": 18, "exp": 200, "coins": 500, "emoji": "🐍"},
         {"name": "岩石巨人 Stone Golem", "hp": 400, "atk": 45, "def": 22, "exp": 170, "coins": 420, "emoji": "🗻"},
     ],
-    5: [  # Floor 5 — Endgame Boss
+    5: [
         {"name": "暗影巨龙 Shadow Dragon", "hp": 600, "atk": 75, "def": 18, "exp": 500, "coins": 1200, "emoji": "🐉"},
         {"name": "魔王 Demon Lord", "hp": 650, "atk": 70, "def": 16, "exp": 550, "coins": 1300, "emoji": "👹"},
         {"name": "远古巫妖 Ancient Lich", "hp": 500, "atk": 80, "def": 14, "exp": 600, "coins": 1400, "emoji": "💀"},
     ],
-    6: [  # Floor 6 — Twisted Treeline (Lv.20-28)
+    6: [
         {"name": "魔沼蛙 Gromp", "hp": 420, "atk": 62, "def": 22, "exp": 220, "coins": 520, "emoji": "🐸"},
         {"name": "暗影狼 Murk Wolf", "hp": 380, "atk": 68, "def": 18, "exp": 240, "coins": 550, "emoji": "🐺"},
         {"name": "锋喙鸟 Crimson Raptor", "hp": 400, "atk": 58, "def": 24, "exp": 230, "coins": 530, "emoji": "🦅"},
     ],
-    7: [  # Floor 7 — Summoner's Rift (Lv.28-36)
+    7: [
         {"name": "近战兵 Melee Minion", "hp": 500, "atk": 72, "def": 28, "exp": 300, "coins": 700, "emoji": "⚔️"},
         {"name": "远程兵 Caster Minion", "hp": 440, "atk": 82, "def": 22, "exp": 320, "coins": 720, "emoji": "🔮"},
         {"name": "炮车兵 Siege Minion", "hp": 620, "atk": 65, "def": 35, "exp": 350, "coins": 800, "emoji": "💣"},
     ],
-    8: [  # Floor 8 — Dragon Pit (Lv.36-45)
+    8: [
         {"name": "炼狱亚龙 Infernal Drake", "hp": 700, "atk": 95, "def": 30, "exp": 450, "coins": 1100, "emoji": "🔥"},
         {"name": "海洋亚龙 Ocean Drake", "hp": 750, "atk": 85, "def": 35, "exp": 430, "coins": 1050, "emoji": "🌊"},
         {"name": "云端亚龙 Cloud Drake", "hp": 650, "atk": 90, "def": 28, "exp": 460, "coins": 1150, "emoji": "☁️"},
         {"name": "山脉亚龙 Mountain Drake", "hp": 800, "atk": 80, "def": 40, "exp": 420, "coins": 1000, "emoji": "⛰️"},
     ],
-    9: [  # Floor 9 — Baron Pit (Lv.45-55)
+    9: [
         {"name": "峡谷先锋 Rift Herald", "hp": 950, "atk": 110, "def": 38, "exp": 600, "coins": 1500, "emoji": "🦀"},
         {"name": "纳什男爵 Baron Nashor", "hp": 1100, "atk": 120, "def": 42, "exp": 700, "coins": 1800, "emoji": "🐍"},
     ],
-    10: [  # Floor 10 — Elder Pit (Lv.55+)
+    10: [
         {"name": "远古巨龙 Elder Dragon", "hp": 1400, "atk": 140, "def": 45, "exp": 900, "coins": 2500, "emoji": "🐉"},
         {"name": "龙王 Aurelion Sol", "hp": 1600, "atk": 155, "def": 40, "exp": 1000, "coins": 3000, "emoji": "🌟"},
     ],
@@ -85,6 +84,7 @@ FLOOR_NAMES = {
 }
 
 EXTRA_RUN_COST = 200
+MAX_FLOOR = 10
 
 
 def _init_dungeon_db():
@@ -113,7 +113,6 @@ def _get_dungeon_runs(user_id: str) -> tuple:
         row = cur.fetchone()
 
     if not row or row["last_reset_ts"] <= midnight_ts:
-        # Reset for new day
         free_runs_used = 0
         _save_dungeon_state(user_id, 0, tomorrow_ts)
     else:
@@ -158,6 +157,263 @@ def _get_player_stats(user_id: str) -> dict:
     }
 
 
+def _persist_hp(uid: str, hp: int):
+    with get_db_ctx() as conn:
+        conn.execute("UPDATE users SET hp = ? WHERE discord_id = ?", (hp, uid))
+        conn.commit()
+
+
+# ══════════════════════════════════════════════════════════════
+# DungeonBattleView — Select 驱动回合制战斗
+# ══════════════════════════════════════════════════════════════
+class DungeonBattleView(discord.ui.View):
+    """Select-driven turn-based dungeon battle."""
+
+    def __init__(self, uid: str, uname: str, start_floor: int, player: dict,
+                 monster: dict, msg: discord.Message):
+        super().__init__(timeout=600)
+        self.uid = uid
+        self.uname = uname
+        self.cur_floor = start_floor
+        self.player = dict(player)
+        self.p_max_hp = player["max_hp"]
+        self.monster = dict(monster)
+        self.m_max_hp = monster["hp"]
+        self.msg = msg
+        self.battle_ended = False
+        self.potions = 3  # 3 potions per dungeon run
+        self._build_select()
+
+    def _build_select(self):
+        self.clear_items()
+
+        options = [
+            discord.SelectOption(
+                label="⚔️ Attack 攻击", value="attack",
+                description="普通攻击 — deal normal damage",
+            ),
+            discord.SelectOption(
+                label="⚡ Skill 技能", value="skill",
+                description="Power Strike — 1.5x 伤害",
+            ),
+        ]
+
+        if self.potions > 0:
+            options.append(discord.SelectOption(
+                label=f"🧪 Potion 喝药 (×{self.potions})", value="potion",
+                description="恢复 30% 最大 HP / restore 30% max HP",
+            ))
+
+        options.append(discord.SelectOption(
+            label="🏃 Flee 逃跑", value="flee",
+            description="逃离地下城 / escape the dungeon",
+        ))
+
+        select = discord.ui.Select(
+            placeholder="⚔️ Choose Action / 选择动作",
+            options=options,
+            custom_id="dungeon_battle_action",
+            row=0,
+        )
+        select.callback = self._action_callback
+        self.add_item(select)
+
+    def _build_embed(self, extra_text: str = "") -> discord.Embed:
+        p_hp = self.player["hp"]
+        m_hp = self.monster["hp"]
+        m = self.monster
+
+        p_bar = progress_bar(p_hp, self.p_max_hp, 14)
+        m_bar = progress_bar(m_hp, self.m_max_hp, 14)
+
+        boss_tag = " 👑 BOSS" if self.cur_floor in (5, 10) else ""
+
+        embed = discord.Embed(
+            title=f"🏰 地下城 Dungeon | {FLOOR_NAMES[self.cur_floor]}{boss_tag}",
+            description=f"第 **{self.cur_floor}/{MAX_FLOOR}** 层 / Floor",
+            color=0xFF6600 if m_hp > 0 else 0x2ECC71,
+        )
+        embed.add_field(
+            name=f"🧑 {self.uname}  Lv.{self.player['level']}",
+            value=f"❤️ HP: {p_bar}\n⚔️ ATK: {self.player['atk']}  |  🛡️ DEF: {self.player['def']}",
+            inline=True,
+        )
+        embed.add_field(
+            name=f"{m['emoji']} {m['name']}",
+            value=f"❤️ HP: {m_bar}\n⚔️ ATK: {m['atk']}  |  🛡️ DEF: {m['def']}",
+            inline=True,
+        )
+
+        if extra_text:
+            embed.add_field(name="📜 战斗日志 / Battle Log", value=extra_text, inline=False)
+
+        embed.set_footer(text="⚔️ 选择你的动作 / Choose your action above ↑")
+        return embed
+
+    async def _action_callback(self, interaction: discord.Interaction):
+        if str(interaction.user.id) != self.uid:
+            await interaction.response.send_message("这不是你的战斗！/ Not your battle!", ephemeral=True)
+            return
+
+        if self.battle_ended:
+            await interaction.response.send_message("战斗已结束！/ Battle already ended!", ephemeral=True)
+            return
+
+        action = interaction.data["values"][0]
+
+        if action == "flee":
+            await interaction.response.defer()
+            self.battle_ended = True
+            _persist_hp(self.uid, self.player["hp"])
+            embed = discord.Embed(
+                title="🏃 逃跑！Fled!",
+                description=f"你逃离了 **{FLOOR_NAMES[self.cur_floor]}** ！\nYou fled from the dungeon!\n\n❤️ 剩余HP: {self.player['hp']}/{self.p_max_hp}",
+                color=0x95A5A6,
+            )
+            await self.msg.edit(embed=embed, view=None)
+            return
+
+        await interaction.response.defer()
+
+        log_lines = []
+
+        # ── Player Action ──
+        if action == "attack":
+            dmg = self._calc_player_dmg()
+            crit = random.random() < (self.player["crit"] / 100)
+            if crit:
+                dmg = int(dmg * 2.0)
+                log_lines.append(f"⚔️ 你发动攻击 — **{dmg}** DMG！💥 暴击！")
+            else:
+                log_lines.append(f"⚔️ 你发动攻击 — **{dmg}** DMG！")
+            self.monster["hp"] = max(0, self.monster["hp"] - dmg)
+
+        elif action == "skill":
+            dmg = int(self._calc_player_dmg() * 1.5)
+            crit = random.random() < (self.player["crit"] / 100)
+            if crit:
+                dmg = int(dmg * 2.0)
+                log_lines.append(f"⚡ 你使用 Power Strike — **{dmg}** DMG！💥 暴击！")
+            else:
+                log_lines.append(f"⚡ 你使用 Power Strike — **{dmg}** DMG！")
+            self.monster["hp"] = max(0, self.monster["hp"] - dmg)
+
+        elif action == "potion":
+            heal = int(self.p_max_hp * 0.3)
+            self.player["hp"] = min(self.p_max_hp, self.player["hp"] + heal)
+            self.potions -= 1
+            log_lines.append(f"🧪 喝了一瓶药水！+**{heal}** HP (剩余 ×{self.potions})")
+            # Rebuild select to update potion count
+            self._build_select()
+
+        # ── Check monster death ──
+        if self.monster["hp"] <= 0:
+            await self._handle_victory(log_lines)
+            return
+
+        # ── Monster Counter-Attack ──
+        self._monster_counter(log_lines)
+
+        # ── Check player death ──
+        if self.player["hp"] <= 0:
+            await self._handle_defeat(log_lines)
+            return
+
+        # ── Refresh embed ──
+        embed = self._build_embed(extra_text="\n".join(log_lines))
+        await self.msg.edit(embed=embed, view=self)
+
+    def _calc_player_dmg(self) -> int:
+        return max(1, random.randint(self.player["atk"] // 2, self.player["atk"]) - self.monster["def"] // 3)
+
+    def _monster_counter(self, log_lines: list):
+        """Monster counter-attack: 80% normal / 20% crit (x2 damage)."""
+        m = self.monster
+        base_dmg = max(1, random.randint(m["atk"] // 2, m["atk"]) - self.player["def"] // 3)
+        is_crit = random.random() < 0.20
+
+        if is_crit:
+            dmg = int(base_dmg * 2)
+            log_lines.append(f"💢 {m['emoji']} {m['name']} 暴击反击！— **{dmg}** DMG！💥")
+        else:
+            dmg = base_dmg
+            log_lines.append(f"💢 {m['emoji']} {m['name']} 反击 — **{dmg}** DMG！")
+
+        self.player["hp"] = max(0, self.player["hp"] - dmg)
+
+    async def _handle_victory(self, log_lines: list):
+        """Monster defeated — reward and advance to next floor or complete."""
+        m = self.monster
+
+        # Rewards
+        coins_earned = m["coins"] + random.randint(-20, 50)
+        exp_earned = m["exp"]
+        add_coins(self.uid, coins_earned, f"地下城第{self.cur_floor}层奖励")
+        from cogs.daily_quest import _update_progress
+        _update_progress(self.uid, "kill")
+        from cogs.economy_jobs import _add_user_xp
+        _add_user_xp(self.uid, exp_earned)
+
+        # Persist HP
+        _persist_hp(self.uid, self.player["hp"])
+
+        log_lines.append(f"\n🎉 击败了 {m['emoji']} **{m['name']}**！")
+        log_lines.append(f"🪙 +{coins_earned}G  |  ✨ +{exp_earned} EXP")
+
+        # Boss floor drops
+        if self.cur_floor in (5, 10) and random.random() < 0.3:
+            log_lines.append("🎁 获得随机装备一件！/ Random equipment obtained!")
+            if self.cur_floor == 10 and random.random() < 0.15:
+                log_lines.append("🏆 LOL 传说装备 Legendary Drop!")
+
+        # Check if dungeon complete
+        if self.cur_floor >= MAX_FLOOR:
+            self.battle_ended = True
+            embed = discord.Embed(
+                title="🏆 地下城通关！Dungeon Complete!",
+                description=f"恭喜 {self.uname} 通关全部 {MAX_FLOOR} 层！\nAll {MAX_FLOOR} floors cleared!\n\n❤️ HP: {self.player['hp']}/{self.p_max_hp}",
+                color=0xF1C40F,
+            )
+            embed.add_field(name="📜 最终战报", value="\n".join(log_lines), inline=False)
+            embed.set_footer(text=f"每日免费1次 / 1 free daily (extra: 🪙 {EXTRA_RUN_COST})")
+            await self.msg.edit(embed=embed, view=None)
+            return
+
+        # Advance to next floor
+        self.cur_floor += 1
+        next_monster = random.choice(DUNGEON_MONSTERS[self.cur_floor])
+        self.monster = dict(next_monster)
+        self.m_max_hp = next_monster["hp"]
+        self._build_select()
+
+        advance_text = f"\n⬇️ 进入 **第{self.cur_floor}层 {FLOOR_NAMES[self.cur_floor]}**！\n{self.monster['emoji']} **{self.monster['name']}** 出现了！"
+        log_lines.append(advance_text)
+
+        embed = self._build_embed(extra_text="\n".join(log_lines))
+        await self.msg.edit(embed=embed, view=self)
+
+    async def _handle_defeat(self, log_lines: list):
+        """Player died."""
+        self.battle_ended = True
+        _persist_hp(self.uid, 0)
+
+        embed = discord.Embed(
+            title=f"💀 战败！Defeat! | {FLOOR_NAMES[self.cur_floor]}",
+            description=(
+                f"你被 {self.monster['emoji']} **{self.monster['name']}** 击败了！\n"
+                f"You were defeated!\n\n"
+                f"💡 提示: 提升等级和装备再来挑战 / Level up and gear up then try again!"
+            ),
+            color=0xE74C3C,
+        )
+        embed.add_field(name="📜 战斗日志", value="\n".join(log_lines), inline=False)
+        embed.set_footer(text=f"地下城每日免费1次 / Dungeon: 1 free run daily (extra: 🪙 {EXTRA_RUN_COST})")
+        await self.msg.edit(embed=embed, view=None)
+
+
+# ══════════════════════════════════════════════════════════════
+# DungeonView — 地城主面板
+# ══════════════════════════════════════════════════════════════
 class DungeonView(discord.ui.View):
     """地下城主面板 / Dungeon main panel."""
 
@@ -170,8 +426,6 @@ class DungeonView(discord.ui.View):
 
     def _build(self):
         self.clear_items()
-        free, extra = _get_dungeon_runs(self.uid)
-
         options = []
         for floor in range(1, 11):
             if floor == 6:
@@ -209,11 +463,6 @@ class DungeonView(discord.ui.View):
         select.callback = self._select_floor_callback
         self.add_item(select)
 
-    def _make_floor_callback(self, floor: int):
-        async def cb(interaction: discord.Interaction):
-            await self._start_floor(interaction, floor)
-        return cb
-
     async def _select_floor_callback(self, interaction: discord.Interaction):
         floor = int(interaction.data["values"][0])
         await self._start_floor(interaction, floor)
@@ -239,11 +488,12 @@ class DungeonView(discord.ui.View):
         free_runs_used = 1 if free > 0 else 2
         import datetime
         utc8_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8)))
-        _save_dungeon_state(self.uid, free_runs_used, int(utc8_now.replace(hour=0, minute=0, second=0).timestamp()) + 86400)
+        _save_dungeon_state(self.uid, free_runs_used,
+                            int(utc8_now.replace(hour=0, minute=0, second=0).timestamp()) + 86400)
 
         await interaction.response.defer()
 
-        # Entry animation — multi-frame deep descent
+        # Entry animation
         msg = await interaction.followup.send("🚪 ...")
         entry_frames = [
             f"🚪 {self.uname} 走向地下城入口...\n🚪 {self.uname} approaches the dungeon...",
@@ -270,117 +520,10 @@ class DungeonView(discord.ui.View):
             await msg.edit(embed=embed)
             await asyncio.sleep(0.5)
 
-        # Battle simulation
-        p_hp = player["hp"]
-        m_hp = monster["hp"]
-        p_max_hp = player["max_hp"]
-        m_max_hp = monster["hp"]
-        round_num = 0
-
-        while p_hp > 0 and m_hp > 0 and round_num < 20:
-            round_num += 1
-
-            # Player attacks (with crit chance)
-            crit_hit = random.random() < (player["crit"] / 100)
-            p_dmg = max(1, random.randint(player["atk"] // 2, player["atk"]) - monster["def"] // 3)
-            if crit_hit:
-                p_dmg = int(p_dmg * 1.8)
-            m_hp = max(0, m_hp - p_dmg)
-
-            # Animate player attack
-            await battle_animation(msg, self.uname, monster["name"], p_dmg, is_crit=crit_hit)
-
-            if m_hp <= 0:
-                break
-
-            # Monster attacks
-            m_dmg = max(1, random.randint(monster["atk"] // 2, monster["atk"]) - player["def"] // 3)
-            p_hp = max(0, p_hp - m_dmg)
-
-            # Animate monster counter
-            m_frames = [
-                f"{monster['emoji']} {monster['name']} 反击中...",
-                f"💢 {self.uname} 受到 {m_dmg} 点伤害！\n{self.uname} took {m_dmg} damage!",
-            ]
-            for frame_text in m_frames:
-                embed = discord.Embed(description=frame_text, color=0xE74C3C)
-                try:
-                    await msg.edit(embed=embed)
-                except (discord.NotFound, discord.HTTPException):
-                    pass
-                await asyncio.sleep(0.4)
-
-            # Full status update every 2 rounds
-            if round_num % 2 == 0:
-                p_bar = progress_bar(p_hp, p_max_hp)
-                m_bar = progress_bar(m_hp, m_max_hp)
-                embed = discord.Embed(
-                    title=f"⚔️ 第{floor}层 / Floor {floor} | 回合 Round {round_num}",
-                    color=0xFF6600 if p_hp > 0 else 0xFF0000,
-                )
-                embed.add_field(name=f"🧑 {self.uname}", value=f"❤️ HP: {p_bar}", inline=True)
-                embed.add_field(name=f"{monster['emoji']} {monster['name']}", value=f"❤️ HP: {m_bar}", inline=True)
-                await msg.edit(embed=embed)
-                await asyncio.sleep(1.0)
-
-        # Battle result — persist HP regardless of outcome
-        from cogs.economy_jobs import _add_user_xp
-        with get_db_ctx() as conn:
-            conn.execute("UPDATE users SET hp = ? WHERE discord_id = ?", (p_hp, self.uid))
-            conn.commit()
-
-        if p_hp > 0:
-            # Victory!
-            coins_earned = monster["coins"] + random.randint(-20, 50)
-            exp_earned = monster["exp"]
-
-            add_coins(self.uid, coins_earned, f"地下城第{floor}层奖励 / Dungeon floor {floor} reward")
-            # Quest progress: kill
-            from cogs.daily_quest import _update_progress
-            _update_progress(self.uid, "kill")
-            # Add exp with level-up check (now also grants stat growth on level-up)
-            _, did_level, old_lv, new_lv, lv_ups = _add_user_xp(self.uid, exp_earned)
-
-            bal = get_balance(self.uid)
-            embed = discord.Embed(
-                title=f"🏆 胜利！Victory! | {FLOOR_NAMES[floor]}",
-                description=(
-                    f"🪙 获得金币 Earned coins: **{coins_earned}**\n"
-                    f"✨ 获得经验 Earned EXP: **{exp_earned}**\n"
-                    f"💰 余额 Balance: 🪙 **{bal:,}**\n"
-                    f"❤️ 剩余HP Remaining HP: {p_hp}/{p_max_hp}"
-                ),
-                color=0x2ECC71,
-            )
-
-            # Floors 5-10: 30% chance for equipment drop
-            if floor >= 5 and random.random() < 0.3:
-                embed.add_field(
-                    name="🎁 额外掉落 Bonus Drop!",
-                    value="⚔️ 获得随机装备一件！/ Random equipment obtained! (type /gmpt-equipment to view)",
-                    inline=False,
-                )
-            # Floor 10 special: 15% chance for LOL legendary equipment
-            if floor == 10 and random.random() < 0.15:
-                embed.add_field(
-                    name="🏆 LOL 传说装备 Legendary Drop!",
-                    value="⚔️ 获得 LOL 传说装备一件！/ LOL Legendary equipment obtained!",
-                    inline=False,
-                )
-        else:
-            # Defeat
-            embed = discord.Embed(
-                title=f"💀 战败！Defeat! | {FLOOR_NAMES[floor]}",
-                description=(
-                    f"你被 {monster['emoji']} **{monster['name']}** 击败了！\n"
-                    f"You were defeated by {monster['emoji']} **{monster['name']}**!\n\n"
-                    f"💡 提示 Tip: 提升等级和装备再来挑战 / Level up and gear up then try again!"
-                ),
-                color=0xE74C3C,
-            )
-
-        embed.set_footer(text=f"地下城每日免费1次 / Dungeon: 1 free run daily (extra: 🪙 {EXTRA_RUN_COST})")
-        await msg.edit(embed=embed)
+        # Create Select-driven battle view
+        battle_view = DungeonBattleView(self.uid, self.uname, floor, player, monster, msg)
+        embed = battle_view._build_embed()
+        await msg.edit(embed=embed, view=battle_view)
 
 
 class Dungeon(CogBase):
