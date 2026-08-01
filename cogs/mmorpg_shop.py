@@ -1957,10 +1957,12 @@ class EquipmentGachaView(discord.ui.View):
 
     @discord.ui.button(label="🎲 Single Pull / 单抽", style=discord.ButtonStyle.primary, row=0)
     async def single_pull_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
         await self._do_pull(interaction, 1)
 
     @discord.ui.button(label="🎰 10-Pull / 十连抽", style=discord.ButtonStyle.danger, row=0)
     async def ten_pull_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
         await self._do_pull(interaction, 10)
 
     @discord.ui.button(label="↩ Back / 返回", style=discord.ButtonStyle.secondary, row=1)
@@ -1976,13 +1978,13 @@ class EquipmentGachaView(discord.ui.View):
     async def _do_pull(self, interaction: discord.Interaction, count: int):
         uid = str(interaction.user.id)
         if uid != self.uid:
-            return await interaction.response.send_message("Not your gacha / 不是你的抽奖", ephemeral=True)
+            return await interaction.followup.send("Not your gacha / 不是你的抽奖", ephemeral=True)
 
         # Check balance
         cost = GACHA_TEN_COST if count == 10 else GACHA_SINGLE_COST
         bal = _get_balance(uid) or 0
         if bal < cost:
-            return await interaction.response.send_message(
+            return await interaction.followup.send(
                 f"Insufficient coins! Need 🪙 {cost:,}, you have 🪙 {bal:,}\n金币不足！",
                 ephemeral=True,
             )
@@ -2066,10 +2068,7 @@ class EquipmentGachaView(discord.ui.View):
             await loot_animation(interaction, f"{'十连抽' if count == 10 else '单抽'} Gacha", "🎰")
         except (ImportError, AttributeError):
             pass
-        try:
-            await interaction.response.edit_message(embed=result_embed, view=self)
-        except discord.InteractionResponded:
-            await interaction.edit_original_response(embed=result_embed, view=self)
+        await interaction.edit_original_response(embed=result_embed, view=self)
 
     @staticmethod
     def _roll_quality() -> str:
