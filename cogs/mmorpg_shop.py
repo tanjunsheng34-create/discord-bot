@@ -756,12 +756,8 @@ class MMORPGMainView(discord.ui.View):
     # ═══════════════════════════════════════════════════════════
     @discord.ui.button(label="Battle 战斗", emoji="\u2694\uFE0F", style=discord.ButtonStyle.primary, row=0, custom_id="mmorpg_main:battle")
     async def battle_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = discord.Embed(
-            title="\u2694\uFE0F Battle Hub / 战斗中心",
-            description="Select a combat mode below!\n从下方选择战斗模式！",
-            color=0x3498DB,
-        )
-        view = _BackOnlyView(self.uid, main_view=self)
+        view = BattleHubView(self.uid, main_view=self)
+        embed = view.build_embed()
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
@@ -1119,6 +1115,96 @@ class MMORPGMainView(discord.ui.View):
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
             await interaction.followup.edit_message(embed=embed, view=view)
+
+
+# ══════════════════════════════════════════════════════════════
+# BattleHubView — Combat mode hub
+# ══════════════════════════════════════════════════════════════
+class BattleHubView(discord.ui.View):
+    """Hub view linking to all combat modes."""
+
+    def __init__(self, uid: str, main_view: "MMORPGMainView"):
+        super().__init__(timeout=300)
+        self.uid = uid
+        self.main_view = main_view
+
+    def build_embed(self) -> discord.Embed:
+        return discord.Embed(
+            title="🗡️ Battle Hub / 战斗中心",
+            description="Select a combat mode below! / 从下方选择战斗模式！",
+            color=0x3498DB,
+        )
+
+    @discord.ui.button(label="Dungeon 地牢", emoji="🗡️", style=discord.ButtonStyle.primary, row=0)
+    async def dungeon_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.dungeon import DungeonLobbyView
+        view = DungeonLobbyView(self.uid, main_view=self.main_view)
+        embed = discord.Embed(
+            title="🏰 Dungeon / 副本",
+            description="Explore dungeons for treasures!\n探索副本寻找宝藏！",
+            color=0x27AE60,
+        )
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Boss 首领", emoji="👹", style=discord.ButtonStyle.danger, row=0)
+    async def boss_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.boss import BossLobbyView
+        view = BossLobbyView(self.uid, main_view=self.main_view)
+        embed = discord.Embed(
+            title="👹 Boss Hunt / Boss 狩猎",
+            description="Fight epic bosses for rare loot!\n挑战史诗Boss获取稀有装备！",
+            color=0xE74C3C,
+        )
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Raid 副本", emoji="⚔️", style=discord.ButtonStyle.success, row=0)
+    async def raid_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.mmorpg_raid import RaidLobbyView
+        view = RaidLobbyView(self.uid, main_view=self.main_view)
+        embed = view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="PVP 竞技", emoji="⚡", style=discord.ButtonStyle.primary, row=0)
+    async def pvp_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.mmorpg_pvp import PVPLobbyView
+        view = PVPLobbyView(self.uid, main_view=self.main_view)
+        embed = discord.Embed(
+            title="⚔️ PVP Arena / PVP竞技场",
+            description="Challenge other players in PVP!\n在PVP中挑战其他玩家！",
+            color=0x9B59B6,
+        )
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Quest 任务", emoji="📜", style=discord.ButtonStyle.secondary, row=0)
+    async def quest_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.daily_quest import DailyQuestView
+        view = DailyQuestView(self.uid, main_view=self.main_view)
+        embed = view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Back 返回", emoji="🔙", style=discord.ButtonStyle.secondary, row=1)
+    async def back_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        uid = str(interaction.user.id)
+        embed = build_main_embed(uid, interaction.user.display_name)
+        try:
+            await interaction.response.edit_message(embed=embed, view=self.main_view)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=embed, view=self.main_view)
 
 class _BackOnlyView(discord.ui.View):
     """Simple view with just a Back button for panels that only display info."""
