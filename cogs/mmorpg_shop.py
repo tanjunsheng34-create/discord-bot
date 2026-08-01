@@ -747,6 +747,10 @@ class MMORPGMainView(discord.ui.View):
         super().__init__(timeout=None)
         self.uid = uid
 
+    def _build(self):
+        """No-op for compatibility with EnhanceSelectView post-enhance refresh."""
+        pass
+
     # ═══════════════════════════════════════════════════════════
     # Row 0: Battle / Economy / Character  (primary)
     # ═══════════════════════════════════════════════════════════
@@ -1037,6 +1041,64 @@ class MMORPGMainView(discord.ui.View):
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
             await interaction.followup.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Enhance 强化", emoji="\U0001f528", style=discord.ButtonStyle.secondary, row=4, custom_id="mmorpg_main:enhance")
+    async def _enhance_new_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.mmorpg_equipment import (
+            EnhanceSelectView, _get_equipped, _get_enhance_cost, _get_enhance_rate,
+            EQUIP_SLOTS, EQUIP_SLOT_LABELS_CN,
+        )
+        equipped = _get_equipped(self.uid)
+        if not equipped or not any(equipped.get(s) for s in EQUIP_SLOTS):
+            return await interaction.response.send_message(
+                "No equipment to enhance / 没有可强化的装备！", ephemeral=True)
+
+        options = []
+        for slot in EQUIP_SLOTS:
+            eq = equipped.get(slot)
+            if eq:
+                lvl = eq.get("enhance_level", 0)
+                if lvl >= 15:
+                    options.append(discord.SelectOption(
+                        label=f"{EQUIP_SLOT_LABELS_CN[slot]} +{lvl} (MAX)",
+                        value=slot,
+                        description="Already max level / 已达最大等级",
+                        emoji="✅",
+                    ))
+                else:
+                    cost = _get_enhance_cost(lvl)
+                    rate = _get_enhance_rate(lvl)
+                    options.append(discord.SelectOption(
+                        label=f"{EQUIP_SLOT_LABELS_CN[slot]} +{lvl} → +{lvl+1}",
+                        value=slot,
+                        description=f"Cost: {cost}G | Rate: {int(rate*100)}%",
+                        emoji="🔨",
+                    ))
+
+        if not options:
+            return await interaction.response.send_message(
+                "No equipment to enhance / 没有可强化的装备！", ephemeral=True)
+
+        view = EnhanceSelectView(self.uid, equipped, self, None)
+        select = discord.ui.Select(
+            placeholder="Select equipment to enhance / 选择要强化的装备",
+            options=options,
+            row=0,
+        )
+        select.callback = view._select_callback
+        view.add_item(select)
+        try:
+            await interaction.response.send_message(
+                "Choose equipment to enhance / 选择要强化的装备：",
+                view=view,
+                ephemeral=True,
+            )
+        except discord.InteractionResponded:
+            await interaction.followup.send(
+                "Choose equipment to enhance / 选择要强化的装备：",
+                view=view,
+                ephemeral=True,
+            )
 
     @discord.ui.button(label="Raid 副本", emoji="\u2694\uFE0F", style=discord.ButtonStyle.secondary, row=4, custom_id="mmorpg_main:raid")
     async def _raid_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
