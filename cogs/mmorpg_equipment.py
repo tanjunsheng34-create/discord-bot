@@ -1155,6 +1155,7 @@ class EnhanceTargetView(discord.ui.View):
                     messages.append(f"Insufficient coins (need {cost:,}G)")
                     break
 
+                old_lvl = self.lvl
                 success, new_lvl, _ = await _do_single_enhance(self.uid, self.slot, self.eq, self.lvl)
                 self.lvl = new_lvl
                 equipped = _get_equipped(self.uid)
@@ -1162,14 +1163,14 @@ class EnhanceTargetView(discord.ui.View):
 
                 if success:
                     attempts += 1
-                    messages.append(f"+{new_lvl} ✓")
+                    messages.append(f"+{old_lvl}→+{new_lvl} ✓")
                     await self._refresh_view(interaction, msg_content=" | ".join(messages[-5:]))
                     await asyncio.sleep(0.6)
                 else:
-                    if new_lvl < (self.lvl if success else self.lvl):
-                        messages.append(f"Failed → +{new_lvl} ✗")
+                    if new_lvl < old_lvl:
+                        messages.append(f"Failed (dropped +{old_lvl}→+{new_lvl}) ✗")
                     else:
-                        messages.append(f"Failed (no change) ✗")
+                        messages.append(f"Failed (no change, stayed +{old_lvl}) ✗")
                     break
 
             self.eq_view._build()
@@ -1216,20 +1217,21 @@ class EnhanceTargetView(discord.ui.View):
                     messages.append(f"Insufficient coins (need {cost:,}G)")
                     break
 
+                old_lvl = self.lvl
                 success, new_lvl, _ = await _do_single_enhance(self.uid, self.slot, self.eq, self.lvl)
                 self.lvl = new_lvl
                 equipped = _get_equipped(self.uid)
                 self.eq = equipped.get(self.slot, self.eq)
 
                 if success:
-                    messages.append(f"+{new_lvl} ✓")
+                    messages.append(f"+{old_lvl}→+{new_lvl} ✓")
                     await self._refresh_view(interaction, msg_content=f"Target +{target} | " + " | ".join(messages[-5:]))
                     await asyncio.sleep(0.6)
                 else:
-                    if new_lvl < self.lvl - 1:  # dropped
-                        messages.append(f"Failed → +{new_lvl} ✗")
+                    if new_lvl < old_lvl:
+                        messages.append(f"Failed (dropped +{old_lvl}→+{new_lvl}) ✗")
                     else:
-                        messages.append(f"Failed (no change) ✗")
+                        messages.append(f"Failed (no change, stayed +{old_lvl}) ✗")
                     break
 
             self.eq_view._build()
