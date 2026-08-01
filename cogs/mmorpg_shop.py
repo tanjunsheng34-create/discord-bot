@@ -804,7 +804,8 @@ class MMORPGMainView(discord.ui.View):
     @discord.ui.button(label="Boss 首领", emoji="\U0001f479", style=discord.ButtonStyle.primary, row=0, custom_id="mmorpg_main:boss")
     async def boss_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         from cogs.boss import BossLobbyView
-        view = BossLobbyView(self.uid, main_view=self)
+        cog = interaction.client.get_cog("BossCog")
+        view = BossLobbyView(self.uid, cog, main_view=self)
         embed = discord.Embed(
             title="\U0001f479 Boss Hunt / Boss 狩猎",
             description="Fight epic bosses for rare loot!\n挑战史诗Boss获取稀有装备！",
