@@ -783,6 +783,7 @@ class BossCog(CogBase):
             lines.append(dot_log)
 
         # Phase 2 announcement
+        room_id = room["room_id"]
         phase_lines = []
         if room["phase"] == 2:
             phase_lines = [
