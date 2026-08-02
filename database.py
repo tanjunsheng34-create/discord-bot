@@ -789,6 +789,10 @@ def _run_migrations(cursor):
         cursor.execute("ALTER TABLE users ADD COLUMN dungeon_clears INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN element TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
 
 
 def _seed_default_vc(cursor):

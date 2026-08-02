@@ -17,56 +17,123 @@ from cogs.economy import add_coins, get_balance
 
 logger = logging.getLogger(__name__)
 
+# ── Element System ──
+ELEMENTS = ["Fire", "Water", "Wind", "Earth"]
+
+ELEMENT_WEAKNESS = {
+    "Fire": "Wind",
+    "Wind": "Earth",
+    "Earth": "Water",
+    "Water": "Fire",
+}
+
+
+def _get_player_element(uid: str) -> str | None:
+    """Read player's element from DB."""
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT element FROM users WHERE discord_id = ?", (uid,))
+        row = cur.fetchone()
+    return row["element"] if row else None
+
+
+def _calc_element_multiplier(attacker_element: str | None, defender_element: str | None) -> float:
+    """Return damage multiplier based on element weakness."""
+    if not attacker_element or not defender_element:
+        return 1.0
+    if attacker_element == defender_element:
+        return 1.0
+    if ELEMENT_WEAKNESS.get(attacker_element) == defender_element:
+        return 1.3
+    if ELEMENT_WEAKNESS.get(defender_element) == attacker_element:
+        return 0.8
+    return 1.0
+
+
+def _try_apply_status(target: dict, log_lines: list, is_player: bool = True):
+    """30% chance on CRIT to apply a random status effect."""
+    if random.random() >= 0.30:
+        return
+    status = random.choice(["poison", "burn", "freeze", "stun"])
+    if is_player:
+        if status == "poison":
+            target["poison"] = True
+            target["poison_turns"] = 3
+            log_lines.append(f"☠️ 中毒！Poisoned! -5%HP/turn for 3 turns")
+        elif status == "burn":
+            target["burn"] = True
+            target["burn_turns"] = 3
+            log_lines.append(f"🔥 灼烧！Burned! -3%HP+ATK↓10% for 3 turns")
+        elif status == "freeze":
+            target["frozen"] = True
+            target["frozen_turns"] = 2
+            log_lines.append(f"🧊 冰冻！Frozen! Skip next turn")
+        elif status == "stun":
+            target["stunned"] = True
+            log_lines.append(f"💫 眩晕！Stunned! Skip next turn")
+    else:
+        # Monster can be poisoned/burned but immune to freeze/stun
+        if status == "poison":
+            target["poison"] = True
+            target["poison_turns"] = 3
+            log_lines.append(f"☠️ {target.get('name','Monster')} 中毒！Poisoned!")
+        elif status == "burn":
+            target["burn"] = True
+            target["burn_turns"] = 3
+            log_lines.append(f"🔥 {target.get('name','Monster')} 灼烧！Burned!")
+        else:
+            log_lines.append(f"🛡️ {target.get('name','Monster')} 免疫控制！Immune to {status}")
+
 # ── Dungeon Monsters ──
 DUNGEON_MONSTERS = {
     1: [
-        {"name": "史莱姆 Slime", "hp": 60, "atk": 15, "def": 2, "exp": 20, "coins": 50, "emoji": "🟢"},
-        {"name": "哥布林 Goblin", "hp": 80, "atk": 18, "def": 3, "exp": 30, "coins": 70, "emoji": "👺"},
-        {"name": "巨型老鼠 Giant Rat", "hp": 55, "atk": 16, "def": 1, "exp": 25, "coins": 60, "emoji": "🐀"},
+        {"name": "史莱姆 Slime", "hp": 60, "atk": 15, "def": 2, "exp": 20, "coins": 50, "emoji": "🟢", "element": "Earth"},
+        {"name": "哥布林 Goblin", "hp": 80, "atk": 18, "def": 3, "exp": 30, "coins": 70, "emoji": "👺", "element": "Earth"},
+        {"name": "巨型老鼠 Giant Rat", "hp": 55, "atk": 16, "def": 1, "exp": 25, "coins": 60, "emoji": "🐀", "element": "Earth"},
     ],
     2: [
-        {"name": "骷髅战士 Skeleton Warrior", "hp": 110, "atk": 25, "def": 5, "exp": 50, "coins": 120, "emoji": "💀"},
-        {"name": "暗影法师 Shadow Mage", "hp": 85, "atk": 30, "def": 3, "exp": 55, "coins": 130, "emoji": "🧙‍♂️"},
-        {"name": "石像鬼 Gargoyle", "hp": 130, "atk": 20, "def": 7, "exp": 45, "coins": 110, "emoji": "🗿"},
+        {"name": "骷髅战士 Skeleton Warrior", "hp": 110, "atk": 25, "def": 5, "exp": 50, "coins": 120, "emoji": "💀", "element": "Wind"},
+        {"name": "暗影法师 Shadow Mage", "hp": 85, "atk": 30, "def": 3, "exp": 55, "coins": 130, "emoji": "🧙‍♂️", "element": "Wind"},
+        {"name": "石像鬼 Gargoyle", "hp": 130, "atk": 20, "def": 7, "exp": 45, "coins": 110, "emoji": "🗿", "element": "Wind"},
     ],
     3: [
-        {"name": "牛头人 Minotaur", "hp": 180, "atk": 40, "def": 10, "exp": 100, "coins": 250, "emoji": "🐂"},
-        {"name": "亡灵骑士 Death Knight", "hp": 200, "atk": 38, "def": 12, "exp": 110, "coins": 280, "emoji": "⚰️"},
-        {"name": "地狱犬 Hellhound", "hp": 150, "atk": 45, "def": 8, "exp": 95, "coins": 230, "emoji": "🐺"},
+        {"name": "牛头人 Minotaur", "hp": 180, "atk": 40, "def": 10, "exp": 100, "coins": 250, "emoji": "🐂", "element": "Fire"},
+        {"name": "亡灵骑士 Death Knight", "hp": 200, "atk": 38, "def": 12, "exp": 110, "coins": 280, "emoji": "⚰️", "element": "Fire"},
+        {"name": "地狱犬 Hellhound", "hp": 150, "atk": 45, "def": 8, "exp": 95, "coins": 230, "emoji": "🐺", "element": "Fire"},
     ],
     4: [
-        {"name": "狮鹫 Griffin", "hp": 280, "atk": 55, "def": 15, "exp": 180, "coins": 450, "emoji": "🦅"},
-        {"name": "九头蛇 Hydra", "hp": 350, "atk": 50, "def": 18, "exp": 200, "coins": 500, "emoji": "🐍"},
-        {"name": "岩石巨人 Stone Golem", "hp": 400, "atk": 45, "def": 22, "exp": 170, "coins": 420, "emoji": "🗻"},
+        {"name": "狮鹫 Griffin", "hp": 280, "atk": 55, "def": 15, "exp": 180, "coins": 450, "emoji": "🦅", "element": "Wind"},
+        {"name": "九头蛇 Hydra", "hp": 350, "atk": 50, "def": 18, "exp": 200, "coins": 500, "emoji": "🐍", "element": "Water"},
+        {"name": "岩石巨人 Stone Golem", "hp": 400, "atk": 45, "def": 22, "exp": 170, "coins": 420, "emoji": "🗻", "element": "Earth"},
     ],
     5: [
-        {"name": "暗影巨龙 Shadow Dragon", "hp": 600, "atk": 75, "def": 18, "exp": 500, "coins": 1200, "emoji": "🐉"},
-        {"name": "魔王 Demon Lord", "hp": 650, "atk": 70, "def": 16, "exp": 550, "coins": 1300, "emoji": "👹"},
-        {"name": "远古巫妖 Ancient Lich", "hp": 500, "atk": 80, "def": 14, "exp": 600, "coins": 1400, "emoji": "💀"},
+        {"name": "暗影巨龙 Shadow Dragon", "hp": 600, "atk": 75, "def": 18, "exp": 500, "coins": 1200, "emoji": "🐉", "element": "Fire"},
+        {"name": "魔王 Demon Lord", "hp": 650, "atk": 70, "def": 16, "exp": 550, "coins": 1300, "emoji": "👹", "element": "Fire"},
+        {"name": "远古巫妖 Ancient Lich", "hp": 500, "atk": 80, "def": 14, "exp": 600, "coins": 1400, "emoji": "💀", "element": "Water"},
     ],
     6: [
-        {"name": "魔沼蛙 Gromp", "hp": 420, "atk": 62, "def": 22, "exp": 220, "coins": 520, "emoji": "🐸"},
-        {"name": "暗影狼 Murk Wolf", "hp": 380, "atk": 68, "def": 18, "exp": 240, "coins": 550, "emoji": "🐺"},
-        {"name": "锋喙鸟 Crimson Raptor", "hp": 400, "atk": 58, "def": 24, "exp": 230, "coins": 530, "emoji": "🦅"},
+        {"name": "魔沼蛙 Gromp", "hp": 420, "atk": 62, "def": 22, "exp": 220, "coins": 520, "emoji": "🐸", "element": "Water"},
+        {"name": "暗影狼 Murk Wolf", "hp": 380, "atk": 68, "def": 18, "exp": 240, "coins": 550, "emoji": "🐺", "element": "Earth"},
+        {"name": "锋喙鸟 Crimson Raptor", "hp": 400, "atk": 58, "def": 24, "exp": 230, "coins": 530, "emoji": "🦅", "element": "Wind"},
     ],
     7: [
-        {"name": "近战兵 Melee Minion", "hp": 500, "atk": 72, "def": 28, "exp": 300, "coins": 700, "emoji": "⚔️"},
-        {"name": "远程兵 Caster Minion", "hp": 440, "atk": 82, "def": 22, "exp": 320, "coins": 720, "emoji": "🔮"},
-        {"name": "炮车兵 Siege Minion", "hp": 620, "atk": 65, "def": 35, "exp": 350, "coins": 800, "emoji": "💣"},
+        {"name": "近战兵 Melee Minion", "hp": 500, "atk": 72, "def": 28, "exp": 300, "coins": 700, "emoji": "⚔️", "element": "Fire"},
+        {"name": "远程兵 Caster Minion", "hp": 440, "atk": 82, "def": 22, "exp": 320, "coins": 720, "emoji": "🔮", "element": "Water"},
+        {"name": "炮车兵 Siege Minion", "hp": 620, "atk": 65, "def": 35, "exp": 350, "coins": 800, "emoji": "💣", "element": "Earth"},
     ],
     8: [
-        {"name": "炼狱亚龙 Infernal Drake", "hp": 700, "atk": 95, "def": 30, "exp": 450, "coins": 1100, "emoji": "🔥"},
-        {"name": "海洋亚龙 Ocean Drake", "hp": 750, "atk": 85, "def": 35, "exp": 430, "coins": 1050, "emoji": "🌊"},
-        {"name": "云端亚龙 Cloud Drake", "hp": 650, "atk": 90, "def": 28, "exp": 460, "coins": 1150, "emoji": "☁️"},
-        {"name": "山脉亚龙 Mountain Drake", "hp": 800, "atk": 80, "def": 40, "exp": 420, "coins": 1000, "emoji": "⛰️"},
+        {"name": "炼狱亚龙 Infernal Drake", "hp": 700, "atk": 95, "def": 30, "exp": 450, "coins": 1100, "emoji": "🔥", "element": "Fire"},
+        {"name": "海洋亚龙 Ocean Drake", "hp": 750, "atk": 85, "def": 35, "exp": 430, "coins": 1050, "emoji": "🌊", "element": "Water"},
+        {"name": "云端亚龙 Cloud Drake", "hp": 650, "atk": 90, "def": 28, "exp": 460, "coins": 1150, "emoji": "☁️", "element": "Wind"},
+        {"name": "山脉亚龙 Mountain Drake", "hp": 800, "atk": 80, "def": 40, "exp": 420, "coins": 1000, "emoji": "⛰️", "element": "Earth"},
     ],
     9: [
-        {"name": "峡谷先锋 Rift Herald", "hp": 950, "atk": 110, "def": 38, "exp": 600, "coins": 1500, "emoji": "🦀"},
-        {"name": "纳什男爵 Baron Nashor", "hp": 1100, "atk": 120, "def": 42, "exp": 700, "coins": 1800, "emoji": "🐍"},
+        {"name": "峡谷先锋 Rift Herald", "hp": 950, "atk": 110, "def": 38, "exp": 600, "coins": 1500, "emoji": "🦀", "element": "Earth"},
+        {"name": "纳什男爵 Baron Nashor", "hp": 1100, "atk": 120, "def": 42, "exp": 700, "coins": 1800, "emoji": "🐍", "element": "Water"},
     ],
     10: [
-        {"name": "远古巨龙 Elder Dragon", "hp": 1400, "atk": 140, "def": 45, "exp": 900, "coins": 2500, "emoji": "🐉"},
-        {"name": "龙王 Aurelion Sol", "hp": 1600, "atk": 155, "def": 40, "exp": 1000, "coins": 3000, "emoji": "🌟"},
+        {"name": "远古巨龙 Elder Dragon", "hp": 1400, "atk": 140, "def": 45, "exp": 900, "coins": 2500, "emoji": "🐉", "element": "Fire"},
+        {"name": "龙王 Aurelion Sol", "hp": 1600, "atk": 155, "def": 40, "exp": 1000, "coins": 3000, "emoji": "🌟", "element": "Fire"},
     ],
 }
 
@@ -280,20 +347,22 @@ class DungeonBattleView(discord.ui.View):
         # ── Player Action ──
         if action == "attack":
             dmg = self._calc_player_dmg()
-            crit = random.random() < (self.player["crit"] / 100)
+            crit = random.random() < (self.player.get("crit", 5) / 100)
             if crit:
                 dmg = int(dmg * 2.0)
                 log_lines.append(f"⚔️ 你发动攻击 — **{dmg}** DMG！💥 暴击！")
+                _try_apply_status(self.monster, log_lines, is_player=False)
             else:
                 log_lines.append(f"⚔️ 你发动攻击 — **{dmg}** DMG！")
             self.monster["hp"] = max(0, self.monster["hp"] - dmg)
 
         elif action == "skill":
             dmg = int(self._calc_player_dmg() * 1.5)
-            crit = random.random() < (self.player["crit"] / 100)
+            crit = random.random() < (self.player.get("crit", 5) / 100)
             if crit:
                 dmg = int(dmg * 2.0)
                 log_lines.append(f"⚡ 你使用 Power Strike — **{dmg}** DMG！💥 暴击！")
+                _try_apply_status(self.monster, log_lines, is_player=False)
             else:
                 log_lines.append(f"⚡ 你使用 Power Strike — **{dmg}** DMG！")
             self.monster["hp"] = max(0, self.monster["hp"] - dmg)
@@ -324,17 +393,27 @@ class DungeonBattleView(discord.ui.View):
         await self.msg.edit(embed=embed, view=self)
 
     def _calc_player_dmg(self) -> int:
-        return max(1, random.randint(self.player["atk"] // 2, self.player["atk"]) - self.monster["def"] // 3)
+        base = max(1, random.randint(self.player["atk"] // 2, self.player["atk"]) - self.monster["def"] // 3)
+        player_element = _get_player_element(self.uid)
+        monster_element = self.monster.get("element")
+        elem_mult = _calc_element_multiplier(player_element, monster_element)
+        return int(base * elem_mult)
 
     def _monster_counter(self, log_lines: list):
         """Monster counter-attack: 80% normal / 20% crit (x2 damage)."""
         m = self.monster
         base_dmg = max(1, random.randint(m["atk"] // 2, m["atk"]) - self.player["def"] // 3)
+        # Element multiplier: monster vs player
+        monster_element = m.get("element")
+        player_element = _get_player_element(self.uid)
+        elem_mult = _calc_element_multiplier(monster_element, player_element)
+        base_dmg = int(base_dmg * elem_mult)
         is_crit = random.random() < 0.20
 
         if is_crit:
             dmg = int(base_dmg * 2)
             log_lines.append(f"💢 {m['emoji']} {m['name']} 暴击反击！— **{dmg}** DMG！💥")
+            _try_apply_status(self.player, log_lines, is_player=True)
         else:
             dmg = base_dmg
             log_lines.append(f"💢 {m['emoji']} {m['name']} 反击 — **{dmg}** DMG！")

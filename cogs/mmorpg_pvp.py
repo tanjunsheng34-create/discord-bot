@@ -21,6 +21,61 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# ── Element System ──
+ELEMENTS = ["Fire", "Water", "Wind", "Earth"]
+
+ELEMENT_WEAKNESS = {
+    "Fire": "Wind",
+    "Wind": "Earth",
+    "Earth": "Water",
+    "Water": "Fire",
+}
+
+
+def _get_player_element(uid: str) -> str | None:
+    """Read player's element from DB."""
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT element FROM users WHERE discord_id = ?", (uid,))
+        row = cur.fetchone()
+    return row["element"] if row else None
+
+
+def _calc_element_multiplier(attacker_element: str | None, defender_element: str | None) -> float:
+    """Return damage multiplier based on element weakness."""
+    if not attacker_element or not defender_element:
+        return 1.0
+    if attacker_element == defender_element:
+        return 1.0
+    if ELEMENT_WEAKNESS.get(attacker_element) == defender_element:
+        return 1.3
+    if ELEMENT_WEAKNESS.get(defender_element) == attacker_element:
+        return 0.8
+    return 1.0
+
+
+def _try_apply_status(target: dict, log_lines: list):
+    """30% chance on CRIT to apply a random status effect."""
+    if random.random() >= 0.30:
+        return
+    status = random.choice(["poison", "burn", "freeze", "stun"])
+    if status == "poison":
+        target["dot_dmg"] = int(target["max_hp"] * 0.05)
+        target["dot_turns"] = 3
+        log_lines.append(f"☠️ {target['username']} 中毒！Poisoned! -5%HP/turn for 3 turns")
+    elif status == "burn":
+        target["burn"] = True
+        target["burn_turns"] = 3
+        log_lines.append(f"🔥 {target['username']} 灼烧！Burned! -3%HP+ATK↓10% for 3 turns")
+    elif status == "freeze":
+        target["frozen"] = True
+        target["frozen_turns"] = 2
+        log_lines.append(f"🧊 {target['username']} 冰冻！Frozen! Skip next turn")
+    elif status == "stun":
+        target["stunned"] = True
+        log_lines.append(f"💫 {target['username']} 眩晕！Stunned! Skip next turn")
+
+
 CHALLENGE_TIMEOUT = 60   # seconds to accept/decline
 TURN_TIMEOUT = 30        # seconds per turn
 CHALLENGE_ID_COUNTER = 1
@@ -554,9 +609,16 @@ class PVPCog(CogBase):
         elif action == "attack":
             base_atk = p_data["atk"] + p_data["buff_atk"]
             dmg = base_atk + random.randint(1, 10)
-            if random.random() < 0.1:
+            # Element multiplier
+            player_elem = _get_player_element(current_id)
+            opponent_elem = _get_player_element(opponent_id)
+            elem_mult = _calc_element_multiplier(player_elem, opponent_elem)
+            dmg = int(dmg * elem_mult)
+            is_crit = random.random() < 0.1
+            if is_crit:
                 dmg = int(dmg * 2)
                 crit = "💥 CRIT! / 暴击！"
+                _try_apply_status(o_data, [])
             else:
                 crit = ""
             o_data["hp"] = max(0, o_data["hp"] - dmg)
@@ -576,6 +638,10 @@ class PVPCog(CogBase):
             if p_data["mp"] < skill_def["mp_cost"]:
                 # Fallback to normal attack
                 dmg = p_data["atk"] + random.randint(1, 10)
+                player_elem = _get_player_element(current_id)
+                opponent_elem = _get_player_element(opponent_id)
+                elem_mult = _calc_element_multiplier(player_elem, opponent_elem)
+                dmg = int(dmg * elem_mult)
                 o_data["hp"] = max(0, o_data["hp"] - dmg)
                 stats["total_dmg"] += dmg
                 return f"⚡ Not enough MP! Auto attack — **{dmg}** DMG / MP 不足，自动普攻"

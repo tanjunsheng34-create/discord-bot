@@ -173,6 +173,7 @@ def init_all_new_tables():
             ("defense", "INTEGER DEFAULT 5"),
             ("job_level", "INTEGER DEFAULT 1"),
             ("job_xp", "INTEGER DEFAULT 0"),
+            ("element", "VARCHAR DEFAULT NULL"),
         ]:
             try:
                 cur.execute(f"ALTER TABLE users ADD COLUMN {col} {col_type}")
@@ -213,6 +214,25 @@ def init_all_new_tables():
                 expires_at TEXT
             )
         """)
+
+        # ── MMORPG: combat_logs with status_effects ──
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS combat_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                combat_type TEXT NOT NULL,
+                target_name TEXT,
+                result TEXT,
+                damage_dealt INTEGER DEFAULT 0,
+                damage_taken INTEGER DEFAULT 0,
+                status_effects TEXT DEFAULT NULL,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        try:
+            cur.execute("ALTER TABLE combat_logs ADD COLUMN status_effects TEXT DEFAULT NULL")
+        except Exception:
+            pass
 
         # ── MMORPG: seed default potions ──
         potions = [

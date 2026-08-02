@@ -139,10 +139,12 @@ def _get_class(uid: str) -> str | None:
 
 
 def _set_class(uid: str, class_key: str):
+    from config import CLASS_ELEMENT
+    element = CLASS_ELEMENT.get(class_key)
     with get_db_ctx() as conn:
         conn.execute(
-            "UPDATE users SET mmorpg_class = ? WHERE discord_id = ?",
-            (class_key, uid),
+            "UPDATE users SET mmorpg_class = ?, element = ? WHERE discord_id = ?",
+            (class_key, element, uid),
         )
         conn.commit()
 
