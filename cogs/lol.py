@@ -312,32 +312,44 @@ class MatchListView(discord.ui.View):
     # Callbacks
     # ------------------------------------------------------------------
     async def _prev_callback(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-        self.page = max(0, self.page - 1)
-        embed = self.render()
-        await interaction.edit_original_response(embed=embed, view=self)
+        try:
+            await interaction.response.defer()
+            self.page = max(0, self.page - 1)
+            embed = self.render()
+            await interaction.edit_original_response(embed=embed, view=self)
 
+        except discord.InteractionResponded:
+            await interaction.followup.send("操作失败，请重试。", ephemeral=True)
     async def _next_callback(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-        self.page += 1  # bound checked in render via total_pages
-        embed = self.render()
-        await interaction.edit_original_response(embed=embed, view=self)
+        try:
+            await interaction.response.defer()
+            self.page += 1  # bound checked in render via total_pages
+            embed = self.render()
+            await interaction.edit_original_response(embed=embed, view=self)
 
+        except discord.InteractionResponded:
+            await interaction.followup.send("操作失败，请重试。", ephemeral=True)
     async def _history_callback(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-        self.mode = "history"
-        self.page = 0
-        embed = self.render()
-        await interaction.edit_original_response(embed=embed, view=self)
+        try:
+            await interaction.response.defer()
+            self.mode = "history"
+            self.page = 0
+            embed = self.render()
+            await interaction.edit_original_response(embed=embed, view=self)
 
+        except discord.InteractionResponded:
+            await interaction.followup.send("操作失败，请重试。", ephemeral=True)
     async def _back_callback(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-        self.mode = "active"
-        self.page = 0
-        embed = self.render()
-        await interaction.edit_original_response(embed=embed, view=self)
+        try:
+            await interaction.response.defer()
+            self.mode = "active"
+            self.page = 0
+            embed = self.render()
+            await interaction.edit_original_response(embed=embed, view=self)
 
 
+        except discord.InteractionResponded:
+            await interaction.followup.send("操作失败，请重试。", ephemeral=True)
 # ---------- Cog ----------
 
 class GMPT(CogBase):
@@ -1280,9 +1292,9 @@ class GMPT(CogBase):
             cur.execute("SELECT * FROM tournaments WHERE id=?", (match_id,))
             t = cur.fetchone()
             if not t:
-                return await interaction.response.send_message("比赛不存在。", ephemeral=True)
+                return await interaction.followup.send("比赛不存在。", ephemeral=True)
             if t["status"] != "open":
-                return await interaction.response.send_message("该比赛已关闭或已分队。", ephemeral=True)
+                return await interaction.edit_original_response(content="该比赛已关闭或已分队。")
 
             cur.execute("SELECT discord_id FROM registrations WHERE tournament_id=?", (match_id,))
             player_rows = cur.fetchall()
@@ -1362,139 +1374,151 @@ class CustomTeamView(discord.ui.View):
 
     @discord.ui.button(label="加入A队 / Join Team A", style=discord.ButtonStyle.primary, emoji="🔵", row=1, custom_id="custom_team_a")
     async def add_to_a(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
-        if str(interaction.user.id) != self.captain_id:
-            return await interaction.followup.send("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
-        if not self.selected_player:
-            return await interaction.followup.send("请先从下拉菜单选择一个玩家。", ephemeral=True)
-        if len(self.team_a) >= self.team_size:
-            return await interaction.followup.send(f"A队已满 ({self.team_size}人)。", ephemeral=True)
-        if self.selected_player in self.team_a or self.selected_player in self.team_b:
-            return await interaction.followup.send("该玩家已分配。", ephemeral=True)
+        try:
+            await interaction.response.defer(ephemeral=True)
+            if str(interaction.user.id) != self.captain_id:
+                return await interaction.followup.send("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
+            if not self.selected_player:
+                return await interaction.followup.send("请先从下拉菜单选择一个玩家。", ephemeral=True)
+            if len(self.team_a) >= self.team_size:
+                return await interaction.followup.send(f"A队已满 ({self.team_size}人)。", ephemeral=True)
+            if self.selected_player in self.team_a or self.selected_player in self.team_b:
+                return await interaction.followup.send("该玩家已分配。", ephemeral=True)
 
-        self.team_a.append(self.selected_player)
-        self.selected_player = None
-        self._rebuild_select()
-        embed = self.build_embed()
-        await interaction.edit_original_response(embed=embed, view=self)
+            self.team_a.append(self.selected_player)
+            self.selected_player = None
+            self._rebuild_select()
+            embed = self.build_embed()
+            await interaction.edit_original_response(embed=embed, view=self)
 
+        except discord.InteractionResponded:
+            await interaction.followup.send("操作失败，请重试。", ephemeral=True)
     @discord.ui.button(label="加入B队 / Join Team B", style=discord.ButtonStyle.danger, emoji="🔴", row=1, custom_id="custom_team_b")
     async def add_to_b(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
-        if str(interaction.user.id) != self.captain_id:
-            return await interaction.followup.send("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
-        if not self.selected_player:
-            return await interaction.followup.send("请先从下拉菜单选择一个玩家。", ephemeral=True)
-        if len(self.team_b) >= self.team_size:
-            return await interaction.followup.send(f"B队已满 ({self.team_size}人)。", ephemeral=True)
-        if self.selected_player in self.team_a or self.selected_player in self.team_b:
-            return await interaction.followup.send("该玩家已分配。", ephemeral=True)
+        try:
+            await interaction.response.defer(ephemeral=True)
+            if str(interaction.user.id) != self.captain_id:
+                return await interaction.followup.send("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
+            if not self.selected_player:
+                return await interaction.followup.send("请先从下拉菜单选择一个玩家。", ephemeral=True)
+            if len(self.team_b) >= self.team_size:
+                return await interaction.followup.send(f"B队已满 ({self.team_size}人)。", ephemeral=True)
+            if self.selected_player in self.team_a or self.selected_player in self.team_b:
+                return await interaction.followup.send("该玩家已分配。", ephemeral=True)
 
-        self.team_b.append(self.selected_player)
-        self.selected_player = None
-        self._rebuild_select()
-        embed = self.build_embed()
-        await interaction.edit_original_response(embed=embed, view=self)
+            self.team_b.append(self.selected_player)
+            self.selected_player = None
+            self._rebuild_select()
+            embed = self.build_embed()
+            await interaction.edit_original_response(embed=embed, view=self)
 
+        except discord.InteractionResponded:
+            await interaction.followup.send("操作失败，请重试。", ephemeral=True)
     @discord.ui.button(label="清空 / Clear", style=discord.ButtonStyle.secondary, emoji="🔄", row=2, custom_id="custom_team_clear")
     async def clear_teams(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
-        if str(interaction.user.id) != self.captain_id:
-            return await interaction.followup.send("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
-        self.team_a.clear()
-        self.team_b.clear()
-        self.selected_player = None
-        self._rebuild_select()
-        embed = self.build_embed()
-        await interaction.edit_original_response(embed=embed, view=self)
+        try:
+            await interaction.response.defer(ephemeral=True)
+            if str(interaction.user.id) != self.captain_id:
+                return await interaction.followup.send("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
+            self.team_a.clear()
+            self.team_b.clear()
+            self.selected_player = None
+            self._rebuild_select()
+            embed = self.build_embed()
+            await interaction.edit_original_response(embed=embed, view=self)
 
+        except discord.InteractionResponded:
+            await interaction.followup.send("操作失败，请重试。", ephemeral=True)
     @discord.ui.button(label="确认 / Confirm", style=discord.ButtonStyle.success, emoji="✅", row=2, custom_id="custom_team_confirm")
     async def confirm_teams(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
-        if str(interaction.user.id) != self.captain_id:
-            return await interaction.followup.send("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
+        try:
+            await interaction.response.defer(ephemeral=True)
+            if str(interaction.user.id) != self.captain_id:
+                return await interaction.followup.send("Only the captain can operate. / 只有队长可以操作。", ephemeral=True)
 
-        total = len(self.team_a) + len(self.team_b)
-        all_players = len(self.all_player_ids)
-        if total < min(2, all_players):
-            return await interaction.followup.send("请至少分配2名玩家到队伍中。", ephemeral=True)
+            total = len(self.team_a) + len(self.team_b)
+            all_players = len(self.all_player_ids)
+            if total < min(2, all_players):
+                return await interaction.followup.send("请至少分配2名玩家到队伍中。", ephemeral=True)
 
-        # Write teams to database
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
-            cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (self.match_id, "A队 Team A"))
-            aid = cur.lastrowid
+            # Write teams to database
+            with get_db_ctx() as conn:
+                cur = conn.cursor()
+                cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (self.match_id, "A队 Team A"))
+                aid = cur.lastrowid
+                for uid in self.team_a:
+                    cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?",
+                                (aid, self.match_id, uid))
+                cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (self.match_id, "B队 Team B"))
+                bid = cur.lastrowid
+                for uid in self.team_b:
+                    cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?",
+                                (bid, self.match_id, uid))
+                cur.execute("UPDATE tournaments SET status='closed' WHERE id=?", (self.match_id,))
+                conn.commit()
+
+            # Build result message
+            a_names = []
             for uid in self.team_a:
-                cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?",
-                            (aid, self.match_id, uid))
-            cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (self.match_id, "B队 Team B"))
-            bid = cur.lastrowid
-            for uid in self.team_b:
-                cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?",
-                            (bid, self.match_id, uid))
-            cur.execute("UPDATE tournaments SET status='closed' WHERE id=?", (self.match_id,))
-            conn.commit()
-
-        # Build result message
-        a_names = []
-        for uid in self.team_a:
-            m = self.guild.get_member(int(uid))
-            a_names.append(m.mention if m else f"<@{uid}>")
-        b_names = []
-        for uid in self.team_b:
-            m = self.guild.get_member(int(uid))
-            b_names.append(m.mention if m else f"<@{uid}>")
-
-        # Disable all buttons
-        for child in self.children:
-            child.disabled = True
-
-        embed = discord.Embed(
-            title=f"Team Assignment: {self.match_name}",
-            description="✅ 分队确认完毕",
-            color=discord.Color.gold(),
-        )
-        embed.add_field(
-            name=f"🔵 Team A (ID: {aid})",
-            value="\n".join(a_names) if a_names else "(空)",
-            inline=True,
-        )
-        embed.add_field(
-            name=f"🔴 Team B (ID: {bid})",
-            value="\n".join(b_names) if b_names else "(空)",
-            inline=True,
-        )
-        unassigned = [pid for pid in self.all_player_ids if pid not in self.team_a and pid not in self.team_b]
-        if unassigned:
-            u_names = []
-            for uid in unassigned:
                 m = self.guild.get_member(int(uid))
-                u_names.append(m.mention if m else f"<@{uid}>")
+                a_names.append(m.mention if m else f"<@{uid}>")
+            b_names = []
+            for uid in self.team_b:
+                m = self.guild.get_member(int(uid))
+                b_names.append(m.mention if m else f"<@{uid}>")
+
+            # Disable all buttons
+            for child in self.children:
+                child.disabled = True
+
+            embed = discord.Embed(
+                title=f"Team Assignment: {self.match_name}",
+                description="✅ 分队确认完毕",
+                color=discord.Color.gold(),
+            )
             embed.add_field(
-                name="⚠️ 未分配 / Unassigned",
-                value="\n".join(u_names),
-                inline=False,
+                name=f"🔵 Team A (ID: {aid})",
+                value="\n".join(a_names) if a_names else "(空)",
+                inline=True,
+            )
+            embed.add_field(
+                name=f"🔴 Team B (ID: {bid})",
+                value="\n".join(b_names) if b_names else "(空)",
+                inline=True,
+            )
+            unassigned = [pid for pid in self.all_player_ids if pid not in self.team_a and pid not in self.team_b]
+            if unassigned:
+                u_names = []
+                for uid in unassigned:
+                    m = self.guild.get_member(int(uid))
+                    u_names.append(m.mention if m else f"<@{uid}>")
+                embed.add_field(
+                    name="⚠️ 未分配 / Unassigned",
+                    value="\n".join(u_names),
+                    inline=False,
+                )
+
+            settle_hint = (
+                f"结算: `/gmpt-lol-settle {self.match_id} <获胜队伍ID>`"
+            )
+            embed.set_footer(text=f"Match ID: {self.match_id} | {settle_hint}")
+
+            await interaction.edit_original_response(embed=embed, view=self)
+
+            # Send ReShuffleView below result for settle/re-shuffle/finish
+            from cogs.dashboard import ReShuffleView
+            reshuffle_embed = discord.Embed(
+                title=f"自定义分队完成 — {self.match_name} (ID:{self.match_id})",
+                description="点击下方按钮进行结算或重新分队 / Click below to settle or re-shuffle:",
+                color=discord.Color.gold(),
+            )
+            await interaction.followup.send(
+                embed=reshuffle_embed,
+                view=ReShuffleView(match_id=self.match_id, guild=self.guild),
             )
 
-        settle_hint = (
-            f"结算: `/gmpt-lol-settle {self.match_id} <获胜队伍ID>`"
-        )
-        embed.set_footer(text=f"Match ID: {self.match_id} | {settle_hint}")
-
-        await interaction.edit_original_response(embed=embed, view=self)
-
-        # Send ReShuffleView below result for settle/re-shuffle/finish
-        from cogs.dashboard import ReShuffleView
-        reshuffle_embed = discord.Embed(
-            title=f"自定义分队完成 — {self.match_name} (ID:{self.match_id})",
-            description="点击下方按钮进行结算或重新分队 / Click below to settle or re-shuffle:",
-            color=discord.Color.gold(),
-        )
-        await interaction.followup.send(
-            embed=reshuffle_embed,
-            view=ReShuffleView(match_id=self.match_id, guild=self.guild),
-        )
-
+        except discord.InteractionResponded:
+            await interaction.followup.send("操作失败，请重试。", ephemeral=True)
     def build_embed(self):
         a_names = []
         for uid in self.team_a:

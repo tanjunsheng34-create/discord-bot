@@ -825,7 +825,7 @@ class PokerPanelView(discord.ui.View):
         await interaction.response.defer()
         cid = interaction.channel_id
         if cid not in _games:
-            return await interaction.response.send_message("本频道没有活跃牌局 / No active game.", ephemeral=True)
+            return await interaction.followup.send("本频道没有活跃牌局 / No active game.", ephemeral=True)
         g = _games[cid]
         p_lines = []
         for uid in g.order:

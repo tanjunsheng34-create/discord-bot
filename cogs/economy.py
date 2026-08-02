@@ -2162,7 +2162,7 @@ class Economy(CogBase):
             conn.commit()
 
         if not challenges:
-            return await interaction.response.send_message("本周暂无挑战 / No challenges this week.")
+            return await interaction.followup.send("本周暂无挑战 / No challenges this week.")
 
         embed = discord.Embed(
             title="Weekly Challenges / 每周挑战",

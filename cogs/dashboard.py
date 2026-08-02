@@ -487,7 +487,6 @@ class TeamAssignView(discord.ui.View):
             self.team_a.append(self.selected_player)
             self.selected_player = None
             self._rebuild_select()
-            await interaction.response.defer()
             await interaction.edit_original_response(embed=self._build_embed(), view=self)
         except Exception as e:
             logger.error(f"[TeamAssignView] add_to_a error: {e}", exc_info=True)
@@ -514,7 +513,6 @@ class TeamAssignView(discord.ui.View):
             self.team_b.append(self.selected_player)
             self.selected_player = None
             self._rebuild_select()
-            await interaction.response.defer()
             await interaction.edit_original_response(embed=self._build_embed(), view=self)
         except Exception as e:
             logger.error(f"[TeamAssignView] add_to_b error: {e}", exc_info=True)
@@ -531,7 +529,6 @@ class TeamAssignView(discord.ui.View):
             self.team_b.clear()
             self.selected_player = None
             self._rebuild_select()
-            await interaction.response.defer()
             await interaction.edit_original_response(embed=self._build_embed(), view=self)
         except Exception as e:
             logger.error(f"[TeamAssignView] clear error: {e}", exc_info=True)
@@ -1795,7 +1792,6 @@ class ManualTeamView(discord.ui.View):
             self.team_a.append(self.selected_player)
             self.selected_player = None
             self._rebuild_select()
-            await interaction.response.defer()
             await interaction.edit_original_response(embed=self._build_embed(), view=self)
         except Exception as e:
             logger.error(f"[TeamAssignView] add_to_a error: {e}", exc_info=True)
@@ -1822,7 +1818,6 @@ class ManualTeamView(discord.ui.View):
             self.team_b.append(self.selected_player)
             self.selected_player = None
             self._rebuild_select()
-            await interaction.response.defer()
             await interaction.edit_original_response(embed=self._build_embed(), view=self)
         except Exception as e:
             logger.error(f"[TeamAssignView] add_to_b error: {e}", exc_info=True)
@@ -1839,7 +1834,6 @@ class ManualTeamView(discord.ui.View):
             self.team_b.clear()
             self.selected_player = None
             self._rebuild_select()
-            await interaction.response.defer()
             await interaction.edit_original_response(embed=self._build_embed(), view=self)
         except Exception as e:
             logger.error(f"[TeamAssignView] clear error: {e}", exc_info=True)

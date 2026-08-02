@@ -420,8 +420,7 @@ class EquipmentView(discord.ui.View):
         except Exception as e:
             logger.error(f"Best equip error (uid={self.uid}): {e}", exc_info=True)
             try:
-                await interaction.response.send_message(
-                    "一键装备出错 / Best equip error", ephemeral=True)
+                await interaction.edit_original_response(content="一键装备出错 / Best equip error")
             except Exception:
                 logger.error("Best equip send_message error", exc_info=True)
 

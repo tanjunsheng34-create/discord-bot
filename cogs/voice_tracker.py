@@ -285,114 +285,126 @@ class VoiceTimeView(discord.ui.View):
 
     @discord.ui.button(label="View Self", style=discord.ButtonStyle.primary, emoji="👤", row=0)
     async def view_self_btn(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
-        uid = str(self.user.id)
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT * FROM voice_tracker WHERE user_id=?", (uid,))
-            row = cur.fetchone()
-
-        if not row:
-            return await interaction.followup.send(
-                f"{self.user.display_name} no voice data yet.", ephemeral=True
-            )
-        embed = self.cog._build_self_embed(self.user, row)
-        await interaction.edit_original_response(embed=embed, view=None)
-
-    @discord.ui.button(label="View Leaderboard", style=discord.ButtonStyle.success, emoji="🏆", row=0)
-    async def view_leaderboard_btn(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
-        data = VoiceLeaderboardView._fetch_leaderboard_data()
-        if not data:
-            return await interaction.followup.send("No voice data yet.", ephemeral=True)
-
-        view = VoiceLeaderboardView()
-        embed = VoiceLeaderboardView._build_embed(data, 0, self.guild)
-        view.prev_btn.disabled = True
-        view.next_btn.disabled = len(data) <= 10
-        await interaction.edit_original_response(embed=embed, view=view)
-
-    @discord.ui.button(label="View Someone", style=discord.ButtonStyle.secondary, emoji="🔍", row=0)
-    async def view_other_btn(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
-        if not self.is_admin:
-            return await interaction.followup.send("Admin only.", ephemeral=True)
-
-        members = [m for m in self.guild.members if not m.bot][:25]
-        if not members:
-            return await interaction.followup.send("No members found.", ephemeral=True)
-
-        options = [
-            discord.SelectOption(label=m.display_name[:100], value=str(m.id))
-            for m in members
-        ]
-
-        select = discord.ui.Select(
-            placeholder="Select a user...",
-            options=options[:25],
-        )
-
-        async def user_callback(sel_int: discord.Interaction):
-            uid = sel_int.data["values"][0]
-            member = self.guild.get_member(int(uid))
-            if not member:
-                return await sel_int.response.send_message("User not found.", ephemeral=True)
-
+        try:
+            await interaction.response.defer(ephemeral=True)
+            uid = str(self.user.id)
             with get_db_ctx() as conn:
                 cur = conn.cursor()
                 cur.execute("SELECT * FROM voice_tracker WHERE user_id=?", (uid,))
                 row = cur.fetchone()
 
             if not row:
-                return await sel_int.response.send_message(
-                    f"{member.display_name} no voice data yet.", ephemeral=True
+                return await interaction.followup.send(
+                    f"{self.user.display_name} no voice data yet.", ephemeral=True
                 )
-            embed = self.cog._build_self_embed(member, row)
-            await sel_int.response.edit_message(embed=embed, view=None)
+            embed = self.cog._build_self_embed(self.user, row)
+            await interaction.edit_original_response(embed=embed, view=None)
 
-        select.callback = user_callback
-        view = discord.ui.View(timeout=60)
-        view.add_item(select)
-        await interaction.followup.send(view=view, ephemeral=True)
+        except discord.InteractionResponded:
+            await interaction.followup.send("操作失败，请重试。", ephemeral=True)
+    @discord.ui.button(label="View Leaderboard", style=discord.ButtonStyle.success, emoji="🏆", row=0)
+    async def view_leaderboard_btn(self, interaction: discord.Interaction, button):
+        try:
+            await interaction.response.defer(ephemeral=True)
+            data = VoiceLeaderboardView._fetch_leaderboard_data()
+            if not data:
+                return await interaction.followup.send("No voice data yet.", ephemeral=True)
 
-    @discord.ui.button(label="Reset All Voice", style=discord.ButtonStyle.danger, emoji="🗑️", row=1)
-    async def reset_all_voice_btn(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
-        """Admin-only: reset all voice tracker data to zero."""
-        if not self.is_admin:
-            return await interaction.followup.send("Admin only.", ephemeral=True)
+            view = VoiceLeaderboardView()
+            embed = VoiceLeaderboardView._build_embed(data, 0, self.guild)
+            view.prev_btn.disabled = True
+            view.next_btn.disabled = len(data) <= 10
+            await interaction.edit_original_response(embed=embed, view=view)
 
-        confirm = ConfirmView(timeout=60)
-        embed = discord.Embed(
-            title="Reset All Voice Data?",
-            description=(
-                "This will reset **all** voice tracking stats to zero for **everyone**.\n"
-                "所有人语音统计数据将被清零。\n\n"
-                "Are you sure? / 确定吗？"
-            ),
-            color=discord.Color.red(),
-        )
-        await interaction.followup.send(embed=embed, view=confirm, ephemeral=True)
-        await confirm.wait()
+        except discord.InteractionResponded:
+            await interaction.followup.send("操作失败，请重试。", ephemeral=True)
+    @discord.ui.button(label="View Someone", style=discord.ButtonStyle.secondary, emoji="🔍", row=0)
+    async def view_other_btn(self, interaction: discord.Interaction, button):
+        try:
+            await interaction.response.defer(ephemeral=True)
+            if not self.is_admin:
+                return await interaction.followup.send("Admin only.", ephemeral=True)
 
-        if confirm.value is None or not confirm.value:
-            return await interaction.edit_original_response(
-                content="Cancelled.", embed=None, view=None
+            members = [m for m in self.guild.members if not m.bot][:25]
+            if not members:
+                return await interaction.followup.send("No members found.", ephemeral=True)
+
+            options = [
+                discord.SelectOption(label=m.display_name[:100], value=str(m.id))
+                for m in members
+            ]
+
+            select = discord.ui.Select(
+                placeholder="Select a user...",
+                options=options[:25],
             )
 
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
-            cur.execute("UPDATE voice_tracker SET total_seconds=0, login_days=0, total_joins=0")
-            affected = cur.rowcount
-            conn.commit()
+            async def user_callback(sel_int: discord.Interaction):
+                uid = sel_int.data["values"][0]
+                member = self.guild.get_member(int(uid))
+                if not member:
+                    return await sel_int.response.send_message("User not found.", ephemeral=True)
 
-        await interaction.edit_original_response(
-            content=f"Reset {affected} voice tracking record(s). / 已重置 {affected} 条语音追踪记录。",
-            embed=None,
-            view=None,
-        )
+                with get_db_ctx() as conn:
+                    cur = conn.cursor()
+                    cur.execute("SELECT * FROM voice_tracker WHERE user_id=?", (uid,))
+                    row = cur.fetchone()
+
+                if not row:
+                    return await sel_int.response.send_message(
+                        f"{member.display_name} no voice data yet.", ephemeral=True
+                    )
+                embed = self.cog._build_self_embed(member, row)
+                await sel_int.response.edit_message(embed=embed, view=None)
+
+            select.callback = user_callback
+            view = discord.ui.View(timeout=60)
+            view.add_item(select)
+            await interaction.followup.send(view=view, ephemeral=True)
+
+        except discord.InteractionResponded:
+            await interaction.followup.send("操作失败，请重试。", ephemeral=True)
+    @discord.ui.button(label="Reset All Voice", style=discord.ButtonStyle.danger, emoji="🗑️", row=1)
+    async def reset_all_voice_btn(self, interaction: discord.Interaction, button):
+        try:
+            await interaction.response.defer(ephemeral=True)
+            """Admin-only: reset all voice tracker data to zero."""
+            if not self.is_admin:
+                return await interaction.followup.send("Admin only.", ephemeral=True)
+
+            confirm = ConfirmView(timeout=60)
+            embed = discord.Embed(
+                title="Reset All Voice Data?",
+                description=(
+                    "This will reset **all** voice tracking stats to zero for **everyone**.\n"
+                    "所有人语音统计数据将被清零。\n\n"
+                    "Are you sure? / 确定吗？"
+                ),
+                color=discord.Color.red(),
+            )
+            await interaction.followup.send(embed=embed, view=confirm, ephemeral=True)
+            await confirm.wait()
+
+            if confirm.value is None or not confirm.value:
+                return await interaction.edit_original_response(
+                    content="Cancelled.", embed=None, view=None
+                )
+
+            with get_db_ctx() as conn:
+                cur = conn.cursor()
+                cur.execute("UPDATE voice_tracker SET total_seconds=0, login_days=0, total_joins=0")
+                affected = cur.rowcount
+                conn.commit()
+
+            await interaction.edit_original_response(
+                content=f"Reset {affected} voice tracking record(s). / 已重置 {affected} 条语音追踪记录。",
+                embed=None,
+                view=None,
+            )
 
 
+        except discord.InteractionResponded:
+            await interaction.followup.send("操作失败，请重试。", ephemeral=True)
 # =============================================================================
 # VoiceLeaderboardView — 分页排行榜 / Paginated Leaderboard
 # =============================================================================
@@ -480,40 +492,46 @@ class VoiceLeaderboardView(discord.ui.View):
 
     @discord.ui.button(label="Prev", emoji="⬅️", style=discord.ButtonStyle.secondary, custom_id="vl_prev")
     async def prev_btn(self, interaction: discord.Interaction, button):
-        await interaction.response.defer()
-        page = self._parse_page_from_embed(interaction.message.embeds[0])
-        if page > 0:
-            page -= 1
-        data = self._fetch_leaderboard_data()
-        if not data:
-            return await interaction.edit_original_response(content="No voice data yet.", embed=None, view=None)
-        # Clamp page
-        total_pages = max((len(data) + 9) // 10, 1)
-        page = max(0, min(page, total_pages - 1))
-        embed = self._build_embed(data, page, interaction.guild)
-        # Update button states
-        self.prev_btn.disabled = page == 0
-        self.next_btn.disabled = (page + 1) * 10 >= len(data)
-        await interaction.edit_original_response(embed=embed, view=self)
+        try:
+            await interaction.response.defer()
+            page = self._parse_page_from_embed(interaction.message.embeds[0])
+            if page > 0:
+                page -= 1
+            data = self._fetch_leaderboard_data()
+            if not data:
+                return await interaction.edit_original_response(content="No voice data yet.", embed=None, view=None)
+            # Clamp page
+            total_pages = max((len(data) + 9) // 10, 1)
+            page = max(0, min(page, total_pages - 1))
+            embed = self._build_embed(data, page, interaction.guild)
+            # Update button states
+            self.prev_btn.disabled = page == 0
+            self.next_btn.disabled = (page + 1) * 10 >= len(data)
+            await interaction.edit_original_response(embed=embed, view=self)
 
+        except discord.InteractionResponded:
+            await interaction.followup.send("操作失败，请重试。", ephemeral=True)
     @discord.ui.button(label="Next", emoji="➡️", style=discord.ButtonStyle.secondary, custom_id="vl_next")
     async def next_btn(self, interaction: discord.Interaction, button):
-        await interaction.response.defer()
-        page = self._parse_page_from_embed(interaction.message.embeds[0])
-        data = self._fetch_leaderboard_data()
-        if not data:
-            return await interaction.edit_original_response(content="No voice data yet.", embed=None, view=None)
-        total_pages = max((len(data) + 9) // 10, 1)
-        if page < total_pages - 1:
-            page += 1
-        # Clamp page
-        page = max(0, min(page, total_pages - 1))
-        embed = self._build_embed(data, page, interaction.guild)
-        self.prev_btn.disabled = page == 0
-        self.next_btn.disabled = (page + 1) * 10 >= len(data)
-        await interaction.edit_original_response(embed=embed, view=self)
+        try:
+            await interaction.response.defer()
+            page = self._parse_page_from_embed(interaction.message.embeds[0])
+            data = self._fetch_leaderboard_data()
+            if not data:
+                return await interaction.edit_original_response(content="No voice data yet.", embed=None, view=None)
+            total_pages = max((len(data) + 9) // 10, 1)
+            if page < total_pages - 1:
+                page += 1
+            # Clamp page
+            page = max(0, min(page, total_pages - 1))
+            embed = self._build_embed(data, page, interaction.guild)
+            self.prev_btn.disabled = page == 0
+            self.next_btn.disabled = (page + 1) * 10 >= len(data)
+            await interaction.edit_original_response(embed=embed, view=self)
 
 
+        except discord.InteractionResponded:
+            await interaction.followup.send("操作失败，请重试。", ephemeral=True)
 async def setup(bot):
     # Register persistent VoiceLeaderboardView so buttons survive restarts
     bot.add_view(VoiceLeaderboardView())
