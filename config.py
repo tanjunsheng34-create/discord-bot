@@ -139,6 +139,42 @@ BOSS_NAME_POOL = [
     "虚空行者", "岩浆巨人", "暴风之眼", "月影狼王",
 ]
 
+# ══════════════════════════════════════════════════════════════
+# MMORPG Event Schedule / 限时活动日程
+# ══════════════════════════════════════════════════════════════
+# month → day → (event_key, event_name, boss_name)
+EVENT_SCHEDULE = {
+    1: {  # January - New Year
+        1: ("newyear_dragon", "新年 Dragon", "年兽龙王"),
+        2: ("newyear_dragon", "新年 Dragon", "年兽龙王"),
+        3: ("newyear_dragon", "新年 Dragon", "年兽龙王"),
+    },
+    10: {  # October - Halloween
+        30: ("halloween_pumpkin", "万圣 Pumpkin King", "南瓜王"),
+        31: ("halloween_pumpkin", "万圣 Pumpkin King", "南瓜王"),
+    },
+    12: {  # December - Christmas
+        24: ("christmas_ice", "圣诞 Ice Lord", "冰霜领主"),
+        25: ("christmas_ice", "圣诞 Ice Lord", "冰霜领主"),
+    },
+    7: {  # July - Summer
+        1: ("summer_beach", "暑假 Beach Boss", "沙滩霸主"),
+        15: ("summer_beach", "暑假 Beach Boss", "沙滩霸主"),
+    },
+    8: {  # August - Summer
+        1: ("summer_beach", "暑假 Beach Boss", "沙滩霸主"),
+    },
+}
+
+# Event channel ID (same as boss spawn channel by default)
+EVENT_CHANNEL_ID: int = 1532937712041066647
+
+# Event boss survival time (2 hours in seconds)
+EVENT_BOSS_SURVIVAL: int = 7200
+
+# Weekend double drop event (random: 20% chance each Saturday/Sunday)
+DOUBLE_DROP_WEEKEND_CHANCE: float = 0.20
+
 # Ensure database directory exists
 _db_dir = os.path.dirname(DATABASE)
 if _db_dir:
