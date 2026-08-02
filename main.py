@@ -80,6 +80,9 @@ MMORPG_COGS = {
     "cogs.mmorpg_enhance",
     "cogs.mmorpg_gems",
     "cogs.mmorpg_collection",
+    "cogs.mmorpg_events",
+    "cogs.mmorpg_market",
+    "cogs.mmorpg_tower",
 }
 COMMUNITY_COGS = {
     "cogs.pets",
