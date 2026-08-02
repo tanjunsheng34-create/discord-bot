@@ -59,6 +59,15 @@ class ConfirmView(discord.ui.View):
 
 # ---- Tournament Views (moved from tournament.py) ----
 
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 class CaptainCoinflipView(discord.ui.View):
     """抛硬币决定选人顺序 — 仅两队队长可点。"""
 
@@ -121,6 +130,15 @@ class CaptainCoinflipView(discord.ui.View):
 
 # =============================================================================
 
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 class DraftView(discord.ui.View):
     def __init__(self, draft_id, captains_info, available_players, guild, tournament_id=None, timeout=600):
         super().__init__(timeout=None)
@@ -1194,3 +1212,13 @@ class CaptainModeView(discord.ui.View):
 # =============================================================================
 
 
+
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass

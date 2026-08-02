@@ -250,6 +250,15 @@ class SelectModeView(discord.ui.View):
         await interaction.response.send_modal(modal)
 
 
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 class LaneSelectView(discord.ui.View):
     """选路比赛报名时的路线选择下拉菜单 / Lane selection dropdown for role-pick match signup."""
 
@@ -318,6 +327,15 @@ class LaneSelectView(discord.ui.View):
         )
 
 
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 class CreateTournamentModal(discord.ui.Modal, title="创建赛事 / Create Tournament"):
     tournament_name = discord.ui.TextInput(
         label="赛事名称 / Tournament Name",
@@ -1302,6 +1320,15 @@ class ReShuffleView(discord.ui.View):
         await interaction.followup.send("B 队拉入完成!", ephemeral=True)
 
 
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 class RematchView(discord.ui.View):
     """赛后重赛/结束按钮。"""
 
@@ -1536,6 +1563,15 @@ class VoicePullView(discord.ui.View):
         await interaction.followup.send("全员拉入 Live Room 完成!", ephemeral=True)
 
 
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 class KillReportView(discord.ui.View):
     """赛后击杀上报按钮 — 选手可上报击杀/死亡事件用于回放。"""
 
@@ -1612,6 +1648,15 @@ class KillReportView(discord.ui.View):
         await self._record_event(interaction, "assist")
 
 
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 class PostMatchPullView(discord.ui.View):
     """赛后统一拉入按钮 — 将 A/B 两队语音频道中所有人拉入赛后集合频道。"""
 
@@ -1672,6 +1717,15 @@ class PostMatchPullView(discord.ui.View):
                 log_error("dashboard", "pull_post_match", e)
 
 
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 class ManualTeamView(discord.ui.View):
     """管理员手动将每个玩家分配到 A/B 队(自己分队)。"""
 
@@ -3872,6 +3926,15 @@ def _update_mmr(winner_ids: list, loser_ids: list, mvp_id, conn2=None, double_mm
 
 # ══════════ Ready Check — 满人自动确认 ══════════
 
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 class ReadyCheckView(discord.ui.View):
     """Ready check view: 60s countdown, all-confirm triggers auto-shuffle."""
 
@@ -4555,6 +4618,15 @@ class CoinflipPanelView(discord.ui.View):
 
 # ═══════════════════ Dashboard Game Launcher Modals ═══════════════════
 
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 class BlackjackDashboardModal(discord.ui.Modal, title="🃏 21点下注 / Blackjack Bet"):
     bet = discord.ui.TextInput(
         label="下注金额 | Bet amount",
@@ -7177,6 +7249,15 @@ class DashboardView(discord.ui.View):
             await interaction.response.defer(ephemeral=True)
             return await interaction.followup.send("管理员专用 / Admin only.", ephemeral=True)
 
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
         class ScheduledEventModal(discord.ui.Modal, title="新建定时赛事 / New Scheduled Event"):
             event_name = discord.ui.TextInput(
                 label="赛事名称 / Event Name",
@@ -7647,6 +7728,16 @@ class DashboardView(discord.ui.View):
 
     async def _game_roulette(self, interaction: discord.Interaction):
         """🎡 轮盘赌 / Roulette — 打开下注弹窗"""
+
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
         class RouletteBetModal(discord.ui.Modal, title="🎡 轮盘赌下注 / Roulette Bet"):
             bet = discord.ui.TextInput(
                 label="下注金额 | Bet amount",
@@ -7732,6 +7823,15 @@ class DashboardView(discord.ui.View):
             await interaction.response.send_modal(DiceDuelBetModal(opponent))
     
 
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
     class DiceDuelBetModal(discord.ui.Modal, title="🎲 骰子对决下注 / Dice Duel Bet"):
         bet = discord.ui.TextInput(
             label="下注金额 | Bet amount",
