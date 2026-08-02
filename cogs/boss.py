@@ -1404,7 +1404,7 @@ class BossCog(CogBase):
                     kill_count = kill_count + 1,
                     fastest_clear_seconds = MIN(fastest_clear_seconds, ?),
                     total_damage = total_damage + ?
-            """, (boss_name, difficulty, duration_sec, user_id, duration_sec, dmg))
+            """, (boss_name, difficulty, duration_sec, dmg, user_id, duration_sec, dmg))
             cur.execute("""
                 INSERT INTO boss_player_kills (user_id, boss_name, difficulty, kills, top_damage, last_kill_at)
                 VALUES (?, ?, ?, 1, ?, ?)
