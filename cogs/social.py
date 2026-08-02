@@ -540,6 +540,15 @@ class MarryPanelView(discord.ui.View):
                 )
 
         return cb
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 
 
 class MarryProposeSelectView(discord.ui.View):
@@ -620,6 +629,15 @@ class MarryProposeSelectView(discord.ui.View):
 # ══════════════════════════════════════════════════════════════
 # RepPanelView — 声望按钮面板 / Reputation Button Panel
 # ══════════════════════════════════════════════════════════════
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 
 class RepPanelView(discord.ui.View):
     """声望系统按钮面板 — 点击按钮操作声望。"""
@@ -716,6 +734,15 @@ class RepPanelView(discord.ui.View):
                 )
 
         return cb
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 
 
 class RepGiveSelectView(discord.ui.View):
@@ -850,6 +877,15 @@ class RepGiveSelectView(discord.ui.View):
 
         embed.set_footer(text=f"ID: {uid}")
         await interaction.followup.send(embed=embed)
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 
 
 async def setup(bot):

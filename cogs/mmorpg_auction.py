@@ -316,6 +316,15 @@ class AuctionView(discord.ui.View):
                     await interaction.response.edit_message(embed=embed, view=None)
                 except discord.InteractionResponded:
                     await interaction.edit_original_response(embed=embed, view=None)
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 
 
 class AuctionBuyView(discord.ui.View):
@@ -424,6 +433,15 @@ class AuctionBuyView(discord.ui.View):
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
             await interaction.edit_original_response(embed=embed, view=view)
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 
 
 class AuctionSellSelectView(discord.ui.View):
@@ -525,6 +543,15 @@ class AuctionSellSelectView(discord.ui.View):
 # ══════════════════════════════════════════════════════════════
 # Cog
 # ══════════════════════════════════════════════════════════════
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 
 class AuctionCog(commands.Cog):
     """拍卖行系统 / Auction House System."""

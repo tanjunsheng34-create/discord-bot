@@ -414,6 +414,15 @@ class DungeonBattleView(discord.ui.View):
 # ══════════════════════════════════════════════════════════════
 # DungeonView — 地城主面板
 # ══════════════════════════════════════════════════════════════
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 class DungeonView(discord.ui.View):
     """地下城主面板 / Dungeon main panel."""
 
@@ -524,6 +533,15 @@ class DungeonView(discord.ui.View):
         battle_view = DungeonBattleView(self.uid, self.uname, floor, player, monster, msg)
         embed = battle_view._build_embed()
         await msg.edit(embed=embed, view=battle_view)
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 
 
 class Dungeon(CogBase):
@@ -698,3 +716,12 @@ class DungeonLobbyView(discord.ui.View):
                 await interaction.response.edit_message(embed=embed, view=self.main_view)
             except discord.InteractionResponded:
                 await interaction.edit_original_response(embed=embed, view=self.main_view)
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+

@@ -209,6 +209,15 @@ class RaidLobbyView(discord.ui.View):
 # ══════════════════════════════════════════════════════════════
 # Raid Room View
 # ══════════════════════════════════════════════════════════════
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 class RaidRoomView(discord.ui.View):
     """队伍房间面板 — 选角色、准备、开战."""
 
@@ -379,6 +388,15 @@ class RaidRoomView(discord.ui.View):
 # ══════════════════════════════════════════════════════════════
 # RaidBattleView — Select 驱动回合制 Raid 战斗
 # ══════════════════════════════════════════════════════════════
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 class RaidBattleView(discord.ui.View):
     """Select-driven turn-based Raid battle. One player acts per interaction."""
 
@@ -794,6 +812,15 @@ class RaidBattleView(discord.ui.View):
 # ══════════════════════════════════════════════════════════════
 # Raid Cog
 # ══════════════════════════════════════════════════════════════
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 class RaidCog(CogBase):
     """MMORPG Raid 副本系统."""
 

@@ -235,6 +235,15 @@ class PokerActionView(discord.ui.View):
 
         # Advance
         await advance_game(g, interaction.channel)
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 
 
 class PokerBetModal(discord.ui.Modal, title="Bet / Raise 下注"):
@@ -451,6 +460,15 @@ class NewHandView(discord.ui.View):
             return
         await interaction.response.defer()
         await start_hand(g, interaction.channel)
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 
 
 async def prompt_player(game: PokerGame, channel: discord.TextChannel):
@@ -836,6 +854,15 @@ class PokerPanelView(discord.ui.View):
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
             await interaction.edit_original_response(embed=embed, view=view)
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 
 
 async def setup(bot: commands.Bot):
