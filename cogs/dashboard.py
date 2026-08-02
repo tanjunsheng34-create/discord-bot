@@ -5052,6 +5052,8 @@ class DashboardView(discord.ui.View):
                 ("🕊️ 树洞 / Whisper", "game_whisper"),
                 ("🐉 Boss战 / Boss Battle", "boss"),
                 ("🗡️ MMORPG / MMORPG", "mmorpg_panel"),
+                ("🔨 装备强化 / Enhance", "mmorpg_enhance"),
+                ("💎 宝石镶嵌 / Gems", "mmorpg_gems"),
             ]
             self._build_grid(btns, rows_of=5)
 
@@ -7986,6 +7988,40 @@ class DashboardView(discord.ui.View):
             "Use `/gmpt-mmorpg` in chat to open the MMORPG panel.",
             ephemeral=True,
         )
+
+    async def _mmorpg_enhance(self, interaction: discord.Interaction):
+        """🔨 Equipment Enhancement / 装备强化."""
+        try:
+            from cogs.mmorpg_enhance import EnhanceMainView
+            uid = str(interaction.user.id)
+            uname = interaction.user.display_name
+            view = EnhanceMainView(uid, uname, main_view=self)
+            embed = view.build_embed()
+            await interaction.response.edit_message(embed=embed, view=view)
+            view.message = await interaction.original_response()
+        except Exception as e:
+            logger.error(f"Dashboard _mmorpg_enhance error: {e}", exc_info=True)
+            try:
+                await interaction.response.send_message("❌ 装备强化加载失败 / Enhance load failed.", ephemeral=True)
+            except Exception:
+                pass
+
+    async def _mmorpg_gems(self, interaction: discord.Interaction):
+        """💎 Gem Socket / 宝石镶嵌."""
+        try:
+            from cogs.mmorpg_gems import GemMainView
+            uid = str(interaction.user.id)
+            uname = interaction.user.display_name
+            view = GemMainView(uid, uname, main_view=self)
+            embed = view.build_embed()
+            await interaction.response.edit_message(embed=embed, view=view)
+            view.message = await interaction.original_response()
+        except Exception as e:
+            logger.error(f"Dashboard _mmorpg_gems error: {e}", exc_info=True)
+            try:
+                await interaction.response.send_message("❌ 宝石系统加载失败 / Gems load failed.", ephemeral=True)
+            except Exception:
+                pass
 
     async def _lottery(self, interaction: discord.Interaction):
         embed = discord.Embed(title="🎰 彩票系统 / Lottery", description="选择一个操作 / Choose an action:", color=0xF39C12)

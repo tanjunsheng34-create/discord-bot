@@ -272,6 +272,45 @@ def init_all_new_tables():
             )
         """)
 
+        # ── mmorpg_enhance.py: Equipment enhancement tracking ──
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS equipment_enhance (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                equipment_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                enhance_level INTEGER DEFAULT 0,
+                UNIQUE(equipment_id, user_id)
+            )
+        """)
+
+        # ── mmorpg_gems.py: Gem inventory ──
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS user_gems (
+                user_id TEXT NOT NULL,
+                gem_type TEXT NOT NULL,
+                level INTEGER DEFAULT 1,
+                quantity INTEGER DEFAULT 0,
+                PRIMARY KEY (user_id, gem_type, level)
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS gem_sockets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                equipment_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                slot_index INTEGER NOT NULL,
+                gem_type TEXT,
+                gem_level INTEGER DEFAULT 1,
+                UNIQUE(equipment_id, user_id, slot_index)
+            )
+        """)
+
+        # ── Set bonus: add set_name to user_equipment ──
+        try:
+            cur.execute("ALTER TABLE user_equipment ADD COLUMN set_name VARCHAR DEFAULT NULL")
+        except Exception:
+            pass
+
         conn.commit()
 
     logger.info("[InitNewCogs] All new tables created successfully.")
@@ -287,6 +326,7 @@ def init_all_new_tables():
         "boss_dungeon_cooldowns", "boss_kill_stats", "boss_player_kills",
         "player_skills", "potions", "active_buffs",
         "daily_quests",
+        "equipment_enhance", "user_gems", "gem_sockets",
     ]
     logger.info(f"[InitNewCogs] Tables: {', '.join(tables)}")
     return True
