@@ -282,6 +282,15 @@ class BountyPanelView(discord.ui.View):
         await interaction.response.send_message("Use /gmpt-panel to return.", ephemeral=True)
 
 
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 class BountyBoard(commands.Cog):
     """悬赏任务板系统 / Bounty Board system."""
 

@@ -221,6 +221,15 @@ class AuctionView(discord.ui.View):
         await self._safe_edit(interaction, embed=embed, view=view)
 
 
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 class Auction(commands.Cog):
     """拍卖行系统 / Auction house system."""
 

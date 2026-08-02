@@ -417,6 +417,15 @@ class ClanPanelView(discord.ui.View):
         return cb
 
 
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 class ClanCreateModal(discord.ui.Modal, title="🏰 创建公会 / Create Clan"):
     clan_name = discord.ui.TextInput(
         label="公会名称 / Clan Name",

@@ -659,6 +659,15 @@ class MiniGuessView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=self)
 
 
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 # ══════════════════════════════════════════════════════════════
 # MineSweeper View
 # ══════════════════════════════════════════════════════════════
@@ -781,6 +790,15 @@ class MineSweeperView(discord.ui.View):
                     await interaction.response.edit_message(embed=embed, view=self)
         return callback
 
+
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
 
 # ══════════════════════════════════════════════════════════════
 # Cog setup

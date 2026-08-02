@@ -1433,6 +1433,15 @@ class EconomyJobsView(discord.ui.View):
         await interaction.followup.send("🥷 选择打劫目标 / Select a target:", view=view, ephemeral=True)
 
 
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 # ══════════════════════════════════════════════════════════════
 # 新增打工函数 / New Job Shared Functions
 # ══════════════════════════════════════════════════════════════

@@ -474,6 +474,15 @@ class PetPanelView(discord.ui.View):
         return cb
 
 
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 class PetAdoptModal(discord.ui.Modal, title="🐾 领养宠物 / Adopt Pet"):
     pet_type = discord.ui.TextInput(
         label="宠物类型 / Pet Type",

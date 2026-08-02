@@ -206,6 +206,15 @@ class ShootView(discord.ui.View):
             _active_duels.pop(d["msg_id"], None)
 
 
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 def _build_duel_embed(d: dict) -> discord.Embed:
     """Build the duel status embed with HP bars."""
     hp_c = max(0, d.get("hp_c", MAX_HP))
