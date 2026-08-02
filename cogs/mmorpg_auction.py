@@ -701,15 +701,6 @@ class AuctionCog(commands.Cog):
         )
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="gmpt-auction", description="Auction House / 拍卖行 — browse and trade equipment!")
-    @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
-    async def auction_cmd(self, interaction: discord.Interaction):
-        uid = str(interaction.user.id)
-        view = AuctionView(uid)
-        embed = view.build_embed()
-        await interaction.response.send_message(embed=embed, view=view)
-
-
 async def setup(bot: commands.Bot):
     await bot.add_cog(AuctionCog(bot))
     logger.info("MMORPG Auction cog loaded")

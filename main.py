@@ -99,7 +99,6 @@ FULL_ONLY_COGS = {
     "cogs.shop",
     "cogs.announce",
     "cogs.leaderboard",
-    "cogs.auction",
     "cogs.gambling",
     "cogs.casino_games",
     "cogs.poker",
