@@ -305,6 +305,46 @@ def init_all_new_tables():
             )
         """)
 
+        # ── mmorpg_guild_war.py: Guild War ──
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS guild_war (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                war_date TEXT NOT NULL,
+                total_damage INTEGER NOT NULL DEFAULT 0,
+                boss_hp INTEGER NOT NULL DEFAULT 0,
+                boss_max_hp INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'pending',
+                started_at TEXT,
+                ended_at TEXT
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS guild_war_damage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                war_id INTEGER NOT NULL,
+                user_id TEXT NOT NULL,
+                damage INTEGER NOT NULL DEFAULT 0,
+                actions INTEGER NOT NULL DEFAULT 0,
+                last_action_at TEXT,
+                UNIQUE(war_id, user_id)
+            )
+        """)
+
+        # ── mmorpg_guild.py: Guild Storage ──
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS guild_storage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                item_name TEXT NOT NULL,
+                item_type TEXT NOT NULL DEFAULT 'material',
+                quantity INTEGER NOT NULL DEFAULT 1,
+                donated_by TEXT NOT NULL,
+                exchange_price INTEGER NOT NULL DEFAULT 0,
+                donated_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+
         # ── Set bonus: add set_name to user_equipment ──
         try:
             cur.execute("ALTER TABLE user_equipment ADD COLUMN set_name VARCHAR DEFAULT NULL")
@@ -327,6 +367,7 @@ def init_all_new_tables():
         "player_skills", "potions", "active_buffs",
         "daily_quests",
         "equipment_enhance", "user_gems", "gem_sockets",
+        "guild_war", "guild_war_damage", "guild_storage",
     ]
     logger.info(f"[InitNewCogs] Tables: {', '.join(tables)}")
     return True

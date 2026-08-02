@@ -71,6 +71,8 @@ MMORPG_COGS = {
     "cogs.mmorpg_achievement",
     "cogs.mmorpg_pet",
     "cogs.mmorpg_guild",
+    "cogs.mmorpg_guild_war",
+    "cogs.mmorpg_arena_3v3",
     "cogs.mmorpg_auction",
     "cogs.mmorpg_enchant",
     "cogs.mmorpg_raid",

@@ -5054,6 +5054,8 @@ class DashboardView(discord.ui.View):
                 ("🗡️ MMORPG / MMORPG", "mmorpg_panel"),
                 ("🔨 装备强化 / Enhance", "mmorpg_enhance"),
                 ("💎 宝石镶嵌 / Gems", "mmorpg_gems"),
+                ("🏆 排位赛 / Ranked", "mmorpg_ranked"),
+                ("⚔️ 3v3竞技场 / 3v3 Arena", "mmorpg_arena3v3"),
             ]
             self._build_grid(btns, rows_of=5)
 
@@ -8020,6 +8022,47 @@ class DashboardView(discord.ui.View):
             logger.error(f"Dashboard _mmorpg_gems error: {e}", exc_info=True)
             try:
                 await interaction.response.send_message("❌ 宝石系统加载失败 / Gems load failed.", ephemeral=True)
+            except Exception:
+                pass
+
+    async def _mmorpg_ranked(self, interaction: discord.Interaction):
+        """🏆 Ranked Ladder / 排位赛."""
+        try:
+            from cogs.mmorpg_ranked import RankedStatsView
+            uid = str(interaction.user.id)
+            view = RankedStatsView(uid, main_view=self)
+            embed = view.build_embed()
+            await interaction.response.edit_message(embed=embed, view=view)
+            view.message = await interaction.original_response()
+        except Exception as e:
+            logger.error(f"Dashboard _mmorpg_ranked error: {e}", exc_info=True)
+            try:
+                await interaction.response.send_message("❌ 排位系统加载失败 / Ranked load failed.", ephemeral=True)
+            except Exception:
+                pass
+
+    async def _mmorpg_arena3v3(self, interaction: discord.Interaction):
+        """⚔️ 3v3 Arena / 3v3竞技场."""
+        try:
+            from cogs.mmorpg_arena_3v3 import Arena3v3Cog
+            embed = discord.Embed(
+                title="⚔️ 3v3 竞技场 / 3v3 Arena",
+                description=(
+                    "在聊天中使用以下命令参与 3v3 竞技场：\n"
+                    "Use these commands in chat for 3v3 Arena:\n\n"
+                    "**/gmpt-arena-3v3 create** — 创建房间 / Create lobby\n"
+                    "**/gmpt-arena-3v3 join** — 加入队伍 / Join team\n"
+                    "**/gmpt-arena-3v3 start** — 开始战斗 / Start battle\n\n"
+                    "队长发起，每队3人，胜方获得金币+排位分！\n"
+                    "Leader creates, 3 per team, winners get coins + ranked points!"
+                ),
+                color=0x3498DB,
+            )
+            await interaction.response.edit_message(embed=embed, view=None)
+        except Exception as e:
+            logger.error(f"Dashboard _mmorpg_arena3v3 error: {e}", exc_info=True)
+            try:
+                await interaction.response.send_message("❌ 3v3竞技场加载失败 / Arena load failed.", ephemeral=True)
             except Exception:
                 pass
 

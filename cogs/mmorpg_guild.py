@@ -19,17 +19,27 @@ logger = logging.getLogger(__name__)
 GUILD_SKILLS = {
     1: ("EXP加成", "EXP Boost", 5, "EXP +{}%", "EXP +{}%"),
     2: ("金币加成", "Gold Boost", 5, "金币获得 +{}%", "Gold gain +{}%"),
-    3: ("地牢次数", "Dungeon Runs", 3, "每日地牢免费次数 +{}", "Daily dungeon free runs +{}"),
-    4: ("攻击力", "Attack Power", 5, "攻击力 +{}%", "Attack +{}%"),
-    5: ("暴击率", "Crit Rate", 3, "暴击率 +{}%", "Crit rate +{}%"),
+    3: ("攻击力加成", "ATK Boost", 5, "攻击力 +{}%", "Attack +{}%"),
+    4: ("防御力加成", "DEF Boost", 5, "防御力 +{}%", "Defense +{}%"),
+    5: ("暴击率", "Crit Rate", 5, "暴击率 +{}%", "Crit rate +{}%"),
+    6: ("HP加成", "HP Boost", 5, "最大HP +{}%", "Max HP +{}%"),
+    7: ("掉落率", "Drop Rate", 5, "掉落率 +{}%", "Drop rate +{}%"),
+    8: ("减伤", "Damage Reduction", 5, "减伤 +{}%", "Dmg reduction +{}%"),
+    9: ("治疗加成", "Healing Boost", 5, "治疗量 +{}%", "Healing +{}%"),
+    10: ("元素抗性", "Element Resist", 5, "元素抗性 +{}%", "Element resist +{}%"),
 }
 
 SKILL_VALUE_MAP = {
-    1: {1: 5, 2: 10, 3: 15, 4: 20, 5: 25},   # EXP %
-    2: {1: 5, 2: 10, 3: 15, 4: 20, 5: 25},   # Gold %
-    3: {1: 1, 2: 2, 3: 3},                     # Dungeon runs
-    4: {1: 5, 2: 10, 3: 15, 4: 20, 5: 25},    # ATK %
-    5: {1: 3, 2: 5, 3: 8},                     # Crit %
+    1: {1: 5, 2: 10, 3: 15, 4: 20, 5: 25},     # EXP %
+    2: {1: 5, 2: 10, 3: 15, 4: 20, 5: 25},     # Gold %
+    3: {1: 5, 2: 10, 3: 15, 4: 20, 5: 25},     # ATK %
+    4: {1: 5, 2: 10, 3: 15, 4: 20, 5: 25},     # DEF %
+    5: {1: 3, 2: 5, 3: 8, 4: 12, 5: 15},       # Crit %
+    6: {1: 5, 2: 10, 3: 15, 4: 20, 5: 25},     # HP %
+    7: {1: 3, 2: 5, 3: 8, 4: 12, 5: 15},       # Drop rate %
+    8: {1: 2, 2: 4, 3: 6, 4: 8, 5: 10},        # Dmg reduction %
+    9: {1: 5, 2: 10, 3: 15, 4: 20, 5: 25},     # Healing %
+    10: {1: 5, 2: 10, 3: 15, 4: 20, 5: 25},    # Element resist %
 }
 
 SKILL_UPGRADE_CONTRIBUTION = {1: 500, 2: 2000, 3: 5000, 4: 10000, 5: 20000}
@@ -353,6 +363,26 @@ class GuildPanelView(discord.ui.View):
         except discord.InteractionResponded:
             await interaction.edit_original_response(embed=embed, view=view)
 
+    @discord.ui.button(label="Storage 公会仓库", emoji="📦", style=discord.ButtonStyle.primary, row=0)
+    async def storage_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Guild Storage / 公会仓库."""
+        uid = str(interaction.user.id)
+        if uid != self.uid:
+            await interaction.response.send_message("Not your panel", ephemeral=True)
+            return
+
+        guild = _get_user_guild(uid)
+        if not guild:
+            await interaction.response.send_message("Not in a guild.", ephemeral=True)
+            return
+
+        view = GuildStorageView(self.uid, guild, main_view=self)
+        embed = view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=embed, view=view)
+
     @discord.ui.button(label="Guild War 公会战", emoji="⚔️", style=discord.ButtonStyle.danger, row=0)
     async def war_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         uid = str(interaction.user.id)
@@ -368,11 +398,10 @@ class GuildPanelView(discord.ui.View):
         embed = discord.Embed(
             title="⚔️ Guild War / 公会战",
             description=(
-                "Guild Wars happen every week!\n公会战每周进行！\n\n"
-                "Top 3 guilds by total damage get rewards for all members.\n"
-                "总伤害排名前3的公会所有成员获得奖励。\n\n"
+                "Guild Wars happen every **Saturday 20:00**!\n"
+                "公会战在 **每周六 20:00** 自动开启！\n\n"
                 f"**{guild['name']}** is ready for battle!\n"
-                "Guild War full mechanics coming soon!\n公会战完整机制即将推出！"
+                "Use `/gmpt-guild-war` to join the fight! / 用 `/gmpt-guild-war` 参战！"
             ),
             color=0xE74C3C,
         )
@@ -410,6 +439,90 @@ class GuildPanelView(discord.ui.View):
         except discord.NotFound:
             pass
 
+
+
+# ══════════════════════════════════════════════════════════════
+# GuildStorageView — Guild shared storage
+# ══════════════════════════════════════════════════════════════
+class GuildStorageView(discord.ui.View):
+    """公会仓库面板 / Guild Storage panel."""
+
+    def __init__(self, uid: str, guild: dict, main_view=None):
+        super().__init__(timeout=180)
+        self.uid = uid
+        self.guild = guild
+        self.main_view = main_view
+
+    def build_embed(self) -> discord.Embed:
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT id, item_name, item_type, quantity, donated_by, exchange_price "
+                "FROM guild_storage WHERE guild_id = ? AND quantity > 0 ORDER BY id",
+                (self.guild["id"],),
+            )
+            items = [dict(r) for r in cur.fetchall()]
+
+        embed = discord.Embed(
+            title=f"📦 Guild Storage / 公会仓库 — {self.guild['name']}",
+            color=0x8E44AD,
+        )
+        if not items:
+            embed.description = "仓库空空如也 / Storage is empty.
+使用 `/gmpt-guild donate-item` 捐献物品！"
+        else:
+            lines = []
+            for item in items:
+                price_str = f"{item['exchange_price']}贡献" if item['exchange_price'] > 0 else "免费"
+                lines.append(
+                    f"**#{item['id']}** {item['item_name']} x{item['quantity']} "
+                    f"({item['item_type']}) — {price_str} | by <@{item['donated_by']}>"
+                )
+            embed.description = "
+".join(lines[:20])
+            if len(items) > 20:
+                embed.set_footer(text=f"... 及另外 {len(items) - 20} 件物品")
+
+        embed.add_field(
+            name="使用方式 / How to Use",
+            value=(
+                "捐献 / Donate: `/gmpt-guild donate-item`
+"
+                "兑换 / Exchange: 点击下方兑换按钮
+"
+                "设置价格: 管理员 `/gmpt-guild set-storage-price`"
+            ),
+            inline=False,
+        )
+        return embed
+
+    @discord.ui.button(label="🔄 Exchange / 兑换", style=discord.ButtonStyle.primary, row=0)
+    async def exchange_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(
+            "使用 `/gmpt-guild exchange <item_id>` 兑换仓库物品。
+"
+            "Use `/gmpt-guild exchange <item_id>` to exchange storage items.",
+            ephemeral=True,
+        )
+
+    @discord.ui.button(label="Back 返回", emoji="🔙", style=discord.ButtonStyle.secondary, row=1)
+    async def back_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.main_view:
+            view = GuildPanelView(self.uid, main_view=self.main_view)
+            embed = view.build_embed()
+            try:
+                await interaction.response.edit_message(embed=embed, view=view)
+            except discord.InteractionResponded:
+                await interaction.edit_original_response(embed=embed, view=view)
+
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
 
 
 class GuildSkillView(discord.ui.View):
@@ -766,6 +879,116 @@ class GuildCog(commands.Cog):
             color=0x2ECC71,
         )
         await interaction.response.send_message(embed=embed)
+
+    @guild_group.command(name="donate-item", description="Donate an item to guild storage / 捐献物品到公会仓库")
+    @app_commands.describe(item_name="物品名称 / Item name", item_type="物品类型 / Item type (equipment/potion/material)", quantity="数量 / Quantity")
+    async def donate_item(self, interaction: discord.Interaction, item_name: str, item_type: str = "material", quantity: int = 1):
+        uid = str(interaction.user.id)
+        guild = _get_user_guild(uid)
+        if not guild:
+            await interaction.response.send_message("You are not in a guild!", ephemeral=True)
+            return
+
+        if quantity < 1:
+            await interaction.response.send_message("Quantity must be >= 1.", ephemeral=True)
+            return
+        if item_type not in ("equipment", "potion", "material"):
+            await interaction.response.send_message("Type must be: equipment / potion / material", ephemeral=True)
+            return
+
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO guild_storage (guild_id, item_name, item_type, quantity, donated_by) VALUES (?, ?, ?, ?, ?)",
+                (guild["id"], item_name, item_type, quantity, uid),
+            )
+            # Award contribution for donating
+            contrib_gain = quantity * 50
+            cur.execute(
+                "UPDATE mmorpg_guild_members SET contribution = contribution + ? WHERE user_id = ?",
+                (contrib_gain, uid),
+            )
+            cur.execute(
+                "UPDATE mmorpg_guilds SET total_contribution = total_contribution + ? WHERE id = ?",
+                (contrib_gain, guild["id"]),
+            )
+            conn.commit()
+
+        await interaction.response.send_message(
+            f"📦 Donated **{item_name}** x{quantity} ({item_type}) to guild storage! +{contrib_gain}贡献 / 捐献成功！"
+        )
+
+    @guild_group.command(name="exchange", description="Exchange guild storage item with contribution / 用贡献兑换仓库物品")
+    @app_commands.describe(item_id="仓库物品ID / Storage item ID")
+    async def exchange_item(self, interaction: discord.Interaction, item_id: int):
+        uid = str(interaction.user.id)
+        guild = _get_user_guild(uid)
+        if not guild:
+            await interaction.response.send_message("You are not in a guild!", ephemeral=True)
+            return
+
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT * FROM guild_storage WHERE id = ? AND guild_id = ?",
+                (item_id, guild["id"]),
+            )
+            item = cur.fetchone()
+
+        if not item:
+            await interaction.response.send_message("Item not found! / 物品不存在！", ephemeral=True)
+            return
+        if item["quantity"] <= 0:
+            await interaction.response.send_message("Item out of stock! / 物品已兑完！", ephemeral=True)
+            return
+
+        price = item["exchange_price"]
+        if price > 0 and guild["contribution"] < price:
+            await interaction.response.send_message(
+                f"You need {price} contribution, but have {guild['contribution']}. / 贡献不足！",
+                ephemeral=True,
+            )
+            return
+
+        # Deduct contribution and item
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            if price > 0:
+                cur.execute(
+                    "UPDATE mmorpg_guild_members SET contribution = contribution - ? WHERE user_id = ?",
+                    (price, uid),
+                )
+            cur.execute(
+                "UPDATE guild_storage SET quantity = quantity - 1 WHERE id = ?",
+                (item_id,),
+            )
+            conn.commit()
+
+        await interaction.response.send_message(
+            f"🔄 Exchanged **{item['item_name']}** for {price} contribution! / 兑换成功！"
+        )
+
+    @guild_group.command(name="set-storage-price", description="Set exchange price for storage item (admin only) / 设置仓库物品兑换价格")
+    @app_commands.describe(item_id="仓库物品ID / Storage item ID", price="兑换价格(贡献值) / Exchange price")
+    async def set_storage_price(self, interaction: discord.Interaction, item_id: int, price: int):
+        uid = str(interaction.user.id)
+        guild = _get_user_guild(uid)
+        if not guild:
+            await interaction.response.send_message("You are not in a guild!", ephemeral=True)
+            return
+        if guild["owner_id"] != uid:
+            await interaction.response.send_message("Only guild owner can set prices! / 只有会长可以设置价格！", ephemeral=True)
+            return
+
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE guild_storage SET exchange_price = ? WHERE id = ? AND guild_id = ?",
+                (price, item_id, guild["id"]),
+            )
+            conn.commit()
+
+        await interaction.response.send_message(f"✅ Price set to {price} contribution for item #{item_id}.")
 
     @app_commands.command(name="gmpt-guild", description="Guild System / 公会系统 — manage your guild!")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
