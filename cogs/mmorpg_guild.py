@@ -468,8 +468,7 @@ class GuildStorageView(discord.ui.View):
             color=0x8E44AD,
         )
         if not items:
-            embed.description = "仓库空空如也 / Storage is empty.
-使用 `/gmpt-guild donate-item` 捐献物品！"
+            embed.description = "仓库空空如也 / Storage is empty.\n使用 `/gmpt-guild donate-item` 捐献物品！"
         else:
             lines = []
             for item in items:
@@ -478,18 +477,15 @@ class GuildStorageView(discord.ui.View):
                     f"**#{item['id']}** {item['item_name']} x{item['quantity']} "
                     f"({item['item_type']}) — {price_str} | by <@{item['donated_by']}>"
                 )
-            embed.description = "
-".join(lines[:20])
+            embed.description = "\n".join(lines[:20])
             if len(items) > 20:
                 embed.set_footer(text=f"... 及另外 {len(items) - 20} 件物品")
 
         embed.add_field(
             name="使用方式 / How to Use",
             value=(
-                "捐献 / Donate: `/gmpt-guild donate-item`
-"
-                "兑换 / Exchange: 点击下方兑换按钮
-"
+                "捐献 / Donate: `/gmpt-guild donate-item`\n"
+                "兑换 / Exchange: 点击下方兑换按钮\n"
                 "设置价格: 管理员 `/gmpt-guild set-storage-price`"
             ),
             inline=False,
@@ -499,8 +495,7 @@ class GuildStorageView(discord.ui.View):
     @discord.ui.button(label="🔄 Exchange / 兑换", style=discord.ButtonStyle.primary, row=0)
     async def exchange_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message(
-            "使用 `/gmpt-guild exchange <item_id>` 兑换仓库物品。
-"
+            "使用 `/gmpt-guild exchange <item_id>` 兑换仓库物品。\n"
             "Use `/gmpt-guild exchange <item_id>` to exchange storage items.",
             ephemeral=True,
         )

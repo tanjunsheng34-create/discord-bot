@@ -119,13 +119,9 @@ def _send_spectator_invite(channel, battle_id, room):
     embed = discord.Embed(
         title="🎲 Spectator Betting Open! / 观战下注已开放！",
         description=(
-            f"**{side_a}** vs **{side_b}**
-"
-            f"Bet / 赌注: {room.get('bet', 0)}₲
-
-"
-            "Click below to bet on a side! / 点击下方按钮下注！
-"
+            f"**{side_a}** vs **{side_b}**\n"
+            f"Bet / 赌注: {room.get('bet', 0)}₲\n\n"
+            "Click below to bet on a side! / 点击下方按钮下注！\n"
             f"Bets close in {BET_COLLECTION_TIMEOUT}s / {BET_COLLECTION_TIMEOUT}秒后截止"
         ),
         color=0xF39C12,
@@ -248,8 +244,7 @@ async def _settle_spectator_bets(room: dict, winner_side: str, channel):
 
     embed = discord.Embed(
         title="🎲 Spectator Bets Settled! / 观战下注结算！",
-        description="
-".join(results) if results else "No winners / 无人获胜",
+        description="\n".join(results) if results else "No winners / 无人获胜",
         color=0xF1C40F,
     )
     embed.set_footer(text=f"Total pool: {total_pool}₲ | 10% fee: {system_fee}₲ | Paid: {winnings_pool}₲")
