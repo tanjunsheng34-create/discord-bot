@@ -885,6 +885,15 @@ class RouletteView(discord.ui.View):
                        custom_id="roulette_single")
     async def single_btn(self, interaction: discord.Interaction, button):
         await interaction.response.send_modal(RouletteNumberModal(self))
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 
 
 class RouletteNumberModal(discord.ui.Modal, title="选择数字 / Pick Number (1-36)"):
@@ -1069,6 +1078,15 @@ class HighLowView(discord.ui.View):
 # ══════════════════════════════════════════════════════════════
 # 🔢 猜数字 / Number Guessing
 # ══════════════════════════════════════════════════════════════
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 
 class NumberGuessView(discord.ui.View):
     def __init__(self, user_id: str, bet: int, secret: int):
@@ -1307,6 +1325,15 @@ class SlotView(discord.ui.View):
 # ══════════════════════════════════════════════════════════════
 # 🎲 掷骰子 / Dice Roll (Task D)
 # ══════════════════════════════════════════════════════════════
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 
 class DiceRollView(discord.ui.View):
     """Dice roll betting: guess Big/Small or exact number."""
@@ -1403,6 +1430,15 @@ class DiceRollView(discord.ui.View):
     @discord.ui.button(label="🎲 押7点 (x3)", style=discord.ButtonStyle.secondary, row=0)
     async def seven_btn(self, interaction: discord.Interaction, button):
         await self._do_roll(interaction, "seven")
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 
 
 class DiceNumberModal(discord.ui.Modal, title="猜具体数字 / Pick Number (2-12)"):
@@ -1498,6 +1534,15 @@ class CoinFlipView(discord.ui.View):
 # ══════════════════════════════════════════════════════════════
 # GamblingLobbyView — Unified gambling lobby for MMORPG Main Panel
 # ══════════════════════════════════════════════════════════════
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 class GamblingLobbyView(discord.ui.View):
     """Lobby panel for all gambling games. Players enter via slash commands."""
     def __init__(self, uid: str, main_view=None):

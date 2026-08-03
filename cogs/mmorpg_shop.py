@@ -1330,6 +1330,15 @@ class PotionBagView(discord.ui.View):
 # ══════════════════════════════════════════════════════════════
 # Potion Browse View — Categories with tabs
 # ══════════════════════════════════════════════════════════════
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 class PotionBrowseView(discord.ui.View):
     def __init__(self, potions: dict, user_level: int, user_id: str, main_view=None):
         super().__init__(timeout=180)
@@ -1578,6 +1587,15 @@ class ShopHubView(discord.ui.View):
 # ══════════════════════════════════════════════════════════════
 # EquipmentShopView — Equipment purchase shop
 # ══════════════════════════════════════════════════════════════
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 EQUIPMENT_SHOP = {
     "weapon": [
         {"name": "多兰之刃 Doran's Blade", "quality": "common", "stat": "atk", "stat_value": 8, "price": 18, "emoji": "⚔️"},
@@ -1820,6 +1838,15 @@ class EquipmentShopView(discord.ui.View):
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
             await interaction.edit_original_response(embed=embed, view=view)
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 
 
 async def setup(bot):
@@ -2064,3 +2091,12 @@ class EquipmentGachaView(discord.ui.View):
             if roll <= cumulative:
                 return quality
         return "common"
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+

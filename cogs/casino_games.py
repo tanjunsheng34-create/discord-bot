@@ -447,6 +447,15 @@ class TicTacToeView(discord.ui.View):
 # ══════════════════════════════════════════════════════════════
 # 🏇 赛马 / Horse Race
 # ══════════════════════════════════════════════════════════════
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 
 HORSE_EMOJIS = ['🐎', '🐴', '🦄', '🐂', '🐃', '🐏']
 HORSE_ODDS = [5.0, 4.0, 3.0, 2.0, 1.5, 5.0]
@@ -678,6 +687,15 @@ class TicTacToeSelectView(discord.ui.View):
                 await interaction.response.send_message("Error selecting opponent / 选择对手出错", ephemeral=True)
             except Exception:
                 pass
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 
 
 class TicTacToeBetModal(discord.ui.Modal, title="❌⭕ 井字棋下注 / Tic Tac Toe Bet"):
@@ -835,6 +853,15 @@ class GameLobbyView(discord.ui.View):
 # ══════════════════════════════════════════════════════════════
 # CasinoGames Cog
 # ══════════════════════════════════════════════════════════════
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 
 class CasinoGames(CogBase):
     """赌场小游戏 / Casino Mini Games — Blackjack, Tic Tac Toe, Horse Race"""

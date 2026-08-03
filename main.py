@@ -46,7 +46,6 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 COMMON_COGS = [
     "cogs.voice_tracker",
     "cogs.stats",
-    "cogs.admin_backup",
     "cogs.admin",
     "cogs.dashboard",
 ]
@@ -72,10 +71,18 @@ MMORPG_COGS = {
     "cogs.mmorpg_achievement",
     "cogs.mmorpg_pet",
     "cogs.mmorpg_guild",
+    "cogs.mmorpg_guild_war",
+    "cogs.mmorpg_arena_3v3",
     "cogs.mmorpg_auction",
     "cogs.mmorpg_enchant",
     "cogs.mmorpg_raid",
     "cogs.mmorpg_ranked",
+    "cogs.mmorpg_enhance",
+    "cogs.mmorpg_gems",
+    "cogs.mmorpg_collection",
+    "cogs.mmorpg_events",
+    "cogs.mmorpg_market",
+    "cogs.mmorpg_tower",
 }
 COMMUNITY_COGS = {
     "cogs.pets",
@@ -100,7 +107,6 @@ FULL_ONLY_COGS = {
     "cogs.shop",
     "cogs.announce",
     "cogs.leaderboard",
-    "cogs.auction",
     "cogs.gambling",
     "cogs.casino_games",
     "cogs.poker",

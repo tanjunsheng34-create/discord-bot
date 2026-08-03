@@ -93,6 +93,88 @@ GAMES_CHANNEL_ID: int = 1394296801246445708
 # ── Guild ID for instant guild sync ──
 GUILD_ID = os.getenv("GUILD_ID")
 
+# ══════════════════════════════════════════════════════════════
+# MMORPG Element System
+# ══════════════════════════════════════════════════════════════
+ELEMENTS = ["Fire", "Water", "Wind", "Earth"]
+
+ELEMENT_WEAKNESS = {
+    "Fire": "Water",   # Fire is weak to Water
+    "Water": "Earth",  # Water is weak to Earth
+    "Earth": "Wind",   # Earth is weak to Wind
+    "Wind": "Fire",    # Wind is weak to Fire
+}
+
+ELEMENT_STRONG = {
+    "Fire": "Wind",    # Fire > Wind
+    "Wind": "Earth",   # Wind > Earth
+    "Earth": "Water",  # Earth > Water
+    "Water": "Fire",   # Water > Fire
+}
+
+ELEMENT_ADVANTAGE_MULTIPLIER = 1.30  # +30% damage when element advantage
+ELEMENT_GEAR_BONUS = 0.10            # +10% stat boost for matching element gear
+
+# Element assignment by class
+CLASS_ELEMENT = {
+    "warrior": "Earth",
+    "mage": "Fire",
+    "assassin": "Wind",  # Rogue class
+    "priest": "Water",
+    "paladin": "Earth",
+    "archer": "Wind",
+}
+
+# ── Boss auto-spawn ──
+BOSS_SPAWN_CHANNEL_ID: int = 1532937712041066647
+BOSS_SPAWN_INTERVAL: int = 7200  # 2 hours in seconds
+BOSS_SPAWN_DIFFICULTY_WEIGHTS = {"Easy": 40, "Medium": 30, "Hard": 20, "Extreme": 10}
+BOSS_AUTO_TIMEOUT: int = 1800  # 30 minutes in seconds
+
+# Boss name pool for auto-spawn
+BOSS_NAME_POOL = [
+    "烈焰魔龙", "冰霜巨人", "暗影领主", "地狱犬",
+    "风暴之鹰", "深海巨兽", "岩石巨像", "雷霆战熊",
+    "幽冥猎手", "炽焰凤凰", "剧毒蛇皇", "幻影刺客",
+    "虚空行者", "岩浆巨人", "暴风之眼", "月影狼王",
+]
+
+# ══════════════════════════════════════════════════════════════
+# MMORPG Event Schedule / 限时活动日程
+# ══════════════════════════════════════════════════════════════
+# month → day → (event_key, event_name, boss_name)
+EVENT_SCHEDULE = {
+    1: {  # January - New Year
+        1: ("newyear_dragon", "新年 Dragon", "年兽龙王"),
+        2: ("newyear_dragon", "新年 Dragon", "年兽龙王"),
+        3: ("newyear_dragon", "新年 Dragon", "年兽龙王"),
+    },
+    10: {  # October - Halloween
+        30: ("halloween_pumpkin", "万圣 Pumpkin King", "南瓜王"),
+        31: ("halloween_pumpkin", "万圣 Pumpkin King", "南瓜王"),
+    },
+    12: {  # December - Christmas
+        24: ("christmas_ice", "圣诞 Ice Lord", "冰霜领主"),
+        25: ("christmas_ice", "圣诞 Ice Lord", "冰霜领主"),
+    },
+    7: {  # July - Summer
+        1: ("summer_beach", "暑假 Beach Boss", "沙滩霸主"),
+        15: ("summer_beach", "暑假 Beach Boss", "沙滩霸主"),
+    },
+    8: {  # August - Summer
+        1: ("summer_beach", "暑假 Beach Boss", "沙滩霸主"),
+    },
+}
+
+# Event channel ID (same as boss spawn channel by default)
+EVENT_CHANNEL_ID: int = 1532937712041066647
+
+# Event boss survival time (2 hours in seconds)
+EVENT_BOSS_SURVIVAL: int = 7200
+
+# Weekend double drop event (random: 20% chance each Saturday/Sunday)
+DOUBLE_DROP_WEEKEND_CHANCE: float = 0.20
+
 # Ensure database directory exists
 _db_dir = os.path.dirname(DATABASE)
 if _db_dir:

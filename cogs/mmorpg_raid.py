@@ -20,6 +20,72 @@ from cogs.economy import add_coins, get_balance
 
 logger = logging.getLogger(__name__)
 
+# ── Element System ──
+ELEMENTS = ["Fire", "Water", "Wind", "Earth"]
+
+ELEMENT_WEAKNESS = {
+    "Fire": "Wind",
+    "Wind": "Earth",
+    "Earth": "Water",
+    "Water": "Fire",
+}
+
+
+def _get_player_element(uid: str) -> str | None:
+    """Read player's element from DB."""
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT element FROM users WHERE discord_id = ?", (uid,))
+        row = cur.fetchone()
+    return row["element"] if row else None
+
+
+def _calc_element_multiplier(attacker_element: str | None, defender_element: str | None) -> float:
+    """Return damage multiplier based on element weakness."""
+    if not attacker_element or not defender_element:
+        return 1.0
+    if attacker_element == defender_element:
+        return 1.0
+    if ELEMENT_WEAKNESS.get(attacker_element) == defender_element:
+        return 1.3
+    if ELEMENT_WEAKNESS.get(defender_element) == attacker_element:
+        return 0.8
+    return 1.0
+
+
+def _try_apply_status(target: dict, log_lines: list, is_player: bool = True):
+    """30% chance on CRIT to apply a random status effect."""
+    if random.random() >= 0.30:
+        return
+    status = random.choice(["poison", "burn", "freeze", "stun"])
+    if is_player:
+        if status == "poison":
+            target["poison"] = True
+            target["poison_turns"] = 3
+            log_lines.append(f"☠️ 玩家中毒！Poisoned! -5%HP/turn for 3 turns")
+        elif status == "burn":
+            target["burn"] = True
+            target["burn_turns"] = 3
+            log_lines.append(f"🔥 玩家灼烧！Burned! -3%HP+ATK↓10% for 3 turns")
+        elif status == "freeze":
+            target["frozen"] = True
+            target["frozen_turns"] = 2
+            log_lines.append(f"🧊 玩家冰冻！Frozen! Skip next turn")
+        elif status == "stun":
+            target["stunned"] = True
+            log_lines.append(f"💫 玩家眩晕！Stunned! Skip next turn")
+    else:
+        if status == "poison":
+            target["poison"] = True
+            target["poison_turns"] = 3
+            log_lines.append(f"☠️ Boss 中毒！Poisoned!")
+        elif status == "burn":
+            target["burn"] = True
+            target["burn_turns"] = 3
+            log_lines.append(f"🔥 Boss 灼烧！Burned!")
+        else:
+            log_lines.append(f"🛡️ Boss 免疫控制！Immune to {status}")
+
 # ══════════════════════════════════════════════════════════════
 # Raid Boss Catalog
 # ══════════════════════════════════════════════════════════════
@@ -31,6 +97,7 @@ RAID_BOSSES = {
         "hp": 3000,
         "atk": 100,
         "def": 30,
+        "element": "Fire",
         "min_level": 30,
         "recommend": "3人 Lv.30+",
         "rewards_gold": 500,
@@ -45,6 +112,7 @@ RAID_BOSSES = {
         "hp": 5000,
         "atk": 140,
         "def": 40,
+        "element": "Wind",
         "min_level": 45,
         "recommend": "3人 Lv.45+",
         "rewards_gold": 800,
@@ -59,6 +127,7 @@ RAID_BOSSES = {
         "hp": 8000,
         "atk": 180,
         "def": 50,
+        "element": "Water",
         "min_level": 55,
         "recommend": "3人 Lv.55+",
         "rewards_gold": 1200,
@@ -209,6 +278,15 @@ class RaidLobbyView(discord.ui.View):
 # ══════════════════════════════════════════════════════════════
 # Raid Room View
 # ══════════════════════════════════════════════════════════════
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 class RaidRoomView(discord.ui.View):
     """队伍房间面板 — 选角色、准备、开战."""
 
@@ -379,6 +457,15 @@ class RaidRoomView(discord.ui.View):
 # ══════════════════════════════════════════════════════════════
 # RaidBattleView — Select 驱动回合制 Raid 战斗
 # ══════════════════════════════════════════════════════════════
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 class RaidBattleView(discord.ui.View):
     """Select-driven turn-based Raid battle. One player acts per interaction."""
 
@@ -552,6 +639,7 @@ class RaidBattleView(discord.ui.View):
             if crit:
                 dmg = int(dmg * 2.0)
                 self.round_log.append(f"⚔️ <@{uid}> 攻击 — **{dmg}** DMG！💥 暴击！")
+                _try_apply_status(self.boss, self.round_log, is_player=False)
             else:
                 self.round_log.append(f"⚔️ <@{uid}> 攻击 — **{dmg}** DMG！")
             self.boss["hp"] = max(0, self.boss["hp"] - dmg)
@@ -568,6 +656,7 @@ class RaidBattleView(discord.ui.View):
                 if crit:
                     dmg = int(dmg * 2.0)
                     self.round_log.append(f"🛡️ <@{uid}> Shield Bash — **{dmg}** DMG！💥 暴击！+Shield Wall!")
+                    _try_apply_status(self.boss, self.round_log, is_player=False)
                 else:
                     self.round_log.append(f"🛡️ <@{uid}> Shield Bash — **{dmg}** DMG！+Shield Wall 减伤!")
                 self.boss["hp"] = max(0, self.boss["hp"] - dmg)
@@ -581,6 +670,7 @@ class RaidBattleView(discord.ui.View):
                 if crit:
                     dmg = int(dmg * 2.0)
                     self.round_log.append(f"⚡ <@{uid}> Power Strike — **{dmg}** DMG！💥 暴击！")
+                    _try_apply_status(self.boss, self.round_log, is_player=False)
                 else:
                     self.round_log.append(f"⚡ <@{uid}> Power Strike — **{dmg}** DMG！")
                 self.boss["hp"] = max(0, self.boss["hp"] - dmg)
@@ -624,7 +714,11 @@ class RaidBattleView(discord.ui.View):
         self.shield_buffs.pop(uid, None)
 
     def _calc_dmg(self, p: dict) -> int:
-        return max(1, p["atk"] + random.randint(-5, 10) - self.boss["def"] // 3)
+        base = max(1, p["atk"] + random.randint(-5, 10) - self.boss["def"] // 3)
+        player_element = _get_player_element(str(p["uid"]))
+        boss_element = self.boss.get("element")
+        elem_mult = _calc_element_multiplier(player_element, boss_element)
+        return int(base * elem_mult)
 
     async def _advance_turn(self):
         """Advance to next player. If all acted, boss attacks."""
@@ -683,6 +777,11 @@ class RaidBattleView(discord.ui.View):
 
                 is_crit = random.random() < 0.20
                 boss_dmg = max(1, self.boss["atk"] + random.randint(-10, 10) - target["def"] // 2)
+                # Element multiplier: boss vs player
+                boss_element = self.boss.get("element")
+                player_element = _get_player_element(str(target["uid"]))
+                elem_mult = _calc_element_multiplier(boss_element, player_element)
+                boss_dmg = int(boss_dmg * elem_mult)
 
                 # Shield buff
                 shield = self.shield_buffs.pop(target_id, 0)
@@ -696,6 +795,7 @@ class RaidBattleView(discord.ui.View):
                         f"👊 **{self.boss['emoji']} {self.boss['name']}** 暴击 <@{target_id}> — **{boss_dmg}** DMG！💥"
                         f" (仇恨: {target['aggro']})"
                     )
+                    _try_apply_status(target, self.round_log, is_player=True)
                 else:
                     self.round_log.append(
                         f"👊 **{self.boss['emoji']} {self.boss['name']}** 攻击 <@{target_id}> — **{boss_dmg}** DMG"
@@ -794,6 +894,15 @@ class RaidBattleView(discord.ui.View):
 # ══════════════════════════════════════════════════════════════
 # Raid Cog
 # ══════════════════════════════════════════════════════════════
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 class RaidCog(CogBase):
     """MMORPG Raid 副本系统."""
 

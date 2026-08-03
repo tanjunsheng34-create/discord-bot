@@ -428,8 +428,7 @@ class EquipmentView(discord.ui.View):
         except Exception as e:
             logger.error(f"Best equip error (uid={self.uid}): {e}", exc_info=True)
             try:
-                await interaction.response.send_message(
-                    "一键装备出错 / Best equip error", ephemeral=True)
+                await interaction.edit_original_response(content="一键装备出错 / Best equip error")
             except Exception:
                 logger.error("Best equip send_message error", exc_info=True)
 
@@ -930,6 +929,15 @@ class EquipmentView(discord.ui.View):
                     "处理出错 / Error", ephemeral=True)
             except Exception:
                 pass
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 
 
 
@@ -1036,6 +1044,15 @@ class EnhanceSelectView(discord.ui.View):
                     "强化面板加载出错 / Error loading enhancement panel", ephemeral=True)
             except Exception:
                 logger.error("Enhance select error send_message failed", exc_info=True)
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 
 
 class EnhanceTargetView(discord.ui.View):
@@ -1286,6 +1303,15 @@ class EnhanceTargetView(discord.ui.View):
             await interaction.edit_original_response(embed=embed, view=self.eq_view, content="")
         except Exception as e:
             logger.error(f"EnhanceTargetView _back_callback error: {e}", exc_info=True)
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 
 
 def _format_stat_display(stat: str, stat_value) -> str:
@@ -1812,6 +1838,15 @@ class EquipSelectView(discord.ui.View):
                 )
             except Exception:
                 logger.error("Equip select send_message error", exc_info=True)
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 
 
 async def setup(bot):

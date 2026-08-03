@@ -22,14 +22,241 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# ── Element System ──
+ELEMENTS = ["Fire", "Water", "Wind", "Earth"]
+
+ELEMENT_WEAKNESS = {
+    "Fire": "Wind",
+    "Wind": "Earth",
+    "Earth": "Water",
+    "Water": "Fire",
+}
+
+
+def _get_player_element(uid: str) -> str | None:
+    """Read player's element from DB."""
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT element FROM users WHERE discord_id = ?", (uid,))
+        row = cur.fetchone()
+    return row["element"] if row else None
+
+
+def _calc_element_multiplier(attacker_element: str | None, defender_element: str | None) -> float:
+    """Return damage multiplier based on element weakness."""
+    if not attacker_element or not defender_element:
+        return 1.0
+    if attacker_element == defender_element:
+        return 1.0
+    if ELEMENT_WEAKNESS.get(attacker_element) == defender_element:
+        return 1.3
+    if ELEMENT_WEAKNESS.get(defender_element) == attacker_element:
+        return 0.8
+    return 1.0
+
+
+def _try_apply_status(target: dict, log_lines: list):
+    """30% chance on CRIT to apply a random status effect."""
+    if random.random() >= 0.30:
+        return
+    status = random.choice(["poison", "burn", "freeze", "stun"])
+    if status == "poison":
+        target["dot_dmg"] = int(target["max_hp"] * 0.05)
+        target["dot_turns"] = 3
+        log_lines.append(f"☠️ {target['username']} 中毒！Poisoned! -5%HP/turn for 3 turns")
+    elif status == "burn":
+        target["burn"] = True
+        target["burn_turns"] = 3
+        log_lines.append(f"🔥 {target['username']} 灼烧！Burned! -3%HP+ATK↓10% for 3 turns")
+    elif status == "freeze":
+        target["frozen"] = True
+        target["frozen_turns"] = 2
+        log_lines.append(f"🧊 {target['username']} 冰冻！Frozen! Skip next turn")
+    elif status == "stun":
+        target["stunned"] = True
+        log_lines.append(f"💫 {target['username']} 眩晕！Stunned! Skip next turn")
+
+
 CHALLENGE_TIMEOUT = 60   # seconds to accept/decline
 TURN_TIMEOUT = 30        # seconds per turn
 CHALLENGE_ID_COUNTER = 1
+BET_COLLECTION_TIMEOUT = 45  # seconds to collect bets before battle starts
+_spectator_bets: dict = {}  # battle_id -> {bettor_id: {"side": "A"/"B", "amount": int}}
+_battle_ids: dict = {}  # msg_id -> battle_id
+_battle_counter = 0
+
+# 3v3 Arena state
+_arena_lobbies: dict = {}  # lobby_id -> {"leader": uid, "team": [uid,...], "side": "A"/"B", "expires": ts}
+ARENA_LOBBY_TIMEOUT = 60  # seconds for members to join
 
 
 # ══════════════════════════════════════════════════════════════
 # Helpers
 # ══════════════════════════════════════════════════════════════
+
+
+# ══════════════════════════════════════════════════════════════
+# Spectator Betting View
+# ══════════════════════════════════════════════════════════════
+def _send_spectator_invite(channel, battle_id, room):
+    """Send global spectator embed with bet buttons."""
+    global _battle_ids, _battle_counter
+    _battle_counter += 1
+    bid = f"battle_{_battle_counter}"
+    _battle_ids[bid] = battle_id
+    _spectator_bets[battle_id] = {}
+
+    # Determine side names
+    if room.get("is_3v3"):
+        side_a = " + ".join(p["username"] for p in room["team_a"]) if room.get("team_a") else "Team A"
+        side_b = " + ".join(p["username"] for p in room["team_b"]) if room.get("team_b") else "Team B"
+    else:
+        chal_id = room["challenger_id"]
+        def_id = room["defender_id"]
+        side_a = room["players"][chal_id]["username"]
+        side_b = room["players"][def_id]["username"]
+
+    embed = discord.Embed(
+        title="🎲 Spectator Betting Open! / 观战下注已开放！",
+        description=(
+            f"**{side_a}** vs **{side_b}**
+"
+            f"Bet / 赌注: {room.get('bet', 0)}₲
+
+"
+            "Click below to bet on a side! / 点击下方按钮下注！
+"
+            f"Bets close in {BET_COLLECTION_TIMEOUT}s / {BET_COLLECTION_TIMEOUT}秒后截止"
+        ),
+        color=0xF39C12,
+    )
+    embed.add_field(name="Side A (Left) / 左侧", value=side_a, inline=True)
+    embed.add_field(name="Side B (Right) / 右侧", value=side_b, inline=True)
+    embed.set_footer(text=f"Battle ID: {bid} | 10% fee to system")
+
+    view = SpectatorBetView(battle_id, bid)
+    return embed, view
+
+
+class SpectatorBetView(discord.ui.View):
+    """Spectator betting buttons."""
+
+    def __init__(self, battle_id, bid):
+        super().__init__(timeout=BET_COLLECTION_TIMEOUT)
+        self.battle_id = battle_id
+        self.bid = bid
+
+    @discord.ui.button(label="Bet A (Left)", style=discord.ButtonStyle.primary, emoji="🔵", row=0)
+    async def bet_a(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._bet_modal(interaction, "A")
+
+    @discord.ui.button(label="Bet B (Right)", style=discord.ButtonStyle.danger, emoji="🔴", row=0)
+    async def bet_b(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._bet_modal(interaction, "B")
+
+    async def _bet_modal(self, interaction: discord.Interaction, side: str):
+        modal = BetModal(self.battle_id, side)
+        await interaction.response.send_modal(modal)
+
+
+class BetModal(discord.ui.Modal, title="Place Your Bet / 下注"):
+    def __init__(self, battle_id: str, side: str):
+        super().__init__(timeout=60)
+        self.battle_id = battle_id
+        self.side = side
+        self.amount = discord.ui.TextInput(
+            label="Bet Amount (₲) / 下注金额",
+            placeholder="Enter amount / 输入金额",
+            min_length=1,
+            max_length=10,
+        )
+        self.add_item(self.amount)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+
+        try:
+            amt = int(self.amount.value)
+            if amt <= 0:
+                raise ValueError
+        except ValueError:
+            await interaction.response.send_message("Invalid amount! / 金额无效！", ephemeral=True)
+            return
+
+        bal = get_balance(uid)
+        if amt > bal:
+            await interaction.response.send_message(
+                f"Insufficient balance! You have {bal}₲ / 余额不足！仅有 {bal}₲",
+                ephemeral=True,
+            )
+            return
+
+        bets = _spectator_bets.get(self.battle_id, {})
+        if uid in bets:
+            await interaction.response.send_message(
+                "You already placed a bet! / 你已经下注过了！",
+                ephemeral=True,
+            )
+            return
+
+        # Deduct bet
+        add_coins(uid, -amt, f"PVP观战下注 / Spectator bet (Battle {self.bid})")
+        bets[uid] = {"side": self.side, "amount": amt}
+
+        side_name = {"A": "Left/左侧", "B": "Right/右侧"}[self.side]
+        await interaction.response.send_message(
+            f"🎲 Bet placed: **{amt}₲** on **{side_name}**! / 已下注 {amt}₲",
+            ephemeral=True,
+        )
+
+
+async def _settle_spectator_bets(room: dict, winner_side: str, channel):
+    """After battle, settle spectator bets."""
+    battle_id = room.get("_spectator_battle_id")
+    if not battle_id or battle_id not in _spectator_bets:
+        return
+
+    bets = _spectator_bets.pop(battle_id, {})
+    if not bets:
+        return
+
+    # Calculate pools
+    pool_a = sum(b["amount"] for b in bets.values() if b["side"] == "A")
+    pool_b = sum(b["amount"] for b in bets.values() if b["side"] == "B")
+    total_pool = pool_a + pool_b
+    system_fee = int(total_pool * 0.1)
+    winnings_pool = total_pool - system_fee
+
+    # Determine winning pool
+    if winner_side == "A":
+        winning_bets = {uid: b for uid, b in bets.items() if b["side"] == "A"}
+        winners_pool = pool_a
+    else:
+        winning_bets = {uid: b for uid, b in bets.items() if b["side"] == "B"}
+        winners_pool = pool_b
+
+    if not winning_bets or winners_pool == 0:
+        return
+
+    # Distribute winnings
+    results = []
+    for uid, b in winning_bets.items():
+        share_pct = b["amount"] / winners_pool
+        payout = int(winnings_pool * share_pct)
+        add_coins(uid, payout, f"PVP观战分红 / Spectator payout (Battle)")
+        results.append(f"<@{uid}> won / 赢得 **{payout}₲** (bet / 下注 {b['amount']}₲)")
+
+    embed = discord.Embed(
+        title="🎲 Spectator Bets Settled! / 观战下注结算！",
+        description="
+".join(results) if results else "No winners / 无人获胜",
+        color=0xF1C40F,
+    )
+    embed.set_footer(text=f"Total pool: {total_pool}₲ | 10% fee: {system_fee}₲ | Paid: {winnings_pool}₲")
+    try:
+        await channel.send(embed=embed)
+    except (discord.HTTPException, discord.Forbidden):
+        pass
 
 def _get_user_stats(uid: str) -> dict:
     with get_db_ctx() as conn:
@@ -402,6 +629,15 @@ class PVPCog(CogBase):
 
         turn_count = 0
 
+        # Spectator betting invite for PVP battles
+        if not room.get("is_3v3"):
+            try:
+                spec_embed, spec_view = _send_spectator_invite(channel, None, room)
+                room["_spectator_battle_id"] = list(_spectator_bets.keys())[-1] if _spectator_bets else None
+                await channel.send(embed=spec_embed, view=spec_view)
+            except (discord.HTTPException, discord.Forbidden, AttributeError):
+                pass
+
         while room["status"] == "fighting":
             turn_count += 1
 
@@ -555,9 +791,16 @@ class PVPCog(CogBase):
         elif action == "attack":
             base_atk = p_data["atk"] + p_data["buff_atk"]
             dmg = base_atk + random.randint(1, 10)
-            if random.random() < 0.1:
+            # Element multiplier
+            player_elem = _get_player_element(current_id)
+            opponent_elem = _get_player_element(opponent_id)
+            elem_mult = _calc_element_multiplier(player_elem, opponent_elem)
+            dmg = int(dmg * elem_mult)
+            is_crit = random.random() < 0.1
+            if is_crit:
                 dmg = int(dmg * 2)
                 crit = "💥 CRIT! / 暴击！"
+                _try_apply_status(o_data, [])
             else:
                 crit = ""
             o_data["hp"] = max(0, o_data["hp"] - dmg)
@@ -577,6 +820,10 @@ class PVPCog(CogBase):
             if p_data["mp"] < skill_def["mp_cost"]:
                 # Fallback to normal attack
                 dmg = p_data["atk"] + random.randint(1, 10)
+                player_elem = _get_player_element(current_id)
+                opponent_elem = _get_player_element(opponent_id)
+                elem_mult = _calc_element_multiplier(player_elem, opponent_elem)
+                dmg = int(dmg * elem_mult)
                 o_data["hp"] = max(0, o_data["hp"] - dmg)
                 stats["total_dmg"] += dmg
                 return f"⚡ Not enough MP! Auto attack — **{dmg}** DMG / MP 不足，自动普攻"
@@ -766,6 +1013,10 @@ class PVPCog(CogBase):
             await room["msg"].edit(embed=embed, view=None)
         except (discord.NotFound, discord.HTTPException):
             await channel.send(embed=embed)
+
+        # Settle spectator bets
+        winner_side = "A" if winner_id == chal_id else ("B" if winner_id == def_id else None)
+        await _settle_spectator_bets(room, winner_side, channel)
 
         # Save HP/MP
         for pid, pdata in room["players"].items():
@@ -1071,6 +1322,15 @@ class PVPLobbyView(discord.ui.View):
             except discord.InteractionResponded:
                 await interaction.edit_original_response(embed=embed, view=self.main_view)
 
+
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
 
 async def setup(bot):
     await bot.add_cog(PVPCog(bot))

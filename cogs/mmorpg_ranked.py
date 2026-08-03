@@ -430,6 +430,32 @@ class RankedCog(CogBase):
         return {"hp": 100, "max_hp": 100, "mp": 50, "max_mp": 50, "attack": 10, "defense": 5, "level": 1}
 
     # ══════════════════════════════════════════════════════════
+    # Public helper — called by arena / external systems
+    # ══════════════════════════════════════════════════════════
+    def add_ranked_points(self, uid: str, is_win: bool, mvp_bonus: int = 0):
+        """Award ranked MMR points to a player (win: +25, loss: -15, MVP: +10)."""
+        stats = _get_ranked_stats(uid)
+        if is_win:
+            stats["mmr"] += 25
+            stats["wins"] += 1
+            stats["season_wins"] += 1
+            stats["current_streak"] = max(0, stats.get("current_streak", 0)) + 1
+            if stats["current_streak"] > stats.get("best_streak", 0):
+                stats["best_streak"] = stats["current_streak"]
+            if mvp_bonus:
+                stats["mmr"] += mvp_bonus
+                stats["mvp_count"] = stats.get("mvp_count", 0) + 1
+        else:
+            stats["mmr"] = max(0, stats["mmr"] - 15)
+            stats["losses"] += 1
+            stats["season_losses"] += 1
+            stats["current_streak"] = 0
+        stats["total_games"] = stats.get("total_games", 0) + 1
+        _update_tier(stats)
+        _save_ranked_stats(uid, stats)
+        return stats
+
+    # ══════════════════════════════════════════════════════════
     # Season Reset (1st of each month)
     # ══════════════════════════════════════════════════════════
     @tasks.loop(hours=6)
@@ -541,6 +567,15 @@ class RankedStatsView(discord.ui.View):
         embed.set_footer(text="聊天中使用 /gmpt-ranked queue 开始排位！")
         return embed
 
+
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
 
 async def setup(bot):
     await bot.add_cog(RankedCog(bot))

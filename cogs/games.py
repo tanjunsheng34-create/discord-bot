@@ -450,65 +450,71 @@ class GuessNumberView(discord.ui.View):
 
     def _make_guess_callback(self, guess: int):
         async def callback(interaction: discord.Interaction):
-            if str(interaction.user.id) != self.player_id:
-                return await interaction.response.send_message(
-                    "这不是你的游戏！/ This is not your game!",
-                    ephemeral=True,
-                )
-            if self.finished:
-                return await interaction.response.send_message(
-                    "游戏已结束 / Game already ended.",
-                    ephemeral=True,
-                )
+            try:
+                if str(interaction.user.id) != self.player_id:
+                    return await interaction.response.send_message(
+                        "这不是你的游戏！/ This is not your game!",
+                        ephemeral=True,
+                    )
+                if self.finished:
+                    return await interaction.response.send_message(
+                        "游戏已结束 / Game already ended.",
+                        ephemeral=True,
+                    )
 
-            self.attempts += 1
-            uid = self.player_id
+                self.attempts += 1
+                uid = self.player_id
 
-            if guess == self.answer:
-                self.finished = True
-                reward = 100 * (self.max_attempts - self.attempts + 1)
-                add_coins(uid, reward, f"猜数字获胜 / Guess Number win")
-                embed = self._build_result_embed(
-                    "🎉 正确！/ Correct!", reward, None,
-                )
-                for child in self.children:
-                    child.disabled = True
-                await interaction.response.edit_message(embed=embed, view=self)
-            elif self.attempts >= self.max_attempts:
-                self.finished = True
-                embed = self._build_result_embed(
-                    f"😢 失败！答案是 {self.answer} / Game Over! Answer was {self.answer}",
-                    0, self.answer,
-                )
-                for child in self.children:
-                    child.disabled = True
-                await interaction.response.edit_message(embed=embed, view=self)
-            else:
-                if guess < self.answer:
-                    self.low = max(self.low, guess + 1)
-                    status = "⬆️ 太小 / Too low"
+                if guess == self.answer:
+                    self.finished = True
+                    reward = 100 * (self.max_attempts - self.attempts + 1)
+                    add_coins(uid, reward, f"猜数字获胜 / Guess Number win")
+                    embed = self._build_result_embed(
+                        "🎉 正确！/ Correct!", reward, None,
+                    )
+                    for child in self.children:
+                        child.disabled = True
+                    await interaction.response.edit_message(embed=embed, view=self)
+                elif self.attempts >= self.max_attempts:
+                    self.finished = True
+                    embed = self._build_result_embed(
+                        f"😢 失败！答案是 {self.answer} / Game Over! Answer was {self.answer}",
+                        0, self.answer,
+                    )
+                    for child in self.children:
+                        child.disabled = True
+                    await interaction.response.edit_message(embed=embed, view=self)
                 else:
-                    self.high = min(self.high, guess - 1)
-                    status = "⬇️ 太大 / Too high"
+                    if guess < self.answer:
+                        self.low = max(self.low, guess + 1)
+                        status = "⬆️ 太小 / Too low"
+                    else:
+                        self.high = min(self.high, guess - 1)
+                        status = "⬇️ 太大 / Too high"
 
-                self._update_buttons()
-                embed = self._build_embed(status)
-                await interaction.response.edit_message(embed=embed, view=self)
+                    self._update_buttons()
+                    embed = self._build_embed(status)
+                    await interaction.response.edit_message(embed=embed, view=self)
 
+            except discord.InteractionResponded:
+                await interaction.followup.send("操作失败，请重试。", ephemeral=True)
         return callback
 
     async def _reset_callback(self, interaction: discord.Interaction):
-        if str(interaction.user.id) != self.player_id:
-            return await interaction.response.send_message("这不是你的游戏！", ephemeral=True)
-        self.answer = random.randint(1, self.max_num)
-        self.attempts = 0
-        self.low = 1
-        self.high = self.max_num
-        self.finished = False
-        self._update_buttons()
-        embed = self._build_embed("🤔 等待猜测 / Waiting for guess")
-        await interaction.response.edit_message(embed=embed, view=self)
+        try:
+            if str(interaction.user.id) != self.player_id:
+                return await interaction.response.send_message("这不是你的游戏！", ephemeral=True)
+            self.answer = random.randint(1, self.max_num)
+            self.attempts = 0
+            self.low = 1
+            self.high = self.max_num
+            self.finished = False
+            self._update_buttons()
+            embed = self._build_embed("🤔 等待猜测 / Waiting for guess")
+            await interaction.response.edit_message(embed=embed, view=self)
 
+        except discord.InteractionResponded:
+            await interaction.followup.send("操作失败，请重试。", ephemeral=True)
     def _build_embed(self, status: str) -> discord.Embed:
         embed = discord.Embed(
             title="🔢 猜数字 / Number Guessing",
@@ -632,7 +638,7 @@ class RouletteColorView(discord.ui.View):
         except Exception as e:
             logger.error(f"Roulette _resolve error: {e}", exc_info=True)
             try:
-                await interaction.response.send_message("轮盘出错 / Roulette error", ephemeral=True)
+                await interaction.followup.send("轮盘出错 / Roulette error", ephemeral=True)
             except Exception:
                 pass
 
@@ -719,50 +725,53 @@ class BanPickView(discord.ui.View):
 
     def make_hero_callback(self, hero):
         async def inner(interaction: discord.Interaction):
-            uid = str(interaction.user.id)
-            if self.finished:
-                return await interaction.response.send_message("Ban/Pick已结束 / Finished.", ephemeral=True)
-            if uid != self._current_player_id:
-                return await interaction.response.send_message("还没轮到你 / Not your turn!", ephemeral=True)
-            if hero not in self.available:
-                return await interaction.response.send_message("英雄不可用 / Hero not available.", ephemeral=True)
+            try:
+                uid = str(interaction.user.id)
+                if self.finished:
+                    return await interaction.response.send_message("Ban/Pick已结束 / Finished.", ephemeral=True)
+                if uid != self._current_player_id:
+                    return await interaction.response.send_message("还没轮到你 / Not your turn!", ephemeral=True)
+                if hero not in self.available:
+                    return await interaction.response.send_message("英雄不可用 / Hero not available.", ephemeral=True)
 
-            if self.timeout_task and not self.timeout_task.done():
-                self.timeout_task.cancel()
+                if self.timeout_task and not self.timeout_task.done():
+                    self.timeout_task.cancel()
 
-            action = self._current_action()
-            phase_name, total_rounds = self.PHASES[self.phase_idx]
-            is_player_a = "ban_a" in phase_name or "pick_a" in phase_name
+                action = self._current_action()
+                phase_name, total_rounds = self.PHASES[self.phase_idx]
+                is_player_a = "ban_a" in phase_name or "pick_a" in phase_name
 
-            if action == "Ban":
-                if is_player_a:
-                    self.banned_a.append(hero)
+                if action == "Ban":
+                    if is_player_a:
+                        self.banned_a.append(hero)
+                    else:
+                        self.banned_b.append(hero)
                 else:
-                    self.banned_b.append(hero)
-            else:
-                if is_player_a:
-                    self.picked_a.append(hero)
+                    if is_player_a:
+                        self.picked_a.append(hero)
+                    else:
+                        self.picked_b.append(hero)
+
+                self.available.remove(hero)
+                self.phase_round += 1
+
+                if self.phase_round >= total_rounds:
+                    self.phase_idx += 1
+                    self.phase_round = 0
+
+                if self.phase_idx >= len(self.PHASES):
+                    self.finished = True
+                    embed = self._build_embed()
+                    embed.add_field(name="完成 / Complete", value="Ban/Pick 完成！最终阵容如下 / Final lineups below!", inline=False)
+                    await interaction.response.edit_message(embed=embed, view=None)
                 else:
-                    self.picked_b.append(hero)
+                    self._build_phase_buttons()
+                    embed = self._build_embed()
+                    await interaction.response.edit_message(embed=embed, view=self)
+                    self.timeout_task = asyncio.create_task(self._phase_timeout(interaction))
 
-            self.available.remove(hero)
-            self.phase_round += 1
-
-            if self.phase_round >= total_rounds:
-                self.phase_idx += 1
-                self.phase_round = 0
-
-            if self.phase_idx >= len(self.PHASES):
-                self.finished = True
-                embed = self._build_embed()
-                embed.add_field(name="完成 / Complete", value="Ban/Pick 完成！最终阵容如下 / Final lineups below!", inline=False)
-                await interaction.response.edit_message(embed=embed, view=None)
-            else:
-                self._build_phase_buttons()
-                embed = self._build_embed()
-                await interaction.response.edit_message(embed=embed, view=self)
-                self.timeout_task = asyncio.create_task(self._phase_timeout(interaction))
-
+            except discord.InteractionResponded:
+                await interaction.followup.send("操作失败，请重试。", ephemeral=True)
         return inner
 
     def _build_embed(self):
@@ -859,6 +868,15 @@ class BanPickView(discord.ui.View):
 
 
 
+
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
 
 # ══════════════════════════════════════════════════════════════
 # Cog setup

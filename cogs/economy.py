@@ -2162,7 +2162,7 @@ class Economy(CogBase):
             conn.commit()
 
         if not challenges:
-            return await interaction.response.send_message("本周暂无挑战 / No challenges this week.")
+            return await interaction.followup.send("本周暂无挑战 / No challenges this week.")
 
         embed = discord.Embed(
             title="Weekly Challenges / 每周挑战",
@@ -3218,6 +3218,16 @@ class GiveawayPanelView(discord.ui.View):
 
 
 # ══════════ Lottery Panel View ══════════
+
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 class LotteryPanelView(discord.ui.View):
     """彩票按钮面板 / Lottery button panel."""
 
@@ -3303,6 +3313,16 @@ class LotteryPanelView(discord.ui.View):
 
 
 # ══════════ Season Panel View ══════════
+
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 class SeasonPanelView(discord.ui.View):
     """赛季按钮面板 / Season button panel."""
 
@@ -3392,6 +3412,16 @@ class SeasonPanelView(discord.ui.View):
 
 
 # ══════════ Item Panel View ══════════
+
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 class ItemPanelView(discord.ui.View):
     """道具背包按钮面板 / Item backpack button panel."""
 
@@ -3483,3 +3513,13 @@ async def setup(bot):
     _bot = bot
     await bot.add_cog(Economy(bot))
 
+
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass

@@ -121,6 +121,15 @@ class LeaderboardView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=view)
 
 
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 class Leaderboard(commands.Cog):
     """排行榜系统 / Leaderboard system."""
 

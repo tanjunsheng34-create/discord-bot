@@ -108,6 +108,15 @@ class MarketListView(discord.ui.View):
             await interaction.response.edit_message(content="Main panel unavailable.", view=None)
 
 
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 class MarketCog(CogBase):
     """Trading marketplace with slash commands."""
 

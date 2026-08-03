@@ -15,6 +15,12 @@ from utils.animations import progress_bar, battle_animation, boss_entrance_anima
 from cogs.economy import get_balance, add_coins
 from cogs.mmorpg_skills import SKILLS
 from cogs.mmorpg_shop import POTION_CATALOG
+from config import (
+    ELEMENTS, ELEMENT_STRONG, ELEMENT_ADVANTAGE_MULTIPLIER,
+    ELEMENT_GEAR_BONUS, CLASS_ELEMENT,
+    BOSS_SPAWN_CHANNEL_ID, BOSS_SPAWN_INTERVAL,
+    BOSS_SPAWN_DIFFICULTY_WEIGHTS, BOSS_AUTO_TIMEOUT, BOSS_NAME_POOL,
+)
 from cogs.mmorpg_worldboss import WorldBossView
 import logging
 
@@ -93,9 +99,82 @@ DIFFICULTY = {
     "简单": {"label": "Easy / 简单", "hp_mult": 1.0, "atk_mult": 0.7, "reward_mult": 0.5, "color": 0x2ECC71, "stars": "\u2b50"},
     "普通": {"label": "Normal / 普通", "hp_mult": 2.0, "atk_mult": 1.0, "reward_mult": 1.0, "color": 0xF39C12, "stars": "\u2b50\u2b50"},
     "困难": {"label": "Hard / 困难", "hp_mult": 4.0, "atk_mult": 1.5, "reward_mult": 2.0, "color": 0xE74C3C, "stars": "\u2b50\u2b50\u2b50"},
+    "\u6781\u9650": {"label": "Extreme / \u6781\u9650", "hp_mult": 7.0, "atk_mult": 2.2, "reward_mult": 4.0, "color": 0x8E44AD, "stars": "\U0001f480\U0001f480\U0001f480\U0001f480"},
 }
 
 RAGE_HP_RATIO = 0.5
+
+DIFFICULTY_LOOT = {
+    "简单": {
+        "label": "Easy", "gold_mult": 1.0,
+        "tiers": ["T1"],
+        "pools": {
+            "T1": [("铁剑", "Iron Sword"), ("皮甲", "Leather Armor"),
+                   ("木盾", "Wooden Shield"), ("布帽", "Cloth Hat"),
+                   ("旅行靴", "Traveling Boots"), ("铜戒指", "Copper Ring")],
+            "consumable": [("生命药水 Small HP Potion", "heal_hp", 30),
+                           ("魔法药水 Small MP Potion", "heal_mp", 20)],
+        },
+        "rare_chance": 0.0, "legendary_chance": 0.0,
+    },
+    "普通": {
+        "label": "Medium", "gold_mult": 1.5,
+        "tiers": ["T1", "T2"],
+        "pools": {
+            "T1": [("铁剑", "Iron Sword"), ("皮甲", "Leather Armor"),
+                   ("木盾", "Wooden Shield"), ("布帽", "Cloth Hat"),
+                   ("旅行靴", "Traveling Boots"), ("铜戒指", "Copper Ring")],
+            "T2": [("钢剑", "Steel Sword"), ("锁子甲", "Chainmail"),
+                   ("精钢盾", "Reinforced Shield"), ("法师帽", "Mage Hat"),
+                   ("银戒指", "Silver Ring")],
+            "consumable": [("中级生命药水 Medium HP Potion", "heal_hp", 60),
+                           ("中级魔法药水 Medium MP Potion", "heal_mp", 40)],
+        },
+        "rare_chance": 0.10, "legendary_chance": 0.0,
+    },
+    "困难": {
+        "label": "Hard", "gold_mult": 2.5,
+        "tiers": ["T2", "T3"],
+        "pools": {
+            "T2": [("钢剑", "Steel Sword"), ("锁子甲", "Chainmail"),
+                   ("精钢盾", "Reinforced Shield"), ("法师帽", "Mage Hat"),
+                   ("银戒指", "Silver Ring"), ("战士腰带", "Warrior Belt")],
+            "T3": [("秘银剑", "Mithril Sword"), ("龙鳞甲", "Dragonscale Armor"),
+                   ("龙纹盾", "Dragoncrest Shield"), ("贤者之帽", "Sage Hat"),
+                   ("金戒指", "Gold Ring"), ("龙牙项链", "Dragon Fang Necklace")],
+            "consumable": [("高级生命药水 Large HP Potion", "heal_hp", 120),
+                           ("高级魔法药水 Large MP Potion", "heal_mp", 80),
+                           ("力量药水 Strength Potion", "buff_atk", 15),
+                           ("防御药水 Defense Potion", "buff_def", 15)],
+        },
+        "rare_chance": 0.20, "legendary_chance": 0.0,
+    },
+    "极限": {
+        "label": "Extreme", "gold_mult": 5.0,
+        "tiers": ["T3"],
+        "pools": {
+            "T3": [("秘银剑", "Mithril Sword"), ("龙鳞甲", "Dragonscale Armor"),
+                   ("龙纹盾", "Dragoncrest Shield"), ("贤者之帽", "Sage Hat"),
+                   ("金戒指", "Gold Ring"), ("龙牙项链", "Dragon Fang Necklace"),
+                   ("凤凰披风", "Phoenix Cloak")],
+            "consumable": [("终极生命药水 Elixir of Life", "heal_hp", 250),
+                           ("终极魔法药水 Elixir of Mana", "heal_mp", 150),
+                           ("力量药水 Strength Potion", "buff_atk", 15),
+                           ("防御药水 Defense Potion", "buff_def", 15),
+                           ("暴击药水 Crit Potion", "buff_crit", 20),
+                           ("速度药水 Speed Potion", "buff_spd", 20)],
+        },
+        "rare_chance": 0.30, "legendary_chance": 0.05,
+    },
+}
+
+LEGENDARY_POOL = [
+    ("龙神之翼", "Dragon God Wings", 0xF1C40F),
+    ("暗影王冠", "Shadow Crown", 0x9B59B6),
+    ("霜冻之魂", "Frost Soul", 0x3498DB),
+    ("三头犬之牙", "Cerberus Fang", 0xE74C3C),
+    ("圣光之剑", "Holy Sword", 0xFFD700),
+]
 
 
 # ══════════════════════════════════════════════════════════════
@@ -327,6 +406,9 @@ class CreateBossModal(discord.ui.Modal, title="Create Boss Room / 创建Boss房�
             "dot_dmg": 0,
             "dot_turns": 0,
             "frozen": False,
+            "burn": False,
+            "burn_turns": 0,
+            "stunned": False,
             "username": self.username,
         }
 
@@ -454,10 +536,15 @@ class BossBattleView(discord.ui.View):
 
             result_lines = []
 
+            # ── Check stunned ──
+            if pdata.get("stunned"):
+                pdata["stunned"] = False
+                result_lines.append(f"💫 **{pdata['username']}** 被眩晕，跳过本回合！/ Stunned! Turn skipped.")
             # ── Check frozen ──
-            if pdata["frozen"]:
+            elif pdata["frozen"]:
                 pdata["frozen"] = False
-                result_lines.append(f"\u2744\ufe0f **{pdata['username']}** 被冻结，跳过本回合！/ Frozen! Turn skipped.")
+                result_lines.append(f"❄️ **{pdata['username']}** 被冻结，跳过本回合！/ Frozen! Turn skipped.")
+            
             else:
                 # ── Tick player's dot on boss ──
                 dot_log = ""
@@ -481,8 +568,16 @@ class BossBattleView(discord.ui.View):
                 if dot_log:
                     result_lines.append(dot_log)
 
+                # ── Apply burn ATK debuff ──
+                if pdata.get("burn"):
+                    burn_penalty = int(pdata["atk"] * 0.10)
+                    pdata["_orig_atk"] = pdata["atk"]
+                    pdata["atk"] = max(1, pdata["atk"] - burn_penalty)
                 # ── Process action ──
                 action_log = self._process_action(room, uid, value)
+                # Restore ATK after burn penalty
+                if pdata.get("_orig_atk"):
+                    pdata["atk"] = pdata.pop("_orig_atk")
                 result_lines.append(action_log)
 
                 # ── Decrement buff turns ──
@@ -546,111 +641,167 @@ class BossBattleView(discord.ui.View):
                 except Exception:
                     pass
 
+    def _get_player_element(self, uid: str):
+        """Get player element from DB."""
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT element FROM users WHERE discord_id = ?", (uid,))
+            row = cur.fetchone()
+        if row and row[0]:
+            return row[0]
+        return None
+
+    def _calc_element_multiplier(self, attacker_element, defender_element) -> float:
+        """Calculate element advantage multiplier: 1.30 if attacker > defender, else 1.0."""
+        if not attacker_element or not defender_element:
+            return 1.0
+        if attacker_element not in ELEMENTS or defender_element not in ELEMENTS:
+            return 1.0
+        if ELEMENT_STRONG.get(attacker_element) == defender_element:
+            return ELEMENT_ADVANTAGE_MULTIPLIER
+        return 1.0
+
+    def _try_apply_status_effects(self, pdata: dict, is_crit: bool, room: dict) -> str:
+        """On CRIT hit, 30% chance to attach a random status effect to the player."""
+        if not is_crit or random.random() >= 0.30:
+            return ""
+        statuses = ["poison", "burn", "freeze", "stun"]
+        effect = random.choice(statuses)
+        if effect == "poison":
+            pdata["dot_dmg"] = max(1, int(pdata["max_hp"] * 0.05))
+            pdata["dot_turns"] = 3
+            return " | \u2620\ufe0f \u4e2d\u6bd2\uff01\u6bcf\u56de\u5408\u6263HP \u6301\u7eed3\u56de\u5408"
+        elif effect == "burn":
+            pdata["burn"] = True
+            pdata["burn_turns"] = 3
+            return " | \U0001f525 \u707c\u70e7\uff01\u6bcf\u56de\u54083%HP+\u964d10%ATK \u6301\u7eed3\u56de\u5408"
+        elif effect == "freeze":
+            pdata["frozen"] = True
+            return " | \u2744\ufe0f \u51bb\u7ed3\uff01\u8df3\u8fc7\u4e0b\u56de\u5408"
+        else:  # stun
+            pdata["stunned"] = True
+            return " | \U0001f4ab \u7729\u6655\uff01\u8df3\u8fc7\u4e0b\u56de\u5408"
+
     def _process_action(self, room: dict, uid: str, value: str) -> str:
         """Process the selected action and return a log line."""
         pdata = room["players"][uid]
         name = pdata["username"]
+        boss_element = room.get("boss_element") or room["boss"].get("element")
+        player_element = self._get_player_element(uid)
+        elem_mult = self._calc_element_multiplier(player_element, boss_element)
 
         if value == "attack":
             base_atk = pdata["atk"] + pdata["buff_atk"]
             dmg = base_atk + random.randint(1, 10)
-            if random.random() < 0.1:
+            crit = random.random() < 0.1
+            if crit:
                 dmg = int(dmg * 2)
-                line = f"\u2694\ufe0f **{name}** \U0001f4a5 暴击！— **{dmg}** 伤害"
+            dmg = int(dmg * elem_mult)
+            line = f"\u2694\ufe0f **{name}**"
+            if elem_mult > 1.0:
+                line += " \U0001f9ea\u5143\u7d20\u514b\u5236!"
+            if crit:
+                line += f" \U0001f4a5 \u66b4\u51fb\uff01\u2014 **{dmg}** \u4f24\u5bb3"
             else:
-                line = f"\u2694\ufe0f **{name}** 普通攻击 — {dmg} 伤害"
+                line += f" \u666e\u901a\u653b\u51fb \u2014 {dmg} \u4f24\u5bb3"
             room["boss_hp"] = max(0, room["boss_hp"] - dmg)
             pdata["damage_dealt"] += dmg
+            status_extra = self._try_apply_status_effects(pdata, crit, room)
+            if status_extra:
+                line += status_extra
             return line
 
         elif value == "flee":
             pdata["hp"] = 0  # Mark as dead/fled
-            return f"\U0001f3c3 **{name}** fled from battle! / 逃离了战斗！"
+            return f"\U0001f3c3 **{name}** fled from battle! / \u9003\u79bb\u4e86\u6218\u6597\uff01"
 
         elif value.startswith("skill:"):
             skill_id = value.split(":", 1)[1]
             if skill_id not in SKILLS:
-                return f"\u26a0\ufe0f Unknown skill / 未知技能"
+                return f"\u26a0\ufe0f Unknown skill / \u672a\u77e5\u6280\u80fd"
 
             # Check if player has this skill equipped
             equipped = _get_equipped_skills(uid)
             equipped_ids = [s["skill_id"] for s in equipped]
             if skill_id not in equipped_ids:
-                return f"\u26a0\ufe0f **{name}** doesn't have this skill! / 未装备此技能！"
+                return f"\u26a0\ufe0f **{name}** doesn\'t have this skill! / \u672a\u88c5\u5907\u6b64\u6280\u80fd\uff01"
 
             skill_def = SKILLS[skill_id]
             if pdata["mp"] < skill_def["mp_cost"]:
-                # Not enough MP — auto basic attack
+                # Not enough MP \u2014 auto basic attack
                 dmg = pdata["atk"] + random.randint(1, 10)
                 room["boss_hp"] = max(0, room["boss_hp"] - dmg)
                 pdata["damage_dealt"] += dmg
-                return f"\u26a1 Not enough MP! Auto attack — **{dmg}** DMG / MP 不足，自动普攻"
+                return f"\u26a1 Not enough MP! Auto attack \u2014 **{dmg}** DMG / MP \u4e0d\u8db3\uff0c\u81ea\u52a8\u666e\u653b"
 
             pdata["mp"] -= skill_def["mp_cost"]
 
             if skill_id == "fireball":
-                dmg = 35
+                dmg = int(35 * elem_mult)
                 room["boss_hp"] = max(0, room["boss_hp"] - dmg)
                 pdata["damage_dealt"] += dmg
-                return f"\U0001f525 **火球术！** — {dmg} 伤害"
+                elem_tag = " \U0001f9ea\u5143\u7d20\u514b\u5236!" if elem_mult > 1.0 else ""
+                return f"\U0001f525 **\u706b\u7403\u672f\uff01** \u2014 {dmg} \u4f24\u5bb3{elem_tag}"
 
             elif skill_id == "ice_shard":
-                dmg = 25
+                dmg = int(25 * elem_mult)
                 room["boss_hp"] = max(0, room["boss_hp"] - dmg)
                 pdata["damage_dealt"] += dmg
-                msg = f"\u2744\ufe0f **冰锥术！** — {dmg} 伤害"
-                if random.random() < 0.3:
-                    msg += " | \U0001f9ca Boss 被冻结一回合！"
-                return msg
+                elem_tag = " \U0001f9ea\u5143\u7d20\u514b\u5236!" if elem_mult > 1.0 else ""
+                return f"\u2744\ufe0f **\u51b0\u9525\u672f\uff01** \u2014 {dmg} \u4f24\u5bb3{elem_tag}"
 
             elif skill_id == "thunder":
-                dmg = 50
+                dmg = int(50 * elem_mult)
                 room["boss_hp"] = max(0, room["boss_hp"] - dmg)
                 pdata["damage_dealt"] += dmg
-                msg = f"\u26a1 **雷霆一击！** — {dmg} 伤害"
+                elem_tag = " \U0001f9ea\u5143\u7d20\u514b\u5236!" if elem_mult > 1.0 else ""
+                msg = f"\u26a1 **\u96f7\u9706\u4e00\u51fb\uff01** \u2014 {dmg} \u4f24\u5bb3{elem_tag}"
                 if random.random() < 0.1:
                     self_dmg = int(dmg * 0.3)
                     pdata["hp"] = max(0, pdata["hp"] - self_dmg)
-                    msg += f" | \u26a1 反噬！自己受到 {self_dmg} 伤害"
+                    msg += f" | \u26a1 \u53cd\u566c\uff01\u81ea\u5df1\u53d7\u5230 {self_dmg} \u4f24\u5bb3"
                 return msg
 
             elif skill_id == "heal":
                 heal_val = skill_def.get("heal", 40)
                 healed = min(heal_val, pdata["max_hp"] - pdata["hp"])
                 pdata["hp"] += healed
-                return f"\U0001f49a **治愈术！** 恢复了 {healed} HP（{pdata['hp']}/{pdata['max_hp']}）"
+                if pdata.get("burn"):
+                    pdata["burn"] = False
+                    pdata["burn_turns"] = 0
+                return f"\U0001f49a **\u6cbb\u6108\u672f\uff01** \u6062\u590d\u4e86 {healed} HP\uff08{pdata['hp']}/{pdata['max_hp']}\uff09\U0001f525\u707c\u70e7\u5df2\u6e05\u9664"
 
             elif skill_id == "berserk":
                 pdata["buff_atk"] += 20
                 pdata["buff_atk_turns"] = 3
-                return f"\U0001f621 **狂暴！** 攻击力 +20，持续 3 回合"
+                return f"\U0001f621 **\u72c2\u66b4\uff01** \u653b\u51fb\u529b +20\uff0c\u6301\u7eed 3 \u56de\u5408"
 
             elif skill_id == "shield":
                 pdata["buff_def"] += 15
                 pdata["buff_def_turns"] = 3
-                return f"\U0001f6e1\ufe0f **圣盾术！** 防御力 +15，持续 3 回合"
+                return f"\U0001f6e1\ufe0f **\u5723\u76fe\u672f\uff01** \u9632\u5fa1\u529b +15\uff0c\u6301\u7eed 3 \u56de\u5408"
 
             elif skill_id == "poison":
                 dot_val = skill_def.get("dot", 10)
                 dot_dur = skill_def.get("dot_duration", 3)
                 pdata["dot_dmg"] = dot_val
                 pdata["dot_turns"] = dot_dur
-                return f"\u2620\ufe0f **毒雾！** Boss 中毒，每回合扣 {dot_val} HP，持续 {dot_dur} 回合"
+                return f"\u2620\ufe0f **\u6bd2\u96fe\uff01** Boss \u4e2d\u6bd2\uff0c\u6bcf\u56de\u5408\u6263 {dot_val} HP\uff0c\u6301\u7eed {dot_dur} \u56de\u5408"
 
             elif skill_id == "steal":
-                return f"\U0001f4b0 偷窃只对玩家有效，无法对 Boss 使用！"
+                return f"\U0001f4b0 \u5077\u7a83\u53ea\u5bf9\u73a9\u5bb6\u6709\u6548\uff0c\u65e0\u6cd5\u5bf9 Boss \u4f7f\u7528\uff01"
 
             else:
                 dmg = skill_def.get("damage", 20)
                 room["boss_hp"] = max(0, room["boss_hp"] - dmg)
                 pdata["damage_dealt"] += dmg
-                return f"{skill_def['emoji']} **{skill_def['name']}** — {dmg} 伤害"
+                return f"{skill_def['emoji']} **{skill_def['name']}** \u2014 {dmg} \u4f24\u5bb3"
 
         elif value.startswith("potion:"):
             potion_name = value.split(":", 1)[1]
             potion = _consume_potion(uid, potion_name)
             if not potion:
-                return f"背包中没有 **{potion_name}**！/ Not in your bag!"
+                return f"\u80cc\u5305\u4e2d\u6ca1\u6709 **{potion_name}**\uff01/ Not in your bag!"
 
             effect_type = potion["effect_type"]
             effect_value = potion["effect_value"]
@@ -659,40 +810,33 @@ class BossBattleView(discord.ui.View):
             if effect_type == "heal_hp":
                 healed = min(effect_value, pdata["max_hp"] - pdata["hp"])
                 pdata["hp"] += healed
-                return f"\U0001f9ea **{name}** used {potion['name_cn']} / {potion['name_en']} — Restored {healed} HP / 恢复了 {healed} HP"
+                return f"\U0001f9ea \u4f7f\u7528\u4e86 **{potion_name}**\uff01\u6062\u590d\u4e86 {healed} HP\uff08{pdata['hp']}/{pdata['max_hp']}\uff09"
+
             elif effect_type == "heal_mp":
-                healed = min(effect_value, pdata["max_mp"] - pdata["mp"])
-                pdata["mp"] += healed
-                return f"\U0001f9ea **{name}** used {potion['name_cn']} / {potion['name_en']} — Restored {healed} MP / 恢复了 {healed} MP"
+                restored = min(effect_value, pdata["max_mp"] - pdata["mp"])
+                pdata["mp"] += restored
+                return f"\U0001f4a7 \u4f7f\u7528\u4e86 **{potion_name}**\uff01\u6062\u590d\u4e86 {restored} MP\uff08{pdata['mp']}/{pdata['max_mp']}\uff09"
+
             elif effect_type == "buff_atk":
                 pdata["buff_atk"] += effect_value
                 pdata["buff_atk_turns"] = max(pdata["buff_atk_turns"], duration)
-                return f"\U0001f9ea **{name}** used {potion['name_cn']} / {potion['name_en']} — ATK +{effect_value} for {duration} turns"
+                return f"\u2694\ufe0f \u4f7f\u7528\u4e86 **{potion_name}**\uff01ATK +{effect_value}\uff0c\u6301\u7eed {duration} \u56de\u5408"
+
             elif effect_type == "buff_def":
                 pdata["buff_def"] += effect_value
                 pdata["buff_def_turns"] = max(pdata["buff_def_turns"], duration)
-                return f"\U0001f9ea **{name}** used {potion['name_cn']} / {potion['name_en']} — DEF +{effect_value} for {duration} turns"
-            elif effect_type == "buff_spd":
-                return f"\U0001f9ea **{name}** used {potion['name_cn']} / {potion['name_en']} — SPD +{effect_value}% for {duration} turns"
-            elif effect_type == "buff_crit":
-                return f"\U0001f9ea **{name}** used {potion['name_cn']} / {potion['name_en']} — Crit +{effect_value}% for {duration} turns"
-            elif effect_type == "purify":
-                # Remove debuffs
-                pdata["dot_dmg"] = 0
-                pdata["dot_turns"] = 0
-                pdata["frozen"] = False
-                return f"\U0001f9ea **{name}** used {potion['name_cn']} / {potion['name_en']} — All debuffs removed / 负面状态已移除"
-            elif effect_type == "revive":
-                if pdata["hp"] > 0:
-                    return f"\U0001f9ea **{name}** still alive! Revival ineffective / 还活着，复活药水无效！"
-                restore_pct = max(1, int(pdata["max_hp"] * effect_value / 100))
-                pdata["hp"] = restore_pct
-                pdata["mp"] = pdata["max_mp"]
-                return f"\u2728 **{name}** used {potion['name_cn']} / {potion['name_en']} — Revived! HP {pdata['hp']}, MP full / 复活！"
-            elif effect_type == "buff_exp":
-                return f"\U0001f9ea **{name}** used {potion['name_cn']} / {potion['name_en']} — EXP +{effect_value}% for {duration} min"
+                return f"\U0001f6e1\ufe0f \u4f7f\u7528\u4e86 **{potion_name}**\uff01DEF +{effect_value}\uff0c\u6301\u7eed {duration} \u56de\u5408"
 
-        return f"\u26a0\ufe0f Unknown action / 未知操作"
+            elif effect_type == "buff_crit":
+                return f"\u26a1 \u4f7f\u7528\u4e86 **{potion_name}**\uff01\u66b4\u51fb\u7387 +{effect_value}%\uff0c\u6301\u7eed {duration} min"
+
+            elif effect_type == "buff_spd":
+                return f"\U0001f4a8 \u4f7f\u7528\u4e86 **{potion_name}**\uff01\u901f\u5ea6 +{effect_value}%\uff0c\u6301\u7eed {duration} min"
+
+            else:
+                return f"\u4f7f\u7528\u4e86\u672a\u77e5\u836f\u6c34 **{potion_name}**"
+
+        return f"\u26a0\ufe0f Unknown action / \u672a\u77e5\u64cd\u4f5c"
 
     def _boss_counter(self, room: dict, target_uid: str) -> str:
         """Boss single-target counter-attack against the acting player."""
@@ -901,6 +1045,9 @@ class BossLobbyView(discord.ui.View):
                 "dot_dmg": 0,
                 "dot_turns": 0,
                 "frozen": False,
+                "burn": False,
+                "burn_turns": 0,
+                "stunned": False,
                 "username": interaction.user.display_name,
             }
 
@@ -970,6 +1117,9 @@ class BossLobbyView(discord.ui.View):
                 "dot_dmg": 0,
                 "dot_turns": 0,
                 "frozen": False,
+                "burn": False,
+                "burn_turns": 0,
+                "stunned": False,
                 "username": sel_interaction.user.display_name,
             }
 
@@ -1246,6 +1396,15 @@ class BossLobbyView(discord.ui.View):
                 await interaction.edit_original_response(embed=embed, view=self.main_view)
 
 
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 # ══════════════════════════════════════════════════════════════
 # Boss Cog — simplified, only /gmpt-boss lobby
 # ══════════════════════════════════════════════════════════════
@@ -1261,6 +1420,7 @@ class BossCog(CogBase):
     def __init__(self, bot):
         super().__init__()
         self.bot = bot
+        self.auto_boss_task = self.bot.loop.create_task(self._auto_boss_spawn_loop())
 
     # ══════════════════════════════════════════════════════════
     # /gmpt-boss lobby — the only slash command
@@ -1317,6 +1477,8 @@ class BossCog(CogBase):
 
         embed = discord.Embed(title=title, color=room["diff_color"])
         embed.add_field(name="Difficulty / 难度", value=room["diff_label"], inline=True)
+        if boss.get("element"):
+            embed.add_field(name="Element / 元素", value=f"{boss['element']}", inline=True)
         embed.add_field(name="Turn / 回合", value=str(room["turn"]), inline=True)
         embed.add_field(name="Phase / 阶段", value=f"{'Rage ' if phase == 2 else ''}Phase {phase}", inline=True)
 
@@ -1355,9 +1517,13 @@ class BossCog(CogBase):
             if p["buff_def"] > 0:
                 buffs.append(f"DEF+{p['buff_def']}({p['buff_def_turns']}T)")
             if p["frozen"]:
-                buffs.append("Frozen/冻结")
+                buffs.append("Freeze/冻结")
+            if p["stunned"]:
+                buffs.append("Stun/眩晕")
             if p["dot_dmg"] > 0:
                 buffs.append(f"Poison/毒({p['dot_turns']}T)")
+            if p["burn"]:
+                buffs.append(f"Burn/灼烧({p['burn_turns']}T)")
 
             buff_str = f" [{', '.join(buffs)}]" if buffs else ""
             line = (
@@ -1424,7 +1590,7 @@ class BossCog(CogBase):
                     kill_count = kill_count + 1,
                     fastest_clear_seconds = MIN(fastest_clear_seconds, ?),
                     total_damage = total_damage + ?
-            """, (boss_name, difficulty, duration_sec, user_id, duration_sec, dmg))
+            """, (boss_name, difficulty, duration_sec, dmg, user_id, duration_sec, dmg))
             cur.execute("""
                 INSERT INTO boss_player_kills (user_id, boss_name, difficulty, kills, top_damage, last_kill_at)
                 VALUES (?, ?, ?, 1, ?, ?)
@@ -1445,12 +1611,42 @@ class BossCog(CogBase):
             """, (user_id, today))
             return cur.fetchone() is None
 
-    def _roll_loot(self, boss_name: str) -> list[tuple[str, int]]:
-        loot_table = BOSS_TYPES.get(boss_name, {}).get("loot_table", [])
+    def _roll_loot_by_room(self, room: dict) -> list:
+        """Roll for loot drops based on difficulty tier loot pools."""
+        diff = room.get("diff", room.get("difficulty", "简单"))
+        loot_cfg = DIFFICULTY_LOOT.get(diff)
+        if not loot_cfg:
+            return []
+
         drops = []
-        for prob, item_name, value in loot_table:
-            if random.random() < prob:
-                drops.append((item_name, value))
+        for tier_name in loot_cfg["tiers"]:
+            pool = loot_cfg["pools"].get(tier_name, [])
+            if pool:
+                num = random.randint(1, 2)
+                for _ in range(num):
+                    item = random.choice(pool)
+                    drops.append(f"{tier_name} {item[0]}")
+
+        consumable_pool = loot_cfg["pools"].get("consumable", [])
+        if consumable_pool:
+            num_con = random.randint(1, 2)
+            for _ in range(num_con):
+                con = random.choice(consumable_pool)
+                drops.append(f"🧪 {con[0]}")
+
+        if random.random() < loot_cfg["rare_chance"]:
+            rare_tier = "T3" if "T3" in loot_cfg["tiers"] else "T2"
+            for dcfg in DIFFICULTY_LOOT.values():
+                pool = dcfg["pools"].get(rare_tier)
+                if pool:
+                    item = random.choice(pool)
+                    drops.append(f"🌟 RARE! {rare_tier} {item[0]}")
+                    break
+
+        if random.random() < loot_cfg["legendary_chance"]:
+            leg = random.choice(LEGENDARY_POOL)
+            drops.append(f"🏆 LEGENDARY! {leg[0]}")
+
         return drops
 
     def _distribute_rewards(self, room: dict, duration_sec: float) -> list[str]:
@@ -1480,21 +1676,21 @@ class BossCog(CogBase):
                 first_bonus = ""
 
             # Loot drops
-            drops = self._roll_loot(room["boss"]["name"])
+            drops = self._roll_loot_by_room(room)
             loot_text = ""
-            loot_total = 0
-            for item_name, value in drops:
-                loot_total += value
-                loot_text += f" + \U0001f381 {item_name}({value}\U000020B0)"
-
-            # MVP bonus
+            for drop_name in drops:
+                is_legendary = "LEGENDARY!" in drop_name
+                is_rare = "RARE!" in drop_name
+                prefix = "\U0001f3c6 " if is_legendary else ("\U0001f31f " if is_rare else "\U0001f381 ")
+                loot_text += f" + {prefix}{drop_name}"
+# MVP bonus
             mvp_bonus = 0
             mvp_str = ""
             if pid == mvp_uid:
                 mvp_bonus = mvp_extra
                 mvp_str = f" + \U0001f3c6 MVP Bonus / MVP额外+{mvp_extra}\U000020B0"
 
-            total_earn = share + loot_total + mvp_bonus
+            total_earn = share + mvp_bonus
             if total_earn > 0:
                 add_coins(pid, total_earn, f"Boss Raid Reward / Boss副本奖励: {room['boss']['name']} {room['difficulty']}")
                 # Quest progress: kill
@@ -1512,7 +1708,130 @@ class BossCog(CogBase):
                 f"- **{pdata['username']}**: {pdata['damage_dealt']} DMG \u2192 +{total_earn}\U000020B0{first_bonus}{loot_text}{mvp_str}"
             )
 
+            # Broadcast legendary / rare drops globally
+            for drop_name in drops:
+                if "LEGENDARY!" in drop_name:
+                    try:
+                        leg_embed = discord.Embed(
+                            title="\U0001f3c6 LEGENDARY DROP! \u4f20\u8bf4\u6389\u843d\uff01",
+                            description=f"**{pdata['username']}** \u83b7\u5f97\u4e86\u4f20\u8bf4\u4e2d\u7684\u5b9d\u7269\uff01\n**{drop_name}**",
+                            color=0xFFD700,
+                        )
+                        leg_embed.set_footer(text="\u2728 \u4f20\u8bf4\u7ea7\u88c5\u5907\u5e26\u6709\u7279\u6b8a\u5149\u6548\uff01Legendary item with special glow effect!")
+                        asyncio.create_task(channel.send(embed=leg_embed))
+                    except Exception:
+                        pass
+                elif "RARE!" in drop_name:
+                    try:
+                        rare_embed = discord.Embed(
+                            title="\U0001f31f RARE DROP! \u7a00\u6709\u6389\u843d\uff01",
+                            description=f"**{pdata['username']}** \u83b7\u5f97\u4e86\u7a00\u6709\u7269\u54c1\uff01\n**{drop_name}**",
+                            color=0x3498DB,
+                        )
+                        asyncio.create_task(channel.send(embed=rare_embed))
+                    except Exception:
+                        pass
+
         return lines
+
+
+    # ══════════════════════════════════════════════════════════════
+    # Auto Boss Spawn
+    # ══════════════════════════════════════════════════════════════
+
+    async def _auto_boss_spawn_loop(self):
+        """Every BOSS_SPAWN_INTERVAL seconds, spawn a random boss in the designated channel."""
+        await self.bot.wait_until_ready()
+        await asyncio.sleep(10)  # initial delay after ready
+
+        while not self.bot.is_closed():
+            try:
+                channel = self.bot.get_channel(int(BOSS_SPAWN_CHANNEL_ID))
+                if channel:
+                    # Pick random boss + element + difficulty
+                    boss_names = list(BOSS_TYPES.keys())
+                    boss_key = random.choice(boss_names)
+                    boss_def = dict(BOSS_TYPES[boss_key])
+                    boss_def["key"] = boss_key
+                    boss_element = random.choice(ELEMENTS)
+                    boss_def["element"] = boss_element
+
+                    diff_key = random.choices(
+                        list(BOSS_SPAWN_DIFFICULTY_WEIGHTS.keys()),
+                        weights=list(BOSS_SPAWN_DIFFICULTY_WEIGHTS.values()),
+                        k=1,
+                    )[0]
+                    diff_cfg = DIFFICULTY[diff_key]
+
+                    # Build room
+                    room_id = f"auto_{int(time.time())}_{random.randint(1000, 9999)}"
+                    hp = int(250 * diff_cfg["hp_mult"])
+                    atk = int(55 * diff_cfg["atk_mult"])
+
+                    room = {
+                        "room_id": room_id,
+                        "channel_id": str(channel.id),
+                        "boss": boss_def,
+                        "difficulty": diff_key,
+                        "difficulty_raw": diff_key,
+                        "diff": diff_key,
+                        "diff_color": diff_cfg["color"],
+                        "difficulty_label": diff_cfg["label"],
+                        "multiplayer": True,
+                        "players": {},
+                        "boss_hp": hp,
+                        "boss_max_hp": hp,
+                        "boss_atk": atk,
+                        "reward_mult": diff_cfg["reward_mult"],
+                        "status": "waiting",
+                        "phase": 1,
+                        "turn": 0,
+                        "start_time": 0,
+                        "boss_element": boss_element,
+                    }
+
+                    _boss_rooms[room_id] = room
+
+                    # Send embed notification
+                    elem_emoji = {"Fire": "\U0001f525", "Water": "\U0001f4a7", "Wind": "\U0001f4a8", "Earth": "\U0001faa8"}
+                    spawn_embed = discord.Embed(
+                        title=f"\U0001f4e3 Auto Boss Spawn! / \u81ea\u52a8 Boss \u751f\u6210\uff01",
+                        description=(
+                            f"**{boss_def['name']}** {boss_def.get('emoji', '')} \u51fa\u73b0\u4e86\uff01\n"
+                            f"\U0001f9ea Element / \u5143\u7d20: **{boss_element}** {elem_emoji.get(boss_element, '')}\n"
+                            f"\U0001f4ca Difficulty / \u96be\u5ea6: **{diff_cfg['label']}** {diff_cfg.get('stars', '')}\n"
+                            f"HP: {hp} | ATK: {atk}\n"
+                            f"\u23f0 Use `/gmpt-boss lobby` to join! / \u4f7f\u7528 `/gmpt-boss lobby` \u52a0\u5165\u6218\u6597\uff01\n"
+                            f"\u26a0\ufe0f Boss \u5c06\u572830\u5206\u949f\u540e\u9003\u8dd1\uff01Will flee after 30 min!"
+                        ),
+                        color=diff_cfg["color"],
+                    )
+                    spawn_embed.set_footer(text=f"Room ID: {room_id}")
+                    spawn_msg = await channel.send(embed=spawn_embed)
+
+                    # Wait 30 min timeout
+                    await asyncio.sleep(BOSS_AUTO_TIMEOUT)
+
+                    # Check if boss still exists and not beaten
+                    current_room = _boss_rooms.get(room_id)
+                    if current_room and current_room["status"] != "finished":
+                        try:
+                            flee_embed = discord.Embed(
+                                title="\U0001f3c3 Boss \u8dd1\u8dd1\u4e86\uff01The boss fled!",
+                                description=f"**{boss_def['name']}** \u6d88\u5931\u5728\u9ed1\u6697\u4e2d... / vanished into darkness...",
+                                color=0x95A5A6,
+                            )
+                            await channel.send(embed=flee_embed)
+                        except Exception:
+                            pass
+                        if room_id in _boss_rooms:
+                            del _boss_rooms[room_id]
+                else:
+                    print(f"[AutoBoss] Channel {BOSS_SPAWN_CHANNEL_ID} not found!")
+            except Exception as e:
+                print(f"[AutoBoss] Error: {e}")
+
+            await asyncio.sleep(BOSS_SPAWN_INTERVAL)
 
 
 async def setup(bot):

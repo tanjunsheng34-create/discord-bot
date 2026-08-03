@@ -7,7 +7,6 @@ __all__ = [
     "dashboard",
     "voice_tracker",
     "queue",
-    "admin_backup",
     "daily",
     "help",
     "peiwans",

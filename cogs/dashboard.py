@@ -249,6 +249,15 @@ class SelectModeView(discord.ui.View):
         await interaction.response.send_modal(modal)
 
 
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 class LaneSelectView(discord.ui.View):
     """选路比赛报名时的路线选择下拉菜单 / Lane selection dropdown for role-pick match signup."""
 
@@ -317,6 +326,15 @@ class LaneSelectView(discord.ui.View):
         )
 
 
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 class CreateTournamentModal(discord.ui.Modal, title="创建赛事 / Create Tournament"):
     tournament_name = discord.ui.TextInput(
         label="赛事名称 / Tournament Name",
@@ -468,7 +486,6 @@ class TeamAssignView(discord.ui.View):
             self.team_a.append(self.selected_player)
             self.selected_player = None
             self._rebuild_select()
-            await interaction.response.defer()
             await interaction.edit_original_response(embed=self._build_embed(), view=self)
         except Exception as e:
             logger.error(f"[TeamAssignView] add_to_a error: {e}", exc_info=True)
@@ -495,7 +512,6 @@ class TeamAssignView(discord.ui.View):
             self.team_b.append(self.selected_player)
             self.selected_player = None
             self._rebuild_select()
-            await interaction.response.defer()
             await interaction.edit_original_response(embed=self._build_embed(), view=self)
         except Exception as e:
             logger.error(f"[TeamAssignView] add_to_b error: {e}", exc_info=True)
@@ -512,7 +528,6 @@ class TeamAssignView(discord.ui.View):
             self.team_b.clear()
             self.selected_player = None
             self._rebuild_select()
-            await interaction.response.defer()
             await interaction.edit_original_response(embed=self._build_embed(), view=self)
         except Exception as e:
             logger.error(f"[TeamAssignView] clear error: {e}", exc_info=True)
@@ -1301,6 +1316,15 @@ class ReShuffleView(discord.ui.View):
         await interaction.followup.send("B 队拉入完成!", ephemeral=True)
 
 
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 class RematchView(discord.ui.View):
     """赛后重赛/结束按钮。"""
 
@@ -1535,6 +1559,15 @@ class VoicePullView(discord.ui.View):
         await interaction.followup.send("全员拉入 Live Room 完成!", ephemeral=True)
 
 
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 class KillReportView(discord.ui.View):
     """赛后击杀上报按钮 — 选手可上报击杀/死亡事件用于回放。"""
 
@@ -1611,6 +1644,15 @@ class KillReportView(discord.ui.View):
         await self._record_event(interaction, "assist")
 
 
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 class PostMatchPullView(discord.ui.View):
     """赛后统一拉入按钮 — 将 A/B 两队语音频道中所有人拉入赛后集合频道。"""
 
@@ -1671,6 +1713,15 @@ class PostMatchPullView(discord.ui.View):
                 log_error("dashboard", "pull_post_match", e)
 
 
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 class ManualTeamView(discord.ui.View):
     """管理员手动将每个玩家分配到 A/B 队(自己分队)。"""
 
@@ -1740,7 +1791,6 @@ class ManualTeamView(discord.ui.View):
             self.team_a.append(self.selected_player)
             self.selected_player = None
             self._rebuild_select()
-            await interaction.response.defer()
             await interaction.edit_original_response(embed=self._build_embed(), view=self)
         except Exception as e:
             logger.error(f"[TeamAssignView] add_to_a error: {e}", exc_info=True)
@@ -1767,7 +1817,6 @@ class ManualTeamView(discord.ui.View):
             self.team_b.append(self.selected_player)
             self.selected_player = None
             self._rebuild_select()
-            await interaction.response.defer()
             await interaction.edit_original_response(embed=self._build_embed(), view=self)
         except Exception as e:
             logger.error(f"[TeamAssignView] add_to_b error: {e}", exc_info=True)
@@ -1784,7 +1833,6 @@ class ManualTeamView(discord.ui.View):
             self.team_b.clear()
             self.selected_player = None
             self._rebuild_select()
-            await interaction.response.defer()
             await interaction.edit_original_response(embed=self._build_embed(), view=self)
         except Exception as e:
             logger.error(f"[TeamAssignView] clear error: {e}", exc_info=True)
@@ -3871,6 +3919,15 @@ def _update_mmr(winner_ids: list, loser_ids: list, mvp_id, conn2=None, double_mm
 
 # ══════════ Ready Check — 满人自动确认 ══════════
 
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 class ReadyCheckView(discord.ui.View):
     """Ready check view: 60s countdown, all-confirm triggers auto-shuffle."""
 
@@ -4554,6 +4611,15 @@ class CoinflipPanelView(discord.ui.View):
 
 # ═══════════════════ Dashboard Game Launcher Modals ═══════════════════
 
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 class BlackjackDashboardModal(discord.ui.Modal, title="🃏 21点下注 / Blackjack Bet"):
     bet = discord.ui.TextInput(
         label="下注金额 | Bet amount",
@@ -4985,6 +5051,10 @@ class DashboardView(discord.ui.View):
                 ("🕊️ 树洞 / Whisper", "game_whisper"),
                 ("🐉 Boss战 / Boss Battle", "boss"),
                 ("🗡️ MMORPG / MMORPG", "mmorpg_panel"),
+                ("🔨 装备强化 / Enhance", "mmorpg_enhance"),
+                ("💎 宝石镶嵌 / Gems", "mmorpg_gems"),
+                ("🏆 排位赛 / Ranked", "mmorpg_ranked"),
+                ("⚔️ 3v3竞技场 / 3v3 Arena", "mmorpg_arena3v3"),
             ]
             self._build_grid(btns, rows_of=5)
 
@@ -7176,6 +7246,15 @@ class DashboardView(discord.ui.View):
             await interaction.response.defer(ephemeral=True)
             return await interaction.followup.send("管理员专用 / Admin only.", ephemeral=True)
 
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
         class ScheduledEventModal(discord.ui.Modal, title="新建定时赛事 / New Scheduled Event"):
             event_name = discord.ui.TextInput(
                 label="赛事名称 / Event Name",
@@ -7646,6 +7725,16 @@ class DashboardView(discord.ui.View):
 
     async def _game_roulette(self, interaction: discord.Interaction):
         """🎡 轮盘赌 / Roulette — 打开下注弹窗"""
+
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
         class RouletteBetModal(discord.ui.Modal, title="🎡 轮盘赌下注 / Roulette Bet"):
             bet = discord.ui.TextInput(
                 label="下注金额 | Bet amount",
@@ -7731,6 +7820,15 @@ class DashboardView(discord.ui.View):
             await interaction.response.send_modal(DiceDuelBetModal(opponent))
     
 
+    async def on_timeout(self):
+        """Disable all children on timeout."""
+        for child in self.children:
+            child.disabled = True
+        if hasattr(self, "message") and self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
     class DiceDuelBetModal(discord.ui.Modal, title="🎲 骰子对决下注 / Dice Duel Bet"):
         bet = discord.ui.TextInput(
             label="下注金额 | Bet amount",
@@ -7891,6 +7989,81 @@ class DashboardView(discord.ui.View):
             "Use `/gmpt-mmorpg` in chat to open the MMORPG panel.",
             ephemeral=True,
         )
+
+    async def _mmorpg_enhance(self, interaction: discord.Interaction):
+        """🔨 Equipment Enhancement / 装备强化."""
+        try:
+            from cogs.mmorpg_enhance import EnhanceMainView
+            uid = str(interaction.user.id)
+            uname = interaction.user.display_name
+            view = EnhanceMainView(uid, uname, main_view=self)
+            embed = view.build_embed()
+            await interaction.response.edit_message(embed=embed, view=view)
+            view.message = await interaction.original_response()
+        except Exception as e:
+            logger.error(f"Dashboard _mmorpg_enhance error: {e}", exc_info=True)
+            try:
+                await interaction.response.send_message("❌ 装备强化加载失败 / Enhance load failed.", ephemeral=True)
+            except Exception:
+                pass
+
+    async def _mmorpg_gems(self, interaction: discord.Interaction):
+        """💎 Gem Socket / 宝石镶嵌."""
+        try:
+            from cogs.mmorpg_gems import GemMainView
+            uid = str(interaction.user.id)
+            uname = interaction.user.display_name
+            view = GemMainView(uid, uname, main_view=self)
+            embed = view.build_embed()
+            await interaction.response.edit_message(embed=embed, view=view)
+            view.message = await interaction.original_response()
+        except Exception as e:
+            logger.error(f"Dashboard _mmorpg_gems error: {e}", exc_info=True)
+            try:
+                await interaction.response.send_message("❌ 宝石系统加载失败 / Gems load failed.", ephemeral=True)
+            except Exception:
+                pass
+
+    async def _mmorpg_ranked(self, interaction: discord.Interaction):
+        """🏆 Ranked Ladder / 排位赛."""
+        try:
+            from cogs.mmorpg_ranked import RankedStatsView
+            uid = str(interaction.user.id)
+            view = RankedStatsView(uid, main_view=self)
+            embed = view.build_embed()
+            await interaction.response.edit_message(embed=embed, view=view)
+            view.message = await interaction.original_response()
+        except Exception as e:
+            logger.error(f"Dashboard _mmorpg_ranked error: {e}", exc_info=True)
+            try:
+                await interaction.response.send_message("❌ 排位系统加载失败 / Ranked load failed.", ephemeral=True)
+            except Exception:
+                pass
+
+    async def _mmorpg_arena3v3(self, interaction: discord.Interaction):
+        """⚔️ 3v3 Arena / 3v3竞技场."""
+        try:
+            from cogs.mmorpg_arena_3v3 import Arena3v3Cog
+            embed = discord.Embed(
+                title="⚔️ 3v3 竞技场 / 3v3 Arena",
+                description=(
+                    "在聊天中使用以下命令参与 3v3 竞技场：\n"
+                    "Use these commands in chat for 3v3 Arena:\n\n"
+                    "**/gmpt-arena-3v3 create** — 创建房间 / Create lobby\n"
+                    "**/gmpt-arena-3v3 join** — 加入队伍 / Join team\n"
+                    "**/gmpt-arena-3v3 start** — 开始战斗 / Start battle\n\n"
+                    "队长发起，每队3人，胜方获得金币+排位分！\n"
+                    "Leader creates, 3 per team, winners get coins + ranked points!"
+                ),
+                color=0x3498DB,
+            )
+            await interaction.response.edit_message(embed=embed, view=None)
+        except Exception as e:
+            logger.error(f"Dashboard _mmorpg_arena3v3 error: {e}", exc_info=True)
+            try:
+                await interaction.response.send_message("❌ 3v3竞技场加载失败 / Arena load failed.", ephemeral=True)
+            except Exception:
+                pass
 
     async def _lottery(self, interaction: discord.Interaction):
         embed = discord.Embed(title="🎰 彩票系统 / Lottery", description="选择一个操作 / Choose an action:", color=0xF39C12)

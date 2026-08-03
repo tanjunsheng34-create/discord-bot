@@ -311,96 +311,114 @@ class AssignView(discord.ui.View):
 
     @discord.ui.button(label="加入 A 队 / A", style=discord.ButtonStyle.primary, row=1, custom_id="assign_team_a")
     async def btn_team_a(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
-        if not hasattr(self, '_pending_player') or not self._pending_player:
-            return await interaction.followup.send("请先从下拉菜单选择一个玩家。", ephemeral=True)
-        cap_id = self.captains[0]["captain_id"]
-        self._assign_player(self._pending_player, cap_id)
-        self._pending_player = None
-        self._rebuild_select()
-        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        try:
+            await interaction.response.defer(ephemeral=True)
+            if not hasattr(self, '_pending_player') or not self._pending_player:
+                return await interaction.followup.send("请先从下拉菜单选择一个玩家。", ephemeral=True)
+            cap_id = self.captains[0]["captain_id"]
+            self._assign_player(self._pending_player, cap_id)
+            self._pending_player = None
+            self._rebuild_select()
+            await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
+        except discord.InteractionResponded:
+            await interaction.followup.send("操作失败，请重试。", ephemeral=True)
     @discord.ui.button(label="加入 B 队 / B", style=discord.ButtonStyle.danger, row=1, custom_id="assign_team_b")
     async def btn_team_b(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
-        if not hasattr(self, '_pending_player') or not self._pending_player:
-            return await interaction.followup.send("请先从下拉菜单选择一个玩家。", ephemeral=True)
-        cap_id = self.captains[1]["captain_id"]
-        self._assign_player(self._pending_player, cap_id)
-        self._pending_player = None
-        self._rebuild_select()
-        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        try:
+            await interaction.response.defer(ephemeral=True)
+            if not hasattr(self, '_pending_player') or not self._pending_player:
+                return await interaction.followup.send("请先从下拉菜单选择一个玩家。", ephemeral=True)
+            cap_id = self.captains[1]["captain_id"]
+            self._assign_player(self._pending_player, cap_id)
+            self._pending_player = None
+            self._rebuild_select()
+            await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
+        except discord.InteractionResponded:
+            await interaction.followup.send("操作失败，请重试。", ephemeral=True)
     @discord.ui.button(label="清空 / Clear", style=discord.ButtonStyle.secondary, row=2, custom_id="assign_clear")
     async def btn_clear(self, interaction: discord.Interaction, button):
-        await interaction.response.defer(ephemeral=True)
-        for c in self.captains:
-            self._clear_team(c["captain_id"])
-        self._rebuild_select()
-        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        try:
+            await interaction.response.defer(ephemeral=True)
+            for c in self.captains:
+                self._clear_team(c["captain_id"])
+            self._rebuild_select()
+            await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
+        except discord.InteractionResponded:
+            await interaction.followup.send("操作失败，请重试。", ephemeral=True)
     @discord.ui.button(label="⚡ 自动平衡分队 / Auto Balance", style=discord.ButtonStyle.success, row=2, custom_id="assign_auto_balance")
     async def btn_auto_balance(self, interaction: discord.Interaction, button):
-        await interaction.response.defer()
-        self._auto_balance()
-        self._rebuild_select()
-        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        try:
+            await interaction.response.defer()
+            self._auto_balance()
+            self._rebuild_select()
+            await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
+        except discord.InteractionResponded:
+            await interaction.followup.send("操作失败，请重试。", ephemeral=True)
     @discord.ui.button(label="🎲 随机分队 / Random", style=discord.ButtonStyle.secondary, row=2, custom_id="assign_random")
     async def btn_random(self, interaction: discord.Interaction, button):
-        await interaction.response.defer()
-        self._random_split()
-        self._rebuild_select()
-        await interaction.edit_original_response(embed=self.build_embed(), view=self)
+        try:
+            await interaction.response.defer()
+            self._random_split()
+            self._rebuild_select()
+            await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
+        except discord.InteractionResponded:
+            await interaction.followup.send("操作失败，请重试。", ephemeral=True)
     @discord.ui.button(label="✅ 确认分队 / Confirm", style=discord.ButtonStyle.primary, row=3, custom_id="assign_confirm")
     async def btn_confirm(self, interaction: discord.Interaction, button):
-        await interaction.response.defer()
+        try:
+            await interaction.response.defer()
 
-        # Check for odd total player count
-        total_assigned = sum(len(self._get_team_players(c["captain_id"])) for c in self.captains)
-        captain_count = len(self.captains)
-        total_players = total_assigned + captain_count
-        if total_players % 2 != 0:
-            unassigned = self._get_unassigned()
+            # Check for odd total player count
+            total_assigned = sum(len(self._get_team_players(c["captain_id"])) for c in self.captains)
+            captain_count = len(self.captains)
+            total_players = total_assigned + captain_count
+            if total_players % 2 != 0:
+                unassigned = self._get_unassigned()
+                embed = self.build_embed()
+                embed.title = "⚠️ 人数不均衡 / Uneven Teams"
+                embed.description = (
+                    f"⚠️ 总人数为 **{total_players}**（含{captain_count}名队长），无法均匀分成两队。\n"
+                    f"待分配: **{len(unassigned)}** 人\n\n"
+                    f"请继续分配或再邀请一人。\n"
+                    f"Total {total_players} players (incl {captain_count} captains) — cannot split evenly.\n"
+                    f"Assign all players or invite one more."
+                )
+                embed.color = discord.Color.orange()
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+
+            # Save assignments to DB
+            with get_db_ctx() as conn:
+                cur = conn.cursor()
+                # Clear existing picks and re-insert
+                cur.execute("DELETE FROM draft_picks WHERE draft_id=?", (self.draft_id,))
+                pick_num = 0
+                for cap in self.captains:
+                    for pid in self._get_team_players(cap["captain_id"]):
+                        pick_num += 1
+                        cur.execute(
+                            "INSERT INTO draft_picks (draft_id, captain_id, player_id, pick_number) VALUES (?,?,?,?)",
+                            (self.draft_id, cap["captain_id"], pid, pick_num),
+                        )
+                cur.execute("UPDATE draft_sessions SET status='completed' WHERE id=?", (self.draft_id,))
+                conn.commit()
+
+            for child in self.children:
+                child.disabled = True
             embed = self.build_embed()
-            embed.title = "⚠️ 人数不均衡 / Uneven Teams"
-            embed.description = (
-                f"⚠️ 总人数为 **{total_players}**（含{captain_count}名队长），无法均匀分成两队。\n"
-                f"待分配: **{len(unassigned)}** 人\n\n"
-                f"请继续分配或再邀请一人。\n"
-                f"Total {total_players} players (incl {captain_count} captains) — cannot split evenly.\n"
-                f"Assign all players or invite one more."
-            )
-            embed.color = discord.Color.orange()
-            await interaction.followup.send(embed=embed, ephemeral=True)
-            return
-
-        # Save assignments to DB
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
-            # Clear existing picks and re-insert
-            cur.execute("DELETE FROM draft_picks WHERE draft_id=?", (self.draft_id,))
-            pick_num = 0
-            for cap in self.captains:
-                for pid in self._get_team_players(cap["captain_id"]):
-                    pick_num += 1
-                    cur.execute(
-                        "INSERT INTO draft_picks (draft_id, captain_id, player_id, pick_number) VALUES (?,?,?,?)",
-                        (self.draft_id, cap["captain_id"], pid, pick_num),
-                    )
-            cur.execute("UPDATE draft_sessions SET status='completed' WHERE id=?", (self.draft_id,))
-            conn.commit()
-
-        for child in self.children:
-            child.disabled = True
-        embed = self.build_embed()
-        embed.title = "团队已确认 / Teams Confirmed"
-        embed.description = "✅ 分队已完成！各队长可查看最终名单。"
-        embed.color = discord.Color.gold()
-        await interaction.edit_original_response(embed=embed, view=self)
+            embed.title = "团队已确认 / Teams Confirmed"
+            embed.description = "✅ 分队已完成！各队长可查看最终名单。"
+            embed.color = discord.Color.gold()
+            await interaction.edit_original_response(embed=embed, view=self)
 
 
+        except discord.InteractionResponded:
+            await interaction.followup.send("操作失败，请重试。", ephemeral=True)
 # =============================================================================
 # CreateTournamentView — 创建赛事后直接附带报名/查看/取消按钮
 # =============================================================================

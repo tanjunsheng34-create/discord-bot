@@ -486,6 +486,15 @@ class PetPanelView(discord.ui.View):
                 await interaction.response.edit_message(embed=embed, view=None)
             except discord.InteractionResponded:
                 await interaction.edit_original_response(embed=embed, view=None)
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 
 
 class PetSwitchView(discord.ui.View):
@@ -560,6 +569,15 @@ class PetSwitchView(discord.ui.View):
 # ══════════════════════════════════════════════════════════════
 # Cog
 # ══════════════════════════════════════════════════════════════
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            if hasattr(self, 'message') and self.message:
+                await self.message.edit(view=self)
+        except discord.NotFound:
+            pass
+
 
 class PetCog(commands.Cog):
     """宠物系统 / Pet System."""
