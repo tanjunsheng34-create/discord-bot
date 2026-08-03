@@ -17,6 +17,7 @@ from utils.animations import progress_bar, pvp_vs_animation
 from cogs.economy import get_balance, add_coins
 from cogs.mmorpg_skills import SKILLS
 from cogs.mmorpg_shop import POTION_CATALOG
+from cogs.mmorpg_ranked import RankedStatsView
 import logging
 
 logger = logging.getLogger(__name__)
@@ -1014,7 +1015,14 @@ class PVPLobbyView(discord.ui.View):
         active_select.callback = self._active_challenge_callback
         self.add_item(active_select)
 
-        # Row 2: Leaderboard + Back
+        # Row 2: Ranked + Leaderboard + Back
+        ranked_btn = discord.ui.Button(
+            label="🏆 Ranked", style=discord.ButtonStyle.primary,
+            row=2, custom_id="pvp_ranked",
+        )
+        ranked_btn.callback = self._ranked_callback
+        self.add_item(ranked_btn)
+
         leaderboard_btn = discord.ui.Button(
             label="🏆 Leaderboard", style=discord.ButtonStyle.success,
             row=2, custom_id="pvp_leaderboard",
@@ -1029,6 +1037,17 @@ class PVPLobbyView(discord.ui.View):
             )
             back_btn.callback = self._back_callback
             self.add_item(back_btn)
+
+    async def _ranked_callback(self, interaction: discord.Interaction):
+        """Open Ranked panel from PVPLobby."""
+        try:
+            view = RankedStatsView(self.uid, main_view=self)
+            embed = view.build_embed()
+            await interaction.response.edit_message(embed=embed, view=view)
+        except Exception as e:
+            logger.error(f"Ranked callback error (uid={self.uid}): {e}", exc_info=True)
+            await interaction.response.send_message(
+                "排位面板加载出错 / Error loading ranked panel", ephemeral=True)
 
     async def _back_callback(self, interaction: discord.Interaction):
         if self.main_view:

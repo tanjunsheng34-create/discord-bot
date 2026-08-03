@@ -13,6 +13,7 @@ from discord import app_commands
 from database import get_db_ctx
 from utils.cog_base import CogBase
 from cogs.economy import add_coins
+from cogs.mmorpg_enchant import EnchantView
 
 logger = logging.getLogger(__name__)
 
@@ -365,13 +366,20 @@ class EquipmentView(discord.ui.View):
         sell_btn.callback = self._sell_weak_callback
         self.add_item(sell_btn)
 
-        # ── Row 4: Enhance / Back ──
+        # ── Row 4: Enhance / Enchant / Back ──
         enhance_btn = discord.ui.Button(
             label="🔨 Enhance 强化", style=discord.ButtonStyle.secondary, row=4,
             custom_id="eq_enhance",
         )
         enhance_btn.callback = self._enhance_callback
         self.add_item(enhance_btn)
+
+        enchant_btn = discord.ui.Button(
+            label="✨ Enchant 附魔", style=discord.ButtonStyle.secondary, row=4,
+            custom_id="eq_enchant",
+        )
+        enchant_btn.callback = self._enchant_callback
+        self.add_item(enchant_btn)
 
         if self.main_view:
             back_btn = discord.ui.Button(
@@ -588,6 +596,17 @@ class EquipmentView(discord.ui.View):
                     "Error loading enhancement panel / 加载强化面板出错", ephemeral=True)
             except Exception:
                 logger.error("Enhance callback error", exc_info=True)
+
+    async def _enchant_callback(self, interaction: discord.Interaction):
+        """Open Enchant panel from Equipment view."""
+        try:
+            view = EnchantView(self.uid, main_view=self)
+            embed = view.build_embed()
+            await interaction.response.edit_message(embed=embed, view=view)
+        except Exception as e:
+            logger.error(f"Enchant callback error (uid={self.uid}): {e}", exc_info=True)
+            await interaction.response.send_message(
+                "附魔面板加载出错 / Error loading enchant panel", ephemeral=True)
 
     async def _back_callback(self, interaction: discord.Interaction):
         if self.main_view:

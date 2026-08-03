@@ -741,9 +741,9 @@ def build_main_embed(uid: str, display_name: str = None) -> discord.Embed:
 # MMORPGMainView — Unified Control Panel (20 buttons, 4 rows)
 # Row 0 (primary):   Boss | Dungeon | Raid | PVP | Quest
 # Row 1 (success):   Equipment | Enhance | Enchant | Skills | Stats
-# Row 2 (primary):   World Boss | Guild | Auction | Bag | Shop
+# Row 2 (primary):   Guild | Auction | Bag | Shop
 # Row 3 (secondary): Work | Class | Fishing | Check-in | Pet
-# Row 4:             [More ▼] — Titles / Achievements / Ranked
+# Row 4:             [More ▼] — Titles / Achievements
 # ══════════════════════════════════════════════════════════════
 class MMORPGMainView(discord.ui.View):
     def __init__(self, uid: str):
@@ -757,14 +757,12 @@ class MMORPGMainView(discord.ui.View):
 
     def _add_more_select(self):
         select = discord.ui.Select(
-            placeholder="More / 更多 (Titles · Achievements · Ranked)",
+            placeholder="More / 更多 (Titles · Achievements)",
             options=[
                 discord.SelectOption(label="Titles 称号", emoji="\U0001f3c6", value="titles",
                                      description="View your titles / 查看称号"),
                 discord.SelectOption(label="Achievements 成就", emoji="\U0001f396\uFE0F", value="achievements",
                                      description="View achievements / 查看成就"),
-                discord.SelectOption(label="Ranked 排位", emoji="\U0001f3c6", value="ranked",
-                                     description="Ranked stats / 排位统计"),
             ],
             row=4,
             custom_id="mmorpg_main:more",
@@ -786,10 +784,6 @@ class MMORPGMainView(discord.ui.View):
             from cogs.mmorpg_achievement import AchievementsView, check_and_unlock_all
             check_and_unlock_all(self.uid)
             view = AchievementsView(self.uid, main_view=self)
-            embed = view.build_embed()
-        elif value == "ranked":
-            from cogs.mmorpg_ranked import RankedStatsView
-            view = RankedStatsView(self.uid, main_view=self)
             embed = view.build_embed()
         else:
             return
@@ -973,16 +967,6 @@ class MMORPGMainView(discord.ui.View):
     # ═══════════════════════════════════════════════════════════
     # Row 2: Social / Economy  (primary)
     # ═══════════════════════════════════════════════════════════
-    @discord.ui.button(label="World Boss", emoji="\U0001f409", style=discord.ButtonStyle.primary, row=2, custom_id="mmorpg_main:worldboss")
-    async def _worldboss_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from cogs.mmorpg_worldboss import WorldBossView
-        view = WorldBossView(self.uid, main_view=self)
-        embed = view.build_embed()
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
-
     @discord.ui.button(label="Guild 公会", emoji="\U0001f3f0", style=discord.ButtonStyle.primary, row=2, custom_id="mmorpg_main:guild_mmo")
     async def _guild_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         from cogs.mmorpg_guild import GuildPanelView

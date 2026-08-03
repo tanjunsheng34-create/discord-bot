@@ -15,6 +15,7 @@ from utils.animations import progress_bar, battle_animation, boss_entrance_anima
 from cogs.economy import get_balance, add_coins
 from cogs.mmorpg_skills import SKILLS
 from cogs.mmorpg_shop import POTION_CATALOG
+from cogs.mmorpg_worldboss import WorldBossView
 import logging
 
 logger = logging.getLogger(__name__)
@@ -825,7 +826,7 @@ class BossLobbyView(discord.ui.View):
         kick_btn.callback = self._kick_callback
         self.add_item(kick_btn)
 
-        # Row 1: Start | Back
+        # Row 1: Start
         start_btn = discord.ui.Button(
             label="Start / 开始", style=discord.ButtonStyle.success,
             row=1, emoji="\u2694\ufe0f",
@@ -833,9 +834,17 @@ class BossLobbyView(discord.ui.View):
         start_btn.callback = self._start_callback
         self.add_item(start_btn)
 
+        # Row 2: World Boss | Back
+        worldboss_btn = discord.ui.Button(
+            label="👹 World Boss", style=discord.ButtonStyle.primary,
+            row=2, emoji="👹",
+        )
+        worldboss_btn.callback = self._worldboss_callback
+        self.add_item(worldboss_btn)
+
         back_btn = discord.ui.Button(
             label="Back / 返回", style=discord.ButtonStyle.danger,
-            row=1, emoji="\U0001f519",
+            row=2, emoji="\U0001f519",
         )
         back_btn.callback = self._back_callback
         self.add_item(back_btn)
@@ -1202,6 +1211,17 @@ class BossLobbyView(discord.ui.View):
             embed=embed,
             view=battle_view,
         )
+
+    async def _worldboss_callback(self, interaction: discord.Interaction):
+        """Open World Boss panel from BossLobby."""
+        try:
+            view = WorldBossView(self.uid, main_view=self.main_view)
+            embed = view.build_embed()
+            await interaction.response.edit_message(embed=embed, view=view)
+        except Exception as e:
+            logger.error(f"WorldBoss callback error (uid={self.uid}): {e}", exc_info=True)
+            await interaction.response.send_message(
+                "World Boss panel error", ephemeral=True)
 
     async def _back_callback(self, interaction: discord.Interaction):
         if self.main_view:
