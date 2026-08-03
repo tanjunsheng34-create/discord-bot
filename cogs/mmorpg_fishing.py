@@ -460,6 +460,7 @@ class FishingWaitView(discord.ui.View):
         self.wait_time = wait_time
         self._bite_ready = False
         self._task_started = False
+        self._bg_tasks: list = []
 
     def build_wait_embed(self) -> discord.Embed:
         if self._bite_ready:
@@ -529,7 +530,7 @@ class FishingWaitView(discord.ui.View):
             return False
         if not self._bite_ready and not self._task_started:
             self._task_started = True
-            asyncio.create_task(self._schedule_bite(interaction))
+            self._bg_tasks.append(asyncio.create_task(self._schedule_bite(interaction)))
             await interaction.response.defer()
             return False
         return True

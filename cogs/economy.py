@@ -1069,6 +1069,7 @@ def _check_completionist(cur, user_id: str, just_unlocked_id: int):
 class Economy(CogBase):
     def __init__(self, bot):
         self.bot = bot
+        self._bg_tasks: list = []
         _find_fonts()
 
     economy_group = app_commands.Group(
@@ -2410,7 +2411,7 @@ def settle_bets(match_id: int, winning_team_id: int) -> list:
                         await ch.send(f"⏰ **{item_name}** 对 {target.mention} 的效果已结束。")
                 except Exception as e:
                     log_error("economy", "end_notify", e)
-            asyncio.create_task(end_notify())
+            self._bg_tasks.append(asyncio.create_task(end_notify()))
 
     # ========== 抽奖系统 ==========
     giveaway_group = app_commands.Group(

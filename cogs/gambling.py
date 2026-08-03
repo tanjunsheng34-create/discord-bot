@@ -59,6 +59,7 @@ class Gambling(CogBase):
 
     def __init__(self, bot):
         self.bot = bot
+        self._bg_tasks: list = []
 
     gmpt_gamble_group = app_commands.Group(
         name="gmpt-gamble",
@@ -311,7 +312,7 @@ class Gambling(CogBase):
 
         await interaction.response.send_message(embed=embed, view=view)
         view.message = await interaction.original_response()
-        asyncio.create_task(view._tick_loop())
+        self._bg_tasks.append(asyncio.create_task(view._tick_loop()))
 
     # ══════════════════════════════════════════════════════════
     # /gmpt-gamble scratch — 刮刮乐 (group command)

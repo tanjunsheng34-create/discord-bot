@@ -34,7 +34,8 @@ class TowerCog(CogBase):
     """每日挑战塔 / Daily Challenge Tower"""
 
     def __init__(self, bot: commands.Bot):
-        super().__init__(bot)
+        self.bot = bot
+        super().__init__()
         self._battles: dict[str, dict] = {}
         self._lock = asyncio.Lock()
 

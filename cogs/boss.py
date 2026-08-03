@@ -518,11 +518,15 @@ class BossBattleView(discord.ui.View):
         # Use lock to prevent concurrent state modifications
         async with self._lock:
             # Re-check state after acquiring lock
+            if not self.room or "room_id" not in self.room:
+                await interaction.response.send_message("Room data missing.", ephemeral=True)
+                return
             room = _boss_rooms.get(self.room["room_id"])
             if not room or room["status"] != "fighting":
                 try:
                     await interaction.response.defer()
                 except Exception:
+                    logger.exception("Boss select: defer failed")
                     pass
                 return
 
@@ -639,6 +643,7 @@ class BossBattleView(discord.ui.View):
                     if target_msg:
                         await target_msg.edit(view=self)
                 except Exception:
+                    logger.exception("Boss: edit target_msg failed")
                     pass
 
     def _get_player_element(self, uid: str):
@@ -1311,6 +1316,7 @@ class BossLobbyView(discord.ui.View):
             try:
                 await interaction.message.edit(embed=embed, view=self)
             except Exception:
+                logger.exception("Boss kick: edit message failed")
                 pass
 
         select.callback = kick_select_callback
@@ -1698,6 +1704,7 @@ class BossCog(CogBase):
                     from cogs.daily_quest import _update_progress
                     _update_progress(pid, "kill")
                 except Exception:
+                    logger.exception("Boss: _update_progress failed")
                     pass
 
             # Record kill
@@ -1720,6 +1727,7 @@ class BossCog(CogBase):
                         leg_embed.set_footer(text="\u2728 \u4f20\u8bf4\u7ea7\u88c5\u5907\u5e26\u6709\u7279\u6b8a\u5149\u6548\uff01Legendary item with special glow effect!")
                         asyncio.create_task(channel.send(embed=leg_embed))
                     except Exception:
+                        logger.exception("Boss: send legendary drop embed failed")
                         pass
                 elif "RARE!" in drop_name:
                     try:
@@ -1730,6 +1738,7 @@ class BossCog(CogBase):
                         )
                         asyncio.create_task(channel.send(embed=rare_embed))
                     except Exception:
+                        logger.exception("Boss: send rare drop embed failed")
                         pass
 
         return lines
@@ -1823,6 +1832,7 @@ class BossCog(CogBase):
                             )
                             await channel.send(embed=flee_embed)
                         except Exception:
+                            logger.exception("Boss: send flee embed failed")
                             pass
                         if room_id in _boss_rooms:
                             del _boss_rooms[room_id]

@@ -19,13 +19,7 @@ from config import (POST_MATCH_VC_TEAM_A, POST_MATCH_VC_TEAM_B,
 _BOT_ROLE = os.getenv("BOT_ROLE", "full").strip().lower()
 
 # Try to import shared utilities from tournament cog
-from cogs.tournament import (
-    get_tournament_or_none,
-    fetch_player_tier,
-    swiss_pairing,
-)
 from config import TIER_SEED, TIER_SCORE
-from cogs.shared_views import ConfirmView, CreateTournamentView, ReportView, DraftSetupView, DraftView, CaptainCoinflipView, CaptainModeView, _display_name
 
 import logging
 from utils.logger import log_error
@@ -37,15 +31,6 @@ try:
     HAS_CRONITER = True
 except ImportError:
     HAS_CRONITER = False
-from cogs.economy import get_balance, add_coins, MainMenuView, GiveawayPanelView, LotteryPanelView, SeasonPanelView, ItemPanelView
-from cogs.economy_jobs import EconomyJobsView
-from cogs.clans import ClanPanelView, CLAN_CREATE_COST
-from cogs.social import MarryPanelView, RepPanelView, PROPOSE_COST, DIVORCE_COST, MAX_DAILY_REP
-from cogs.pets import PetPanelView, PET_TYPES
-from cogs.poker import PokerPanelView
-from cogs.leaderboard import LeaderboardView
-from cogs.wheel import WheelView
-from cogs.casino_games import BlackjackView as CasinoBlackjackView, HorseRaceView as CasinoHorseRaceView, HORSE_EMOJIS, HORSE_ODDS
 import random
 import sqlite3
 import time as time_mod
@@ -370,6 +355,7 @@ class CreateTournamentModal(discord.ui.Modal, title="创建赛事 / Create Tourn
         self.session = session
 
     async def on_submit(self, interaction: discord.Interaction):
+        from cogs.shared_views import CreateTournamentView  # lazy import
         try:
             rds = int(self.rounds.value)
             mp = int(self.max_players.value)
@@ -2529,6 +2515,7 @@ class MatchViewWithID(discord.ui.View):
     @discord.ui.button(label="结算 Settle", style=discord.ButtonStyle.danger, emoji="💰", row=1, custom_id="matchv2_settle")
     async def settle_btn(self, interaction: discord.Interaction, button):
         """Settle button on match message — select winner + optional MVP → confirm → distribute coins."""
+        from cogs.shared_views import ConfirmView  # lazy import
         await interaction.response.defer(ephemeral=True)
         try:
             mid, t, guild = await self._get_context(interaction)
@@ -2564,6 +2551,7 @@ class MatchViewWithID(discord.ui.View):
             flow = SettleFlow()
 
             async def win_callback(sel_int: discord.Interaction):
+                from cogs.shared_views import ConfirmView  # lazy import
                 flow.win_team_id = int(sel_int.data["values"][0])
 
                 with get_db_ctx() as conn2:
@@ -2582,6 +2570,7 @@ class MatchViewWithID(discord.ui.View):
                 )
 
                 async def mvp_callback(mvp_int: discord.Interaction):
+                    from cogs.shared_views import ConfirmView  # lazy import
                     val = mvp_int.data["values"][0]
                     if val != "__none__":
                         flow.mvp_id = val
@@ -2722,6 +2711,7 @@ class MatchViewWithID(discord.ui.View):
 
     @discord.ui.button(label="退出 Leave", style=discord.ButtonStyle.danger, emoji="🚪", row=1, custom_id="matchv2_leave")
     async def leave_btn(self, interaction: discord.Interaction, button):
+        from cogs.shared_views import ConfirmView  # lazy import
         await interaction.response.defer(ephemeral=True)
         try:
             mid, t, guild = await self._get_context(interaction)
@@ -2793,6 +2783,7 @@ class MatchViewWithID(discord.ui.View):
     @discord.ui.button(label="踢出 Kick", style=discord.ButtonStyle.danger, emoji="👢", row=1, custom_id="matchv2_kick")
     async def kick_btn(self, interaction: discord.Interaction, button):
         """Admin-only: select a player or sub to kick from the match."""
+        from cogs.shared_views import ConfirmView  # lazy import
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("管理员专用 / Admin only.", ephemeral=True)
 
@@ -2821,6 +2812,7 @@ class MatchViewWithID(discord.ui.View):
         )
 
         async def kick_select_callback(sel_int: discord.Interaction):
+            from cogs.shared_views import ConfirmView  # lazy import
             await sel_int.response.defer(ephemeral=True)
             member = user_select.values[0]
             uid = str(member.id)
@@ -4628,6 +4620,7 @@ class BlackjackDashboardModal(discord.ui.Modal, title="🃏 21点下注 / Blackj
     )
 
     async def on_submit(self, interaction: discord.Interaction):
+        from cogs.casino_games import BlackjackView as CasinoBlackjackView  # lazy import
         await interaction.response.defer()
         uid = str(interaction.user.id)
         try:
@@ -4689,6 +4682,7 @@ class HorseRaceDashboardModal(discord.ui.Modal, title="🏇 赛马下注 / Horse
     )
 
     async def on_submit(self, interaction: discord.Interaction):
+        from cogs.casino_games import HorseRaceView as CasinoHorseRaceView, HORSE_ODDS, HORSE_EMOJIS  # lazy import
         await interaction.response.defer()
         uid = str(interaction.user.id)
         try:
@@ -5416,6 +5410,7 @@ class DashboardView(discord.ui.View):
         await interaction.followup.send(view=view, ephemeral=True)
 
     async def _settle(self, interaction: discord.Interaction):
+        from cogs.shared_views import ConfirmView  # lazy import
         await interaction.response.defer(ephemeral=True)
         with get_db_ctx() as conn:
             cur = conn.cursor()
@@ -5441,6 +5436,7 @@ class DashboardView(discord.ui.View):
         )
 
         async def settle_match_callback(sel_int: discord.Interaction):
+            from cogs.shared_views import ConfirmView  # lazy import
             mid = int(sel_int.data["values"][0])
             with get_db_ctx() as conn2:
                 cur2 = conn2.cursor()
@@ -5477,6 +5473,7 @@ class DashboardView(discord.ui.View):
             flow = SettleFlowDash()
 
             async def win_callback_dash(inner_int: discord.Interaction):
+                from cogs.shared_views import ConfirmView  # lazy import
                 flow.win_team_id = int(inner_int.data["values"][0])
 
                 with get_db_ctx() as conn3:
@@ -5498,6 +5495,7 @@ class DashboardView(discord.ui.View):
                 )
 
                 async def mvp_callback_dash(mvp_int: discord.Interaction):
+                    from cogs.shared_views import ConfirmView  # lazy import
                     val = mvp_int.data["values"][0]
                     if val != "__none__":
                         flow.mvp_id = val
@@ -5673,6 +5671,8 @@ class DashboardView(discord.ui.View):
         await interaction.followup.send(view=view, ephemeral=True)
 
     async def _pick_captain(self, interaction: discord.Interaction):
+        from cogs.shared_views import DraftView, _display_name, CaptainModeView, CaptainCoinflipView  # lazy import
+        from cogs.tournament import fetch_player_tier  # lazy import
         await interaction.response.defer(ephemeral=True)
         with get_db_ctx() as conn:
             cur = conn.cursor()
@@ -5698,6 +5698,8 @@ class DashboardView(discord.ui.View):
         )
 
         async def captain_select_callback(sel_int: discord.Interaction):
+            from cogs.shared_views import DraftView, _display_name, CaptainModeView, CaptainCoinflipView  # lazy import
+            from cogs.tournament import fetch_player_tier  # lazy import
             mid = int(sel_int.data["values"][0])
             with get_db_ctx() as conn2:
                 cur2 = conn2.cursor()
@@ -5740,6 +5742,7 @@ class DashboardView(discord.ui.View):
                         pass
 
             async def start_draft_callback(cap_a_info, cap_b_info, is_random):
+                from cogs.shared_views import _display_name, DraftView, CaptainModeView, CaptainCoinflipView  # lazy import
                 captains_info = [
                     {
                         "captain_id": cap_a_info["discord_id"],
@@ -5776,6 +5779,7 @@ class DashboardView(discord.ui.View):
                 ]
 
                 async def do_start_draft(final_captains):
+                    from cogs.shared_views import _display_name, DraftView, CaptainModeView, CaptainCoinflipView  # lazy import
                     with get_db_ctx() as conn4:
                         cur4 = conn4.cursor()
                         for c in final_captains:
@@ -5836,6 +5840,7 @@ class DashboardView(discord.ui.View):
         await interaction.response.send_modal(modal)
 
     async def _signup_tournament(self, interaction: discord.Interaction):
+        from cogs.tournament import get_tournament_or_none, fetch_player_tier  # lazy import
         await interaction.response.defer(ephemeral=True)
         with get_db_ctx() as conn:
             cur = conn.cursor()
@@ -5861,6 +5866,7 @@ class DashboardView(discord.ui.View):
         )
 
         async def signup_callback(sel_int: discord.Interaction):
+            from cogs.tournament import get_tournament_or_none, fetch_player_tier  # lazy import
             tid = int(sel_int.data["values"][0])
             with get_db_ctx() as conn2:
                 cur2 = conn2.cursor()
@@ -5933,6 +5939,7 @@ class DashboardView(discord.ui.View):
         await interaction.followup.send(view=view, ephemeral=True)
 
     async def _draft_setup(self, interaction: discord.Interaction):
+        from cogs.shared_views import DraftSetupView  # lazy import
         await interaction.response.defer(ephemeral=True)
         if not interaction.user.guild_permissions.administrator:
             return await interaction.followup.send("仅管理员可设置队长选秀 / Admin only.", ephemeral=True)
@@ -5961,6 +5968,7 @@ class DashboardView(discord.ui.View):
         )
 
         async def draft_callback(sel_int: discord.Interaction):
+            from cogs.shared_views import DraftSetupView  # lazy import
             tid = int(sel_int.data["values"][0])
             with get_db_ctx() as conn2:
                 cur2 = conn2.cursor()
@@ -5993,6 +6001,7 @@ class DashboardView(discord.ui.View):
         await interaction.followup.send(view=view, ephemeral=True)
 
     async def _report_score(self, interaction: discord.Interaction):
+        from cogs.shared_views import ReportView  # lazy import
         await interaction.response.defer(ephemeral=True)
         with get_db_ctx() as conn:
             cur = conn.cursor()
@@ -6018,6 +6027,7 @@ class DashboardView(discord.ui.View):
         )
 
         async def report_callback(sel_int: discord.Interaction):
+            from cogs.shared_views import ReportView  # lazy import
             tid = int(sel_int.data["values"][0])
             view = ReportView(tid, str(sel_int.user.id), self.guild)
             await sel_int.response.send_message(
@@ -6032,6 +6042,7 @@ class DashboardView(discord.ui.View):
         await interaction.followup.send(view=view, ephemeral=True)
 
     async def _tournament_standings(self, interaction: discord.Interaction):
+        from cogs.tournament import get_tournament_or_none  # lazy import
         await interaction.response.defer(ephemeral=True)
         with get_db_ctx() as conn:
             cur = conn.cursor()
@@ -6057,6 +6068,7 @@ class DashboardView(discord.ui.View):
         )
 
         async def standings_callback(sel_int: discord.Interaction):
+            from cogs.tournament import get_tournament_or_none  # lazy import
             tid = int(sel_int.data["values"][0])
             with get_db_ctx() as conn2:
                 cur2 = conn2.cursor()
@@ -6094,6 +6106,8 @@ class DashboardView(discord.ui.View):
         await interaction.followup.send(view=view, ephemeral=True)
 
     async def _tournament_bracket(self, interaction: discord.Interaction):
+        from cogs.shared_views import _display_name  # lazy import
+        from cogs.tournament import get_tournament_or_none  # lazy import
         await interaction.response.defer(ephemeral=True)
         with get_db_ctx() as conn:
             cur = conn.cursor()
@@ -6119,6 +6133,8 @@ class DashboardView(discord.ui.View):
         )
 
         async def bracket_callback(sel_int: discord.Interaction):
+            from cogs.shared_views import _display_name  # lazy import
+            from cogs.tournament import get_tournament_or_none  # lazy import
             tid = int(sel_int.data["values"][0])
             with get_db_ctx() as conn2:
                 cur2 = conn2.cursor()
@@ -6380,6 +6396,7 @@ class DashboardView(discord.ui.View):
     # ═══════════════════ Page 4 — Economy ═══════════════════
 
     async def _shop(self, interaction: discord.Interaction):
+        from cogs.economy import get_balance, MainMenuView  # lazy import
         await interaction.response.defer(ephemeral=True)
         uid = str(interaction.user.id)
         bal = get_balance(uid)
@@ -6420,6 +6437,7 @@ class DashboardView(discord.ui.View):
         await interaction.followup.send("\n".join(lines), ephemeral=True)
 
     async def _balance(self, interaction: discord.Interaction):
+        from cogs.economy import get_balance  # lazy import
         await interaction.response.defer(ephemeral=True)
         uid = str(interaction.user.id)
         bal = get_balance(uid)
@@ -6429,6 +6447,7 @@ class DashboardView(discord.ui.View):
         )
 
     async def _gift(self, interaction: discord.Interaction):
+        from cogs.economy import get_balance, add_coins  # lazy import
         await interaction.response.defer(ephemeral=True)
 
         class GiftAmountModal(discord.ui.Modal, title="Gift Coins"):
@@ -6442,6 +6461,7 @@ class DashboardView(discord.ui.View):
                 super().__init__()
                 self.target_member = target_member
             async def on_submit(self, modal_int: discord.Interaction):
+                from cogs.economy import get_balance, add_coins  # lazy import
                 try:
                     amt = int(self.amount.value)
                 except ValueError:
@@ -6750,6 +6770,7 @@ class DashboardView(discord.ui.View):
         await msg.edit(content=None, embed=embed)
 
     async def _economy_jobs(self, interaction: discord.Interaction):
+        from cogs.economy_jobs import EconomyJobsView  # lazy import
         await interaction.response.defer(ephemeral=True)
         view = EconomyJobsView(guild=interaction.guild, dashboard_view=self)
         embed = discord.Embed(
@@ -6796,6 +6817,7 @@ class DashboardView(discord.ui.View):
 
     # ═══════════════════ Page 6 — Social Hub ═══════════════════
     async def _pets(self, interaction: discord.Interaction):
+        from cogs.pets import PetPanelView, PET_TYPES  # lazy import
         await interaction.response.defer(ephemeral=True)
         view = PetPanelView(guild=interaction.guild, dashboard_view=self)
         embed = discord.Embed(
@@ -6813,6 +6835,7 @@ class DashboardView(discord.ui.View):
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     async def _clans(self, interaction: discord.Interaction):
+        from cogs.clans import ClanPanelView, CLAN_CREATE_COST  # lazy import
         await interaction.response.defer(ephemeral=True)
         view = ClanPanelView(guild=interaction.guild, dashboard_view=self)
         embed = discord.Embed(
@@ -6827,6 +6850,7 @@ class DashboardView(discord.ui.View):
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     async def _social_marry(self, interaction: discord.Interaction):
+        from cogs.social import PROPOSE_COST, DIVORCE_COST, MarryPanelView  # lazy import
         await interaction.response.defer(ephemeral=True)
         view = MarryPanelView(guild=interaction.guild, dashboard_view=self)
         embed = discord.Embed(
@@ -6841,6 +6865,7 @@ class DashboardView(discord.ui.View):
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     async def _social_rep(self, interaction: discord.Interaction):
+        from cogs.social import RepPanelView, MAX_DAILY_REP  # lazy import
         await interaction.response.defer(ephemeral=True)
         view = RepPanelView(guild=interaction.guild, dashboard_view=self)
         embed = discord.Embed(
@@ -7904,6 +7929,7 @@ class DashboardView(discord.ui.View):
 
     async def _game_poker(self, interaction: discord.Interaction):
         """🃏 德州扑克 / Poker panel"""
+        from cogs.poker import PokerPanelView  # lazy import
         embed = discord.Embed(title="🃏 德州扑克 / Texas Hold'em", description="选择一个操作 / Choose an action:", color=discord.Color.dark_green())
         view = PokerPanelView()
         await interaction.response.defer()
@@ -8066,11 +8092,13 @@ class DashboardView(discord.ui.View):
                 pass
 
     async def _lottery(self, interaction: discord.Interaction):
+        from cogs.economy import LotteryPanelView  # lazy import
         embed = discord.Embed(title="🎰 彩票系统 / Lottery", description="选择一个操作 / Choose an action:", color=0xF39C12)
         view = LotteryPanelView()
         await interaction.response.edit_message(embed=embed, view=view)
 
     async def _item_panel(self, interaction: discord.Interaction):
+        from cogs.economy import ItemPanelView  # lazy import
         embed = discord.Embed(title="🎒 道具系统 / Items", description="选择一个操作 / Choose an action:", color=0xF1C40F)
         view = ItemPanelView()
         await interaction.response.edit_message(embed=embed, view=view)
@@ -8082,16 +8110,19 @@ class DashboardView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=view)
 
     async def _wheel(self, interaction: discord.Interaction):
+        from cogs.wheel import WheelView  # lazy import
         embed = discord.Embed(title="🎡 幸运转盘 / Lucky Wheel", description="选择一个操作 / Choose an action:", color=0x1ABC9C)
         view = WheelView()
         await interaction.response.edit_message(embed=embed, view=view)
 
     async def _leaderboard(self, interaction: discord.Interaction):
+        from cogs.leaderboard import LeaderboardView  # lazy import
         embed = discord.Embed(title="🏆 排行榜 / Leaderboard", description="选择一个操作 / Choose an action:", color=0xF1C40F)
         view = LeaderboardView()
         await interaction.response.edit_message(embed=embed, view=view)
 
     async def _season_panel(self, interaction: discord.Interaction):
+        from cogs.economy import SeasonPanelView  # lazy import
         embed = discord.Embed(title="📈 赛季系统 / Season", description="选择一个操作 / Choose an action:", color=0xE67E22)
         view = SeasonPanelView()
         await interaction.response.edit_message(embed=embed, view=view)

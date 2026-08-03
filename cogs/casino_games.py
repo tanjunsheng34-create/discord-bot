@@ -470,6 +470,7 @@ class HorseRaceView(discord.ui.View):
         self.player_id = player_id
         self.player_name = player_name
         self.chosen = None
+        self._bg_tasks: list = []
 
         for i in range(6):
             btn = discord.ui.Button(
@@ -504,7 +505,7 @@ class HorseRaceView(discord.ui.View):
             except discord.InteractionResponded:
                 await interaction.edit_original_response(embed=embed, view=self)
 
-            asyncio.create_task(self._run_race(interaction, idx))
+            self._bg_tasks.append(asyncio.create_task(self._run_race(interaction, idx)))
 
         return inner
 

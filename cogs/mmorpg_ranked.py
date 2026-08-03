@@ -22,6 +22,8 @@ from cogs.economy import add_coins, get_balance
 
 logger = logging.getLogger(__name__)
 
+_bg_tasks: list = []  # Track background tasks to prevent GC
+
 MATCH_TIMEOUT = 30  # seconds before expanding match range
 MATCH_EXPAND_TIMEOUT = 60  # total timeout
 
@@ -580,4 +582,4 @@ class RankedStatsView(discord.ui.View):
 async def setup(bot):
     await bot.add_cog(RankedCog(bot))
     # Start background matchmaker
-    asyncio.create_task(_match_maker())
+    _bg_tasks.append(asyncio.create_task(_match_maker()))
