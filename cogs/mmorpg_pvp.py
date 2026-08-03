@@ -988,7 +988,7 @@ class PVPLobbyView(discord.ui.View):
         try:
             await interaction.edit_original_response(embed=embed, view=self)
         except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=self)
+            await interaction.edit_original_response(embed=embed, view=self)
 
     # ── Build ───────────────────────────────────────────────
 

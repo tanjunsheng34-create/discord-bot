@@ -790,7 +790,7 @@ class MMORPGMainView(discord.ui.View):
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
+            await interaction.edit_original_response(embed=embed, view=view)
 
     # ═══════════════════════════════════════════════════════════
     # Row 0: Combat / Battle  (primary)
@@ -808,7 +808,7 @@ class MMORPGMainView(discord.ui.View):
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
+            await interaction.edit_original_response(embed=embed, view=view)
 
     @discord.ui.button(label="Dungeon 地牢", emoji="\U0001f3f0", style=discord.ButtonStyle.primary, row=0, custom_id="mmorpg_main:dungeon")
     async def dungeon_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -822,7 +822,7 @@ class MMORPGMainView(discord.ui.View):
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
+            await interaction.edit_original_response(embed=embed, view=view)
 
     @discord.ui.button(label="Raid 副本", emoji="\u2694\uFE0F", style=discord.ButtonStyle.primary, row=0, custom_id="mmorpg_main:raid")
     async def _raid_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -832,7 +832,7 @@ class MMORPGMainView(discord.ui.View):
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
+            await interaction.edit_original_response(embed=embed, view=view)
 
     @discord.ui.button(label="PVP 竞技", emoji="\u26a1", style=discord.ButtonStyle.primary, row=0, custom_id="mmorpg_main:pvp")
     async def pvp_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -843,7 +843,7 @@ class MMORPGMainView(discord.ui.View):
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
+            await interaction.edit_original_response(embed=embed, view=view)
 
     @discord.ui.button(label="Quest 任务", emoji="\U0001f4cb", style=discord.ButtonStyle.primary, row=0, custom_id="mmorpg_main:quest")
     async def quest_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -870,7 +870,7 @@ class MMORPGMainView(discord.ui.View):
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
+            await interaction.edit_original_response(embed=embed, view=view)
 
     @discord.ui.button(label="Enhance 强化", emoji="\U0001f528", style=discord.ButtonStyle.success, row=1, custom_id="mmorpg_main:enhance")
     async def _enhance_new_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -938,7 +938,7 @@ class MMORPGMainView(discord.ui.View):
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
+            await interaction.edit_original_response(embed=embed, view=view)
 
     @discord.ui.button(label="Skills 技能", emoji="\u26a1", style=discord.ButtonStyle.success, row=1, custom_id="mmorpg_main:skills")
     async def skills_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -952,7 +952,7 @@ class MMORPGMainView(discord.ui.View):
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
+            await interaction.edit_original_response(embed=embed, view=view)
 
     @discord.ui.button(label="Stats 属性", emoji="\U0001f4ca", style=discord.ButtonStyle.success, row=1, custom_id="mmorpg_main:stats")
     async def stats_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -962,7 +962,7 @@ class MMORPGMainView(discord.ui.View):
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
+            await interaction.edit_original_response(embed=embed, view=view)
 
     # ═══════════════════════════════════════════════════════════
     # Row 2: Social / Economy  (primary)
@@ -975,7 +975,7 @@ class MMORPGMainView(discord.ui.View):
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
+            await interaction.edit_original_response(embed=embed, view=view)
 
     @discord.ui.button(label="Auction 拍卖", emoji="\U0001f48e", style=discord.ButtonStyle.primary, row=2, custom_id="mmorpg_main:auction")
     async def _auction_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -985,7 +985,7 @@ class MMORPGMainView(discord.ui.View):
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
+            await interaction.edit_original_response(embed=embed, view=view)
 
     @discord.ui.button(label="Bag 背包", emoji="\U0001f392", style=discord.ButtonStyle.primary, row=2, custom_id="mmorpg_main:inv")
     async def inv_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1020,7 +1020,7 @@ class MMORPGMainView(discord.ui.View):
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
+            await interaction.edit_original_response(embed=embed, view=view)
 
     @discord.ui.button(label="Shop 商店", emoji="\U0001f3ea", style=discord.ButtonStyle.primary, row=2, custom_id="mmorpg_main:shop")
     async def shop_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1034,7 +1034,7 @@ class MMORPGMainView(discord.ui.View):
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
+            await interaction.edit_original_response(embed=embed, view=view)
 
     # ═══════════════════════════════════════════════════════════
     # Row 3: Daily / Systems  (secondary)
@@ -1051,7 +1051,7 @@ class MMORPGMainView(discord.ui.View):
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
+            await interaction.edit_original_response(embed=embed, view=view)
 
     @discord.ui.button(label="Class 职业", emoji="\U0001f9d9", style=discord.ButtonStyle.secondary, row=3, custom_id="mmorpg_main:class")
     async def class_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1066,7 +1066,7 @@ class MMORPGMainView(discord.ui.View):
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
+            await interaction.edit_original_response(embed=embed, view=view)
 
     @discord.ui.button(label="Fishing 钓鱼", emoji="\U0001f3a3", style=discord.ButtonStyle.secondary, row=3, custom_id="mmorpg_main:fishing")
     async def _fishing_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1076,7 +1076,7 @@ class MMORPGMainView(discord.ui.View):
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
+            await interaction.edit_original_response(embed=embed, view=view)
 
     @discord.ui.button(label="Check-in 签到", emoji="\U0001f4c5", style=discord.ButtonStyle.secondary, row=3, custom_id="mmorpg_main:checkin")
     async def _checkin_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1086,7 +1086,7 @@ class MMORPGMainView(discord.ui.View):
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
+            await interaction.edit_original_response(embed=embed, view=view)
 
     @discord.ui.button(label="Pet 宠物", emoji="\U0001f43e", style=discord.ButtonStyle.secondary, row=3, custom_id="mmorpg_main:pet")
     async def _pet_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1096,7 +1096,7 @@ class MMORPGMainView(discord.ui.View):
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
+            await interaction.edit_original_response(embed=embed, view=view)
 
 
 
@@ -1317,7 +1317,7 @@ class PotionBagView(discord.ui.View):
         )
 
         new_view = PotionBagView(uid, rows, main_view=self.main_view)
-        await interaction.followup.edit_message(interaction.message.id, embed=bag_embed, view=new_view)
+        await interaction.edit_original_response(interaction.message.id, embed=bag_embed, view=new_view)
         await interaction.followup.send(embed=embed)
 
     async def _back_callback(self, interaction: discord.Interaction):
@@ -1325,7 +1325,7 @@ class PotionBagView(discord.ui.View):
         try:
             await interaction.response.edit_message(embed=embed, view=self.main_view)
         except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=self.main_view)
+            await interaction.edit_original_response(embed=embed, view=self.main_view)
 
 # ══════════════════════════════════════════════════════════════
 # Potion Browse View — Categories with tabs
@@ -1545,7 +1545,7 @@ class ShopHubView(discord.ui.View):
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
+            await interaction.edit_original_response(embed=embed, view=view)
 
     @discord.ui.button(label="⚔️ Equipment Shop 装备", style=discord.ButtonStyle.success, row=0)
     async def equip_shop_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1554,7 +1554,7 @@ class ShopHubView(discord.ui.View):
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
-            await interaction.followup.edit_message(embed=embed, view=view)
+            await interaction.edit_original_response(embed=embed, view=view)
 
     @discord.ui.button(label="🎰 Equipment Gacha 装备抽奖", style=discord.ButtonStyle.danger, row=0)
     async def gacha_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
