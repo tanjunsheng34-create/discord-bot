@@ -1,5 +1,6 @@
 __all__ = [
     "announce",
+    "auction",
     "economy",
     "tournament",
     "lol",

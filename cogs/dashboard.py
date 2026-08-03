@@ -44,7 +44,6 @@ from cogs.social import MarryPanelView, RepPanelView, PROPOSE_COST, DIVORCE_COST
 from cogs.pets import PetPanelView, PET_TYPES
 from cogs.poker import PokerPanelView
 from cogs.leaderboard import LeaderboardView
-from cogs.auction import AuctionView
 from cogs.wheel import WheelView
 from cogs.casino_games import BlackjackView as CasinoBlackjackView, HorseRaceView as CasinoHorseRaceView, HORSE_EMOJIS, HORSE_ODDS
 import random
@@ -7904,6 +7903,7 @@ class DashboardView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=view)
 
     async def _auction(self, interaction: discord.Interaction):
+        from cogs.auction import AuctionView
         embed = discord.Embed(title="🏪 拍卖行 / Auction House", description="选择一个操作 / Choose an action:", color=0xE74C3C)
         view = AuctionView()
         await interaction.response.edit_message(embed=embed, view=view)
