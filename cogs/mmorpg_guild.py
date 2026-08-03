@@ -985,13 +985,6 @@ class GuildCog(commands.Cog):
 
         await interaction.response.send_message(f"✅ Price set to {price} contribution for item #{item_id}.")
 
-    @app_commands.command(name="gmpt-guild", description="Guild System / 公会系统 — manage your guild!")
-    @app_commands.checks.cooldown(1, 3.0, key=lambda i: (i.guild_id, i.user.id))
-    async def guild_cmd(self, interaction: discord.Interaction):
-        uid = str(interaction.user.id)
-        view = GuildPanelView(uid)
-        embed = view.build_embed()
-        await interaction.response.send_message(embed=embed, view=view)
 
 
 async def setup(bot: commands.Bot):

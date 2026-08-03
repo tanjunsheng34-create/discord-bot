@@ -19,7 +19,7 @@ class MarketCog(CogBase):
     """交易行 / Player Market"""
 
     def __init__(self, bot: commands.Bot):
-        super().__init__(bot)
+        super().__init__()
 
     async def cog_load(self):
         self._ensure_tables()

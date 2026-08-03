@@ -50,7 +50,7 @@ class EventBossCog(CogBase):
     """限时活动Boss系统 / Event Boss System"""
 
     def __init__(self, bot: commands.Bot):
-        super().__init__(bot)
+        super().__init__()
         self._event_task: asyncio.Task | None = None
 
     async def cog_load(self):
