@@ -64,7 +64,6 @@ MMORPG_COGS = {
     "cogs.daily_quest",
     "cogs.dungeon",
     "cogs.achievements",
-    "cogs.market",
     "cogs.mmorpg_worldboss",
     "cogs.mmorpg_checkin",
     "cogs.mmorpg_fishing",
