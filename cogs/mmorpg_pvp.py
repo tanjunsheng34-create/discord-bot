@@ -827,11 +827,18 @@ class PVPCog(CogBase):
 class PVPLobbyView(discord.ui.View):
     """PVP大厅面板 / PVP lobby panel."""
 
-    def __init__(self, user_id: str, main_view=None):
+    def __init__(self, user_id: str, main_view=None, cog=None, guild=None):
         super().__init__(timeout=300)
         self.uid = user_id
         self.main_view = main_view
+        self.cog = cog
+        self.guild = guild
         self._build()
+
+    def _get_cog(self, interaction: discord.Interaction):
+        if self.cog is None:
+            self.cog = interaction.client.get_cog("PVPCog")
+        return self.cog
 
     def build_main_embed(self):
         bal = get_balance(self.uid)
@@ -846,7 +853,7 @@ class PVPLobbyView(discord.ui.View):
         )
         embed.add_field(
             name="⚔️ 挑战玩家 / Challenge",
-            value="在聊天中使用 `/gmpt-pvp challenge @玩家 <赌注>` 发起挑战\nUse `/gmpt-pvp challenge @player <bet>` in chat",
+            value="在下拉菜单中选择在线玩家发起挑战\nSelect an online player from the dropdown to challenge",
             inline=False,
         )
         embed.add_field(
@@ -854,33 +861,174 @@ class PVPLobbyView(discord.ui.View):
             value="查看是否有等待接受的挑战 / Check for pending challenges",
             inline=False,
         )
+        embed.add_field(
+            name="🏆 排行榜 / Leaderboard",
+            value="查看 PVP 排名 / View PVP rankings",
+            inline=False,
+        )
         embed.set_footer(text="PVP 消耗技能和药水，请做好准备！")
         return embed
 
+    # ── Row 0: Challenge Player Select ──────────────────────
+
+    def _get_online_player_options(self) -> list[discord.SelectOption]:
+        if not self.guild:
+            return [discord.SelectOption(label="Loading players...", value="__placeholder__")]
+        online = [
+            m for m in self.guild.members
+            if (m.status != discord.Status.offline
+                and not m.bot
+                and str(m.id) != self.uid)
+        ][:25]
+        if not online:
+            return [discord.SelectOption(label="No online players / 无在线玩家", value="__none__")]
+        return [
+            discord.SelectOption(label=m.display_name[:100], value=str(m.id))
+            for m in online
+        ]
+
+    async def _challenge_player_callback(self, interaction: discord.Interaction):
+        value = interaction.data["values"][0]
+        if value in ("__placeholder__", "__none__"):
+            await interaction.response.send_message("没有可挑战的在线玩家。", ephemeral=True)
+            return
+        target = self.guild.get_member(int(value)) if self.guild else None
+        name = target.mention if target else f"<@{value}>"
+        await interaction.response.send_message(
+            f"⚔️ 使用命令发起挑战:\n`/gmpt-pvp challenge {name} <赌注/bet>`",
+            ephemeral=True,
+        )
+
+    # ── Row 1: Active Challenges Select ─────────────────────
+
+    def _get_active_challenge_options(self) -> list[discord.SelectOption]:
+        cog = self.cog
+        if not cog:
+            return [discord.SelectOption(label="No active challenges", value="__none__")]
+        waiting = {
+            cid: ch for cid, ch in cog.pvp_challenges.items()
+            if ch.get("status") == "waiting"
+        }
+        if not waiting:
+            return [discord.SelectOption(label="No active challenges", value="__none__")]
+        opts = []
+        for cid, ch in list(waiting.items())[:25]:
+            label = f"#{cid}: {ch['challenger_name']} vs {ch['defender_name']}"
+            if len(label) > 100:
+                label = label[:97] + "..."
+            opts.append(discord.SelectOption(label=label, value=f"__challenge__:{cid}"))
+        return opts
+
+    async def _active_challenge_callback(self, interaction: discord.Interaction):
+        value = interaction.data["values"][0]
+        if value == "__none__":
+            await interaction.response.send_message("暂无活跃挑战。", ephemeral=True)
+            return
+        cid = int(value.split(":", 1)[1])
+        cog = self._get_cog(interaction)
+        if not cog:
+            await interaction.response.send_message("PVP 系统暂不可用。", ephemeral=True)
+            return
+        ch = cog.pvp_challenges.get(cid)
+        if not ch or ch.get("status") != "waiting":
+            await interaction.response.send_message("该挑战已过期或不存在。", ephemeral=True)
+            return
+        embed = discord.Embed(
+            title=f"⚔️ PVP Challenge #{cid}",
+            description=(
+                f"**{ch['challenger_name']}** vs **{ch['defender_name']}**\n"
+                f"💰 Bet / 赌注: **{ch['bet']}**₲\n"
+                f"⏰ Created / 创建: <t:{int(ch['created_at'])}:R>"
+            ),
+            color=0xE74C3C,
+        )
+        embed.add_field(
+            name="操作 / Actions",
+            value=(
+                f"接受: `/gmpt-pvp accept {cid}`\n"
+                f"拒绝: `/gmpt-pvp decline {cid}`"
+            ),
+            inline=False,
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # ── Row 2: Leaderboard ──────────────────────────────────
+
+    async def _leaderboard_callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT discord_id, mmr, wins, losses FROM mmr ORDER BY mmr DESC LIMIT 10"
+            )
+            rows = cur.fetchall()
+
+        embed = discord.Embed(
+            title="🏆 PVP Leaderboard / PVP 排行榜",
+            description="",
+            color=0xF1C40F,
+        )
+        if not rows:
+            embed.description = "暂无数据 / No data yet."
+        else:
+            lines = []
+            for i, row in enumerate(rows):
+                uid, mmr, wins, losses = row
+                total = wins + losses
+                winrate = f"{wins / total * 100:.1f}%" if total > 0 else "0.0%"
+                medal = ["🥇", "🥈", "🥉"][i] if i < 3 else f"#{i + 1}"
+                lines.append(
+                    f"{medal} <@{uid}> — ELO: **{mmr}** | "
+                    f"Win Rate: {winrate} ({wins}W/{losses}L)"
+                )
+            embed.description = "\n".join(lines)
+            embed.set_footer(text="Top 10 Players | 按 ELO/MMR 降序")
+
+        try:
+            await interaction.edit_original_response(embed=embed, view=self)
+        except discord.InteractionResponded:
+            await interaction.followup.edit_message(embed=embed, view=self)
+
+    # ── Build ───────────────────────────────────────────────
+
     def _build(self):
         self.clear_items()
-        challenge_btn = discord.ui.Button(
-            label="⚔️ Challenge / 挑战", style=discord.ButtonStyle.primary,
-            row=0, custom_id="pvp_challenge",
+
+        # Row 0: Challenge Player Select
+        challenge_opts = self._get_online_player_options()
+        challenge_select = discord.ui.Select(
+            placeholder="选择在线玩家挑战 / Challenge online player...",
+            options=challenge_opts,
+            row=0,
         )
-        challenge_btn.callback = self._challenge_info_callback
-        self.add_item(challenge_btn)
+        challenge_select.callback = self._challenge_player_callback
+        self.add_item(challenge_select)
+
+        # Row 1: Active Challenges Select
+        active_opts = self._get_active_challenge_options()
+        active_select = discord.ui.Select(
+            placeholder="活跃挑战 / Active Challenges",
+            options=active_opts,
+            row=1,
+        )
+        active_select.callback = self._active_challenge_callback
+        self.add_item(active_select)
+
+        # Row 2: Leaderboard + Back
+        leaderboard_btn = discord.ui.Button(
+            label="🏆 Leaderboard", style=discord.ButtonStyle.success,
+            row=2, custom_id="pvp_leaderboard",
+        )
+        leaderboard_btn.callback = self._leaderboard_callback
+        self.add_item(leaderboard_btn)
 
         if self.main_view:
             back_btn = discord.ui.Button(
                 label="Back to MMORPG / 返回", style=discord.ButtonStyle.danger,
-                row=1, emoji="🏠", custom_id="pvp_back",
+                row=2, emoji="🏠", custom_id="pvp_back",
             )
             back_btn.callback = self._back_callback
             self.add_item(back_btn)
-
-    async def _challenge_info_callback(self, interaction: discord.Interaction):
-        await interaction.response.send_message(
-            "⚔️ **发起挑战 / Challenge:**\n"
-            "在聊天中 `@` 你要挑战的玩家：`/gmpt-pvp challenge @player <赌注>`\n"
-            "对方会用按钮接受或拒绝 / Opponent accepts/declines via buttons",
-            ephemeral=True,
-        )
 
     async def _back_callback(self, interaction: discord.Interaction):
         if self.main_view:

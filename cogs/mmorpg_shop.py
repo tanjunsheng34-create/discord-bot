@@ -843,12 +843,9 @@ class MMORPGMainView(discord.ui.View):
     @discord.ui.button(label="PVP 竞技", emoji="\u26a1", style=discord.ButtonStyle.primary, row=0, custom_id="mmorpg_main:pvp")
     async def pvp_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         from cogs.mmorpg_pvp import PVPLobbyView
-        view = PVPLobbyView(self.uid, main_view=self)
-        embed = discord.Embed(
-            title="\u2694\uFE0F PVP Arena / PVP竞技场",
-            description="Challenge other players!\n挑战其他玩家！",
-            color=0xE67E22,
-        )
+        cog = interaction.client.get_cog("PVPCog")
+        view = PVPLobbyView(self.uid, main_view=self, cog=cog, guild=interaction.guild)
+        embed = view.build_main_embed()
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:
