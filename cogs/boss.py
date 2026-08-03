@@ -1426,7 +1426,7 @@ class BossCog(CogBase):
     def __init__(self, bot):
         super().__init__()
         self.bot = bot
-        self.auto_boss_task = self.bot.loop.create_task(self._auto_boss_spawn_loop())
+        self.auto_boss_task = asyncio.create_task(self._auto_boss_spawn_loop())
 
     # ══════════════════════════════════════════════════════════
     # /gmpt-boss lobby — the only slash command
