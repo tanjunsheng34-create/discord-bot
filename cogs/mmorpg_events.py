@@ -46,7 +46,98 @@ EVENT_DROPS = {
 WEEKEND_DOUBLE_DROP_EVENT = ("weekend_double", "周末双倍掉落", "幸运女神")
 
 
-class EventBossCog(CogBase):
+class EventPanelView(discord.ui.View):
+    """活动面板入口 / Events panel entry for main panel."""
+
+    def __init__(self, uid: str, main_view=None):
+        super().__init__(timeout=300)
+        self.uid = uid
+        self.main_view = main_view
+
+    def build_embed(self) -> discord.Embed:
+        now = datetime.datetime.now()
+        month = now.month
+        day = now.day
+        weekday = now.weekday()
+
+        month_events = EVENT_SCHEDULE.get(month, {})
+        event_today = month_events.get(day)
+
+        embed = discord.Embed(
+            title="🎉 Events / 活动",
+            color=discord.Color.gold(),
+        )
+
+        # Active event rooms
+        if _event_rooms:
+            active_lines = []
+            for boss_id, room in _event_rooms.items():
+                if room.get("alive"):
+                    active_lines.append(
+                        f"**{room['boss_name']}** — {room['event_name']}\n"
+                        f"HP: {room['hp']}/{room['max_hp']} | 参战数: {len(room.get('players', {}))}"
+                    )
+            if active_lines:
+                embed.add_field(
+                    name="🔴 Active / 活跃中",
+                    value="\n\n".join(active_lines),
+                    inline=False,
+                )
+            else:
+                embed.add_field(name="🔴 Active / 活跃中", value="暂无 / None", inline=False)
+        else:
+            embed.add_field(name="🔴 Active / 活跃中", value="暂无 / None", inline=False)
+
+        # Today's scheduled events
+        if event_today:
+            event_key, event_name, boss_name = event_today
+            embed.add_field(
+                name="📅 Today / 今日活动",
+                value=f"**{event_name}** — {boss_name}\n限定称号+装备掉落",
+                inline=False,
+            )
+        else:
+            embed.add_field(name="📅 Today / 今日活动", value="今日无特别活动 / No special event today", inline=False)
+
+        # Event calendar hint
+        import calendar as _cal
+        embed.add_field(
+            name="📆 Calendar / 日历",
+            value=f"{_cal.month_name[month]} — {len(month_events)}个活动日",
+            inline=False,
+        )
+
+        # Weekend double drop
+        if weekday in (5, 6):
+            embed.add_field(
+                name="🌟 Weekend / 周末双倍",
+                value="本周末双倍掉落活动中 / Double drop active this weekend!",
+                inline=False,
+            )
+        else:
+            embed.add_field(
+                name="🌟 Weekend / 周末双倍",
+                value=f"距离周末还有 {5 - weekday} 天 / {5 - weekday} days to weekend",
+                inline=False,
+            )
+
+        embed.set_footer(text="活动Boss掉落限定称号和装备 | 使用 /gmpt-boss join 参战")
+        return embed
+
+    @discord.ui.button(label="Back 返回", emoji="↩️", style=discord.ButtonStyle.secondary, row=0)
+    async def _back_callback(self, interaction: discord.Interaction):
+        if self.main_view:
+            from cogs.mmorpg_shop import build_main_embed
+            embed = build_main_embed(self.uid, interaction.user.display_name)
+            try:
+                await interaction.response.edit_message(embed=embed, view=self.main_view)
+            except discord.InteractionResponded:
+                await interaction.edit_original_response(embed=embed, view=self.main_view)
+            return
+        await interaction.response.send_message("Use /gmpt-mmorpg to return.", ephemeral=True)
+
+
+
     """限时活动Boss系统 / Event Boss System"""
 
     def __init__(self, bot: commands.Bot):

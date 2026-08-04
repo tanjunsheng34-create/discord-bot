@@ -168,6 +168,32 @@ class BountyPanelView(discord.ui.View):
         self.main_view = main_view
         self._build_buttons()
 
+    def build_main_embed(self) -> discord.Embed:
+        """Build the bounty board embed."""
+        bounties = _assign_bounties(self.uid)
+        embed = discord.Embed(
+            title="Bounty Board / 悬赏任务板",
+            description="Daily bounties — kill enemies or gather items for rewards!\n每日悬赏 — 击杀敌人或收集物品获取奖励！",
+            color=0xE67E22,
+        )
+        for b in bounties:
+            template = BOUNTY_TEMPLATES[b["bounty_id"]]
+            emoji, cn, en = template[6], template[0], template[1]
+            pct = int(b["progress"] / max(1, b["target_count"]) * 100)
+            bar = "█" * (pct // 10) + "░" * (10 - pct // 10)
+            status = "✅ COMPLETE" if b["progress"] >= b["target_count"] else f"{bar} {b['progress']}/{b['target_count']}"
+            embed.add_field(
+                name=f"{emoji} {cn} / {en}",
+                value=(
+                    f"Type / 类型: {'Kill 击杀' if b['target_type'] == 'kill' else 'Gather 采集'} × {b['target_count']}\n"
+                    f"Progress / 进度: {status}\n"
+                    f"Reward / 奖励: 🪙 {b['coins']} | ⚡ {b['exp']} EXP"
+                ),
+                inline=False,
+            )
+        embed.set_footer(text="Earn progress by fighting bosses/dungeons! Use the panel to claim rewards.")
+        return embed
+
     def _build_buttons(self):
         self.clear_items()
 
@@ -262,7 +288,7 @@ class BountyPanelView(discord.ui.View):
             await interaction.response.defer(ephemeral=True)
             await bounty_claim_animation(interaction, template[0], target['coins'], target['exp'])
             # Rebuild view
-            self._build()
+            self._build_buttons()
             try:
                 await interaction.message.edit(embed=self.build_main_embed(), view=self)
             except (discord.NotFound, discord.HTTPException):

@@ -738,12 +738,12 @@ def build_main_embed(uid: str, display_name: str = None) -> discord.Embed:
     return embed
 
 # ══════════════════════════════════════════════════════════════
-# MMORPGMainView — Unified Control Panel (20 buttons, 4 rows)
+# MMORPGMainView — Unified Control Panel (20 buttons, 4 rows + select)
 # Row 0 (primary):   Boss | Dungeon | Raid | PVP | Quest
 # Row 1 (success):   Equipment | Enhance | Enchant | Skills | Stats
-# Row 2 (primary):   Guild | Auction | Bag | Shop
+# Row 2 (primary):   Guild | Auction | Bag | Shop | Tower
 # Row 3 (secondary): Work | Class | Fishing | Check-in | Pet
-# Row 4:             [More ▼] — Titles / Achievements
+# Row 4:             [More ▼] — Titles / Achievements / Collection / Bounty / Events
 # ══════════════════════════════════════════════════════════════
 class MMORPGMainView(discord.ui.View):
     def __init__(self, uid: str):
@@ -757,12 +757,18 @@ class MMORPGMainView(discord.ui.View):
 
     def _add_more_select(self):
         select = discord.ui.Select(
-            placeholder="More / 更多 (Titles · Achievements)",
+            placeholder="More / 更多 (Titles · Achievements · Collection · Bounty · Events)",
             options=[
                 discord.SelectOption(label="Titles 称号", emoji="\U0001f3c6", value="titles",
                                      description="View your titles / 查看称号"),
                 discord.SelectOption(label="Achievements 成就", emoji="\U0001f396\uFE0F", value="achievements",
                                      description="View achievements / 查看成就"),
+                discord.SelectOption(label="Collection 收集品", emoji="\U0001f4d6", value="collection",
+                                     description="View your collection / 查看收集品"),
+                discord.SelectOption(label="Bounty 悬赏", emoji="\U0001f3f9", value="bounty",
+                                     description="Bounty board / 悬赏任务板"),
+                discord.SelectOption(label="Events 活动", emoji="\U0001f38a", value="events",
+                                     description="Event bosses & activities / 限时活动"),
             ],
             row=4,
             custom_id="mmorpg_main:more",
@@ -784,6 +790,18 @@ class MMORPGMainView(discord.ui.View):
             from cogs.mmorpg_achievement import AchievementsView, check_and_unlock_all
             check_and_unlock_all(self.uid)
             view = AchievementsView(self.uid, main_view=self)
+            embed = view.build_embed()
+        elif value == "collection":
+            from cogs.mmorpg_collection import CollectionView
+            view = CollectionView(self.uid, main_view=self)
+            embed = view.build_embed()
+        elif value == "bounty":
+            from cogs.mmorpg_bounty import BountyPanelView
+            view = BountyPanelView(self.uid, main_view=self)
+            embed = view.build_main_embed()
+        elif value == "events":
+            from cogs.mmorpg_events import EventPanelView
+            view = EventPanelView(self.uid, main_view=self)
             embed = view.build_embed()
         else:
             return
@@ -1031,6 +1049,16 @@ class MMORPGMainView(discord.ui.View):
             description="Choose a shop category!\n选择商店类型！",
             color=0x3498DB,
         )
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=embed, view=view)
+
+    @discord.ui.button(label="Tower 挑战塔", emoji="\U0001f5fc\uFE0F", style=discord.ButtonStyle.primary, row=2, custom_id="mmorpg_main:tower")
+    async def _tower_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from cogs.mmorpg_tower import TowerHubView
+        view = TowerHubView(self.uid, main_view=self)
+        embed = view.build_embed()
         try:
             await interaction.response.edit_message(embed=embed, view=view)
         except discord.InteractionResponded:

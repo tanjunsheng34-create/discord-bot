@@ -30,6 +30,139 @@ TOWER_FLOORS = [
 # (floor, name, hp, atk, def, coins)
 
 
+class TowerHubView(discord.ui.View):
+    """挑战塔主面板入口 / Tower main panel entry."""
+
+    def __init__(self, uid: str, main_view=None):
+        super().__init__(timeout=300)
+        self.uid = uid
+        self.main_view = main_view
+
+    def build_embed(self) -> discord.Embed:
+        today = datetime.date.today().isoformat()
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT current_floor, cleared_today, last_date FROM tower_progress WHERE user_id=?",
+                (self.uid,),
+            )
+            row = cur.fetchone()
+
+        if row and row[2] == today and row[1]:
+            desc = "今日已通关 / Already cleared today!\n花费 `1000G` 可重置 / Spend 1000G to reset"
+            color = discord.Color.gold()
+            floor_info = "🏆 已通关 / Cleared"
+        elif row and row[2] == today:
+            f = row[0]
+            desc = f"当前进度 / Current: **第{f}层**\n继续挑战 / Continue climbing!"
+            color = discord.Color.blue()
+            floor_info = f"🗼 第{f}层 / Floor {f}"
+        else:
+            desc = "开始挑战10层递增难度的敌人！\nClimb 10 floors of increasing difficulty!"
+            color = discord.Color.blue()
+            floor_info = "🗼 第1层 / Floor 1"
+
+        embed = discord.Embed(
+            title="🗼 Challenge Tower / 挑战塔",
+            description=f"{desc}\n\n{floor_info}",
+            color=color,
+        )
+        embed.add_field(
+            name="奖励 / Rewards",
+            value="每层金币 + 通关强化石 & 宝石碎片\nCoins per floor + clear rewards",
+            inline=False,
+        )
+        embed.set_footer(text="10层递增难度 | 每日重置")
+        return embed
+
+    @discord.ui.button(label="⚔️ Start 挑战", style=discord.ButtonStyle.danger, row=0)
+    async def _start_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        uid = str(interaction.user.id)
+        today = datetime.date.today().isoformat()
+
+        cog = interaction.client.get_cog("TowerCog")
+        if not cog:
+            await interaction.response.send_message("Tower system unavailable / 挑战塔不可用", ephemeral=True)
+            return
+
+        if uid in cog._battles:
+            await interaction.response.send_message("Already in battle / 已在战斗中！", ephemeral=True)
+            return
+
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT current_floor, cleared_today, last_date FROM tower_progress WHERE user_id=?",
+                (uid,),
+            )
+            row = cur.fetchone()
+
+            if row and row[2] == today and row[1]:
+                await interaction.response.send_message(
+                    f"今日已通关！使用 `/gmpt-tower reset` 重置。",
+                    ephemeral=True,
+                )
+                return
+
+            if not row or row[2] != today:
+                if row:
+                    cur.execute(
+                        "UPDATE tower_progress SET current_floor=1, cleared_today=0, last_date=? WHERE user_id=?",
+                        (today, uid),
+                    )
+                else:
+                    cur.execute(
+                        "INSERT INTO tower_progress (user_id, current_floor, last_date) VALUES (?,1,?)",
+                        (uid, today),
+                    )
+                conn.commit()
+                floor = 1
+            else:
+                floor = row[0]
+
+        if floor > 10:
+            await cog._tower_clear(interaction, uid)
+            return
+
+        f_num, name, hp, atk, def_, coins = TOWER_FLOORS[floor - 1]
+
+        async with cog._lock:
+            cog._battles[uid] = {
+                "floor": floor,
+                "monster_name": name,
+                "monster_hp": hp,
+                "monster_max_hp": hp,
+                "monster_atk": atk,
+                "monster_def": def_,
+                "reward_coins": coins,
+            }
+
+        embed = discord.Embed(
+            title=f"🗼 第{floor}层 / Floor {floor}",
+            description=f"**{name}** 挡在你的面前！\nHP: `{hp}` | ATK: `{atk}` | DEF: `{def_}`",
+            color=discord.Color.red() if floor % 3 == 0 or floor == 10 else discord.Color.blue(),
+        )
+        embed.set_footer(text=f"奖励: {coins}G | 使用下方按钮攻击 / Attack below")
+
+        view = TowerFightView(cog, uid)
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.InteractionResponded:
+            await interaction.followup.send(embed=embed, view=view)
+
+    @discord.ui.button(label="Back 返回", emoji="↩️", style=discord.ButtonStyle.secondary, row=1)
+    async def _back_callback(self, interaction: discord.Interaction):
+        if self.main_view:
+            from cogs.mmorpg_shop import build_main_embed
+            embed = build_main_embed(self.uid, interaction.user.display_name)
+            try:
+                await interaction.response.edit_message(embed=embed, view=self.main_view)
+            except discord.InteractionResponded:
+                await interaction.edit_original_response(embed=embed, view=self.main_view)
+            return
+        await interaction.response.send_message("Use /gmpt-mmorpg to return.", ephemeral=True)
+
+
 class TowerCog(CogBase):
     """每日挑战塔 / Daily Challenge Tower"""
 

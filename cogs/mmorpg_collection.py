@@ -314,9 +314,13 @@ def build_collection_embed(uid: str) -> discord.Embed:
 class CollectionView(discord.ui.View):
     """Collection panel view."""
 
-    def __init__(self, uid: str):
+    def __init__(self, uid: str, main_view=None):
         super().__init__(timeout=None)
         self.uid = uid
+        self.main_view = main_view
+
+    def build_embed(self) -> discord.Embed:
+        return build_collection_embed(self.uid)
 
     async def _interaction_check(self, interaction: discord.Interaction) -> bool:
         if str(interaction.user.id) != self.uid:
@@ -331,6 +335,18 @@ class CollectionView(discord.ui.View):
             await interaction.response.edit_message(embed=embed, view=self)
         except discord.InteractionResponded:
             await interaction.followup.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="Back 返回", emoji="↩️", style=discord.ButtonStyle.secondary, row=1)
+    async def _back_callback(self, interaction: discord.Interaction):
+        if self.main_view:
+            from cogs.mmorpg_shop import build_main_embed
+            embed = build_main_embed(self.uid, interaction.user.display_name)
+            try:
+                await interaction.response.edit_message(embed=embed, view=self.main_view)
+            except discord.InteractionResponded:
+                await interaction.edit_original_response(embed=embed, view=self.main_view)
+            return
+        await interaction.response.send_message("Use /gmpt-mmorpg to return.", ephemeral=True)
 
 
 # ══════════════════════════════════════════════════════════════
