@@ -137,7 +137,7 @@ class EventPanelView(discord.ui.View):
         await interaction.response.send_message("Use /gmpt-mmorpg to return.", ephemeral=True)
 
 
-
+class EventBossCog(CogBase):
     """限时活动Boss系统 / Event Boss System"""
 
     def __init__(self, bot: commands.Bot):
