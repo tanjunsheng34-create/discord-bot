@@ -128,7 +128,7 @@ CLASS_ELEMENT = {
 # ── Boss auto-spawn ──
 BOSS_SPAWN_CHANNEL_ID: int = 1532937712041066647
 BOSS_SPAWN_INTERVAL: int = 7200  # 2 hours in seconds
-BOSS_SPAWN_DIFFICULTY_WEIGHTS = {"Easy": 40, "Medium": 30, "Hard": 20, "Extreme": 10}
+BOSS_SPAWN_DIFFICULTY_WEIGHTS = {"简单": 40, "普通": 30, "困难": 20, "极限": 10}
 BOSS_AUTO_TIMEOUT: int = 1800  # 30 minutes in seconds
 
 # Boss name pool for auto-spawn
