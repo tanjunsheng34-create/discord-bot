@@ -623,6 +623,14 @@ def remove_player_list_msg(match_id: int):
     _player_list_msgs.pop(match_id, None)
 
 
+def get_match_panel_msg_id(match_id: int) -> int | None:
+    """查询比赛面板消息 ID（match_view_state 中的 message_id）。"""
+    with db_context() as cur:
+        cur.execute("SELECT message_id FROM match_view_state WHERE match_id=?", (match_id,))
+        row = cur.fetchone()
+    return int(row["message_id"]) if row else None
+
+
 # ══════════ MatchView 持久化状态(Bot 重启后恢复报名按钮)══════════
 def save_match_view_state(match_id: int, message_id: int, channel_id: int, player_list_msg_id: int | None = None):
     """Persist message_id → match_id mapping so the persistent MatchView can recover after restart."""
@@ -2240,28 +2248,18 @@ class MatchViewWithID(discord.ui.View):
     async def _refresh_list(self, interaction: discord.Interaction, match_id: int):
         old_msg_id = _player_list_msgs.get(match_id)
         if old_msg_id:
-            try:
-                # 安全检查:确保不会误删比赛面板消息
-                with get_db_ctx() as conn_chk:
-                    cur_chk = conn_chk.cursor()
-                    cur_chk.execute("SELECT message_id FROM match_view_state WHERE match_id=? ORDER BY message_id DESC LIMIT 1", (match_id,))
-                    panel_row_chk = cur_chk.fetchone()
-                panel_msg_id_chk = int(panel_row_chk["message_id"]) if panel_row_chk else None
-                if old_msg_id != panel_msg_id_chk:
-                    old_msg = await interaction.channel.fetch_message(old_msg_id)
-                    await old_msg.delete()
-                else:
-                    logger.warning(f"[_refresh_list] old_msg_id={old_msg_id} matches panel message, skip delete")
-            except (discord.NotFound, discord.Forbidden):
-                pass
-            except Exception as e_chk:
-                # 安全检查失败时走安全策略:仅当 old_msg_id 明确不是面板消息时才删除
-                logger.error(f"[_refresh_list] safety check failed, fallback: {e_chk}")
+            # 安全检查: interaction.message 就是当前的比赛面板消息, 绝对不删
+            panel_msg_id = interaction.message.id if interaction.message else None
+            if old_msg_id == panel_msg_id:
+                logger.warning(f"[_refresh_list] old_msg_id={old_msg_id} matches panel message, skip delete")
+            else:
                 try:
                     old_msg = await interaction.channel.fetch_message(old_msg_id)
                     await old_msg.delete()
                 except (discord.NotFound, discord.Forbidden):
                     pass
+                except Exception as e_del:
+                    logger.error(f"[_refresh_list] delete old player list failed: {e_del}")
 
         with get_db_ctx() as conn:
             cur = conn.cursor()

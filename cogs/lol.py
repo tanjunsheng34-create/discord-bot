@@ -1565,14 +1565,22 @@ class CustomTeamView(discord.ui.View):
 
 async def _refresh_player_list_from_cmd(match_id: int, channel, guild):
     """从 lol.py slash 命令调用的列表刷新（无 MatchView 实例）。"""
-    from cogs.dashboard import get_player_list_msg, set_player_list_msg
+    from cogs.dashboard import get_player_list_msg, set_player_list_msg, get_match_panel_msg_id
     old_msg_id = get_player_list_msg(match_id)
     if old_msg_id:
-        try:
-            old_msg = await channel.fetch_message(old_msg_id)
-            await old_msg.delete()
-        except (discord.NotFound, discord.Forbidden):
-            pass
+        # 安全检查: 不删比赛面板消息
+        panel_msg_id = get_match_panel_msg_id(match_id)
+        if old_msg_id == panel_msg_id:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"[_refresh_player_list_from_cmd] old_msg_id={old_msg_id} matches panel message, skip delete"
+            )
+        else:
+            try:
+                old_msg = await channel.fetch_message(old_msg_id)
+                await old_msg.delete()
+            except (discord.NotFound, discord.Forbidden):
+                pass
 
     with get_db_ctx() as conn:
         cur = conn.cursor()
