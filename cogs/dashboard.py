@@ -1186,7 +1186,7 @@ class ReShuffleView(discord.ui.View):
                 return await interaction.followup.send(f"比赛已满 ({cnt}/{max_p}) / Match is full.", ephemeral=True)
 
             # 选路比赛:弹出路线选择
-            if src.get("role_pick"):
+            if src["role_pick"]:
                 lane_view = LaneSelectView(self.match_id, uid, interaction.user)
                 return await interaction.followup.send(
                     "请选择你的路线 / Select your lane:", view=lane_view, ephemeral=True,
@@ -2993,7 +2993,7 @@ class MatchViewWithID(discord.ui.View):
             split = len(players) // 2
             ta, tb = players[:split], players[split:]
 
-            is_role_pick = bool(t.get("role_pick", 0))
+            is_role_pick = bool("role_pick" in t.keys() and t["role_pick"])
             LANES = ["上路/Top", "打野/Jungle", "中路/Mid", "下路/ADC", "辅助/Support"]
             lane_map = {}
 
