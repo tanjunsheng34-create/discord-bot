@@ -704,6 +704,10 @@ def _run_migrations(cursor):
         cursor.execute("ALTER TABLE tournaments ADD COLUMN started_at TEXT DEFAULT NULL")
     except sqlite3.OperationalError:
         pass
+    try:
+        cursor.execute("ALTER TABLE tournaments ADD COLUMN scheduled_time TEXT DEFAULT '21:00'")
+    except sqlite3.OperationalError:
+        pass
 
     # match_vc_config — notification_channel_id
     try:

@@ -2952,6 +2952,117 @@ class MatchViewWithID(discord.ui.View):
 
         await interaction.followup.send("重新分队完成!", ephemeral=True)
 
+    @discord.ui.button(label="🎲 随机分队+分路 / Shuffle+Lane", style=discord.ButtonStyle.primary, emoji="🎯", row=2, custom_id="matchv2_shuffle_lane")
+    async def shuffle_lane_btn(self, interaction: discord.Interaction, button):
+        """Randomly assign players to teams + auto lane assignment for role-pick matches."""
+        await interaction.response.defer(ephemeral=True)
+        try:
+            mid, t, guild = await self._get_context(interaction)
+            if not t:
+                return await interaction.followup.send("比赛不存在 / Match not found.", ephemeral=True)
+        except Exception:
+            return await interaction.followup.send("无法获取比赛信息 / Unable to fetch match.", ephemeral=True)
+
+        uid = str(interaction.user.id)
+
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT 1 FROM registrations WHERE tournament_id=? AND discord_id=? AND (is_sub IS NULL OR is_sub=0)",
+                (mid, uid),
+            )
+            is_participant = cur.fetchone() is not None
+        if not interaction.user.guild_permissions.administrator and not is_participant:
+            return await interaction.followup.send("仅参赛者或管理员可操作", ephemeral=True)
+
+        with get_db_ctx() as conn2:
+            cur2 = conn2.cursor()
+            cur2.execute(
+                "SELECT discord_id FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0)",
+                (mid,),
+            )
+            players = [r["discord_id"] for r in cur2.fetchall()]
+            if len(players) < 2:
+                return await interaction.followup.send("参赛人数不足 (至少2人) / Not enough players (min 2).", ephemeral=True)
+
+            if len(players) % 2 != 0:
+                players.pop()
+
+            import random as _random
+            _random.shuffle(players)
+            split = len(players) // 2
+            ta, tb = players[:split], players[split:]
+
+            is_role_pick = bool(t.get("role_pick", 0))
+            LANES = ["上路/Top", "打野/Jungle", "中路/Mid", "下路/ADC", "辅助/Support"]
+            lane_map = {}
+
+            if is_role_pick:
+                for team_players in (ta, tb):
+                    _random.shuffle(LANES)
+                    for i, player in enumerate(team_players):
+                        if i < len(LANES):
+                            lane_map[player] = LANES[i]
+                            cur2.execute(
+                                "UPDATE registrations SET lane=? WHERE tournament_id=? AND discord_id=?",
+                                (LANES[i], mid, player),
+                            )
+
+            cur2.execute("DELETE FROM teams WHERE tournament_id=?", (mid,))
+            cur2.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (mid, "A 队 Team A"))
+            aid = cur2.lastrowid
+            for u in ta:
+                cur2.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (aid, mid, u))
+            cur2.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (mid, "B 队 Team B"))
+            bid = cur2.lastrowid
+            for u in tb:
+                cur2.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (bid, mid, u))
+
+            for attempt in range(3):
+                try:
+                    conn2.commit()
+                    break
+                except sqlite3.OperationalError as e:
+                    if "locked" in str(e).lower() and attempt < 2:
+                        time_mod.sleep(0.2 * (attempt + 1))
+                        continue
+                    raise
+
+        match_name = t["name"]
+        a_mentions = [f"<@{u}>" for u in ta]
+        b_mentions = [f"<@{u}>" for u in tb]
+
+        embed_desc = (
+            f"🔵 **A 队 Team A** (ID:{aid}): {' '.join(a_mentions)}\n"
+            f"🔴 **B 队 Team B** (ID:{bid}): {' '.join(b_mentions)}\n"
+        )
+        if is_role_pick and lane_map:
+            embed_desc += "\n**分路 / Lanes:**\n"
+            for team_label, team_players in [("🔵 A 队", ta), ("🔴 B 队", tb)]:
+                player_lanes = [f"<@{u}>({lane_map.get(u, '未分配')})" for u in team_players]
+                embed_desc += f"**{team_label}:** {', '.join(player_lanes)}\n"
+
+        embed_desc += (
+            f"\nMatch ID: {mid}\n"
+            f"Settle: `/gmpt-lol lol-settle {mid} <win_team_id>`"
+        )
+
+        embed = discord.Embed(
+            title=f"🎲 随机分队+分路 — {match_name}",
+            description=embed_desc,
+            color=discord.Color.purple(),
+        )
+        await interaction.channel.send(embed=embed)
+
+        try:
+            voice_view = VoicePullView(ta, tb, guild)
+            await interaction.channel.send("📢 点击按钮将玩家拉入对应语音频道:", view=voice_view)
+        except Exception as e:
+            log_error("dashboard", "shuffle_lane_btn", e)
+
+        await VoteView.send_vote(match_id=mid, match_name=match_name, channel=interaction.channel)
+        await interaction.followup.send("随机分队+分路完成!", ephemeral=True)
+
     @discord.ui.button(label="管理员加人 / Add Player", style=discord.ButtonStyle.primary, emoji="➕", row=2, custom_id="matchv2_admin_add")
     async def admin_add_btn(self, interaction: discord.Interaction, button):
         """Admin-only: batch add players or substitutes via UserSelect + type dropdown."""
@@ -3203,7 +3314,7 @@ class LolVoteView(discord.ui.View):
             description=(
                 f"📅 {session['vote_date']}\n\n"
                 f"点击下方按钮投票，每人一票！Vote below, one per person!\n"
-                f"下午 1:00 自动结算并创建比赛 🏆 Auto-settle at 1PM\n\n"
+                f"下午 1:00 自动结算 | 比赛晚上 9:00 开始 🏆 Auto-settle at 1PM, Game at 9PM\n\n"
                 f"🏹 ARAM 大乱斗: **{counts['ARAM']}** 票\n"
                 f"⚔️ 召唤师峡谷 Summoner's Rift: **{sr_votes}** 票\n"
                 f"🎯 TFT 云顶: **{counts['TFT']}** 票\n"
@@ -8186,7 +8297,7 @@ class Dashboard(CogBase):
             description=(
                 f"📅 {today}\n\n"
                 f"点击下方按钮投票，每人一票！Vote below, one per person!\n"
-                f"下午 1:00 自动结算并创建比赛 🏆 Auto-settle at 1PM\n\n"
+                f"下午 1:00 自动结算 | 比赛晚上 9:00 开始 🏆 Auto-settle at 1PM, Game at 9PM\n\n"
                 f"🏹 ARAM 大乱斗: **0** 票\n"
                 f"⚔️ 召唤师峡谷 Summoner's Rift: **0** 票\n"
                 f"🎯 TFT 云顶: **0** 票\n"
@@ -8231,79 +8342,18 @@ class Dashboard(CogBase):
             if not session:
                 return
 
-            # 统计票数
-            cur.execute(
-                "SELECT mode, COUNT(*) as cnt FROM lol_vote_results WHERE session_id=? GROUP BY mode ORDER BY cnt DESC",
-                (session["id"],),
-            )
-            rows = cur.fetchall()
-
-            if not rows:
-                # 无人投票，默认 ARAM
-                winner_mode = "ARAM"
-            else:
-                winner_mode = rows[0]["mode"]
-
-            # 更新 session 状态
+            winner_mode = self._resolve_vote_winner(cur, session)
             cur.execute(
                 "UPDATE lol_vote_sessions SET status='closed', winner_mode=? WHERE id=?",
                 (winner_mode, session["id"]),
             )
             conn.commit()
 
-            # 创建比赛：插入 tournaments 表
             match_name = f"[投票] {winner_mode} — {today}"
-            team_size = 5
-            cur.execute(
-                "INSERT INTO tournaments (name, max_teams, team_size, created_by, status) VALUES (?, 2, ?, 'system', 'open')",
-                (match_name, team_size),
-            )
-            tid = cur.lastrowid
+            tid = self._insert_vote_match(cur, match_name)
             conn.commit()
 
-        # 发送比赛报名 embed
-        embed = discord.Embed(
-            title=f"🏆 投票结束！Vote closed! 今天玩 {winner_mode}！点击报名 👇",
-            description=(
-                f"📅 {today}\n\n"
-                f"最高票模式 Winner: **{winner_mode}**\n"
-                f"比赛已自动创建，点击下方按钮报名 Match created, click below to sign up 👇"
-            ),
-            color=discord.Color.green(),
-        ).set_footer(text=f"Match ID: {tid}")
-
-        view = MatchView()
-        msg = await channel.send(embed=embed, view=view)
-        save_match_view_state(tid, msg.id, channel_id)
-
-        # 发送初始报名列表
-        list_embed = discord.Embed(
-            title="已报名玩家 / Signed Up (0/10)",
-            description="暂无玩家 / No signups yet",
-            color=discord.Color.green(),
-        )
-        list_msg = await channel.send(embed=list_embed)
-        set_player_list_msg(tid, list_msg.id)
-        with get_db_ctx() as conn2:
-            cur2 = conn2.cursor()
-            cur2.execute(
-                "UPDATE match_view_state SET player_list_msg_id=? WHERE message_id=?",
-                (str(list_msg.id), str(msg.id)),
-            )
-            conn2.commit()
-
-        # 通知所有投票者
-        with get_db_ctx() as conn3:
-            cur3 = conn3.cursor()
-            cur3.execute(
-                "SELECT DISTINCT discord_id FROM lol_vote_results WHERE session_id=?",
-                (session["id"],),
-            )
-            voter_rows = cur3.fetchall()
-        if voter_rows:
-            mentions = " ".join(f"<@{r['discord_id']}>" for r in voter_rows)
-            await channel.send(f"{mentions} 投票结果出来了：今天玩 {winner_mode}！点击上方报名 👆")
-
+        await self._send_vote_match_embed(channel, tid, winner_mode, today, session)
         logger.info(f"[LoLVote] Vote closed for {today}, winner: {winner_mode}, match #{tid}")
 
     async def _close_lol_vote_for_message(self, message_id: int, channel):
@@ -8318,51 +8368,57 @@ class Dashboard(CogBase):
             if not session:
                 return
 
-            # 统计票数
-            cur.execute(
-                "SELECT mode, COUNT(*) as cnt FROM lol_vote_results WHERE session_id=? GROUP BY mode ORDER BY cnt DESC",
-                (session["id"],),
-            )
-            rows = cur.fetchall()
-
-            if not rows:
-                winner_mode = "ARAM"
-            else:
-                winner_mode = rows[0]["mode"]
-
-            # 更新 session 状态
+            winner_mode = self._resolve_vote_winner(cur, session)
             cur.execute(
                 "UPDATE lol_vote_sessions SET status='closed', winner_mode=? WHERE id=?",
                 (winner_mode, session["id"]),
             )
             conn.commit()
 
-            # 创建比赛
             match_name = f"[投票] {winner_mode} — {session['vote_date']}"
-            team_size = 5
-            cur.execute(
-                "INSERT INTO tournaments (name, max_teams, team_size, created_by, status) VALUES (?, 2, ?, 'system', 'open')",
-                (match_name, team_size),
-            )
-            tid = cur.lastrowid
+            tid = self._insert_vote_match(cur, match_name)
             conn.commit()
 
-        # 发送比赛报名 embed
+        await self._send_vote_match_embed(channel, tid, winner_mode, session['vote_date'], session)
+        logger.info(f"[LoLVote] Vote closed manually for {session['vote_date']}, winner: {winner_mode}, match #{tid}")
+
+    @staticmethod
+    def _resolve_vote_winner(cur, session) -> str:
+        """Determine winner mode from vote results. Defaults to ARAM if no votes."""
+        cur.execute(
+            "SELECT mode, COUNT(*) as cnt FROM lol_vote_results WHERE session_id=? GROUP BY mode ORDER BY cnt DESC",
+            (session["id"],),
+        )
+        rows = cur.fetchall()
+        return rows[0]["mode"] if rows else "ARAM"
+
+    @staticmethod
+    def _insert_vote_match(cur, match_name: str) -> int:
+        """Insert a tournament row for a vote match, return tournament id."""
+        cur.execute(
+            "INSERT INTO tournaments (name, max_teams, team_size, created_by, status, scheduled_time) "
+            "VALUES (?, 2, 5, 'system', 'open', '21:00')",
+            (match_name,),
+        )
+        return cur.lastrowid
+
+    async def _send_vote_match_embed(self, channel, tid, winner_mode, date_str, session):
+        """Send match creation embed, signup list, and notify voters."""
         embed = discord.Embed(
             title=f"🏆 投票结束！Vote closed! 今天玩 {winner_mode}！点击报名 👇",
             description=(
-                f"📅 {session['vote_date']}\n\n"
+                f"📅 {date_str}\n\n"
                 f"最高票模式 Winner: **{winner_mode}**\n"
-                f"比赛已自动创建，点击下方按钮报名 Match created, click below to sign up 👇"
+                f"比赛已自动创建，比赛时间: 晚上 9:00 (21:00)\n"
+                f"Match created, game at 9:00 PM. Click below to sign up 👇"
             ),
             color=discord.Color.green(),
-        ).set_footer(text=f"Match ID: {tid}")
+        ).set_footer(text=f"Match ID: {tid} | 比赛时间 / Game Time: 21:00")
 
         view = MatchView()
         msg = await channel.send(embed=embed, view=view)
         save_match_view_state(tid, msg.id, channel.id)
 
-        # 发送初始报名列表
         list_embed = discord.Embed(
             title="已报名玩家 / Signed Up (0/10)",
             description="暂无玩家 / No signups yet",
@@ -8388,9 +8444,7 @@ class Dashboard(CogBase):
             voter_rows = cur3.fetchall()
         if voter_rows:
             mentions = " ".join(f"<@{r['discord_id']}>" for r in voter_rows)
-            await channel.send(f"{mentions} 投票结果出来了：今天玩 {winner_mode}！点击上方报名 👆")
-
-        logger.info(f"[LoLVote] Vote closed manually for {session['vote_date']}, winner: {winner_mode}, match #{tid}")
+            await channel.send(f"{mentions} 投票结果出来了：今天玩 {winner_mode}！比赛晚上 9:00 开始，点击上方报名 👆")
 
 
     @app_commands.command(
