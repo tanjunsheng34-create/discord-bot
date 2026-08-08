@@ -2993,20 +2993,18 @@ class MatchViewWithID(discord.ui.View):
             split = len(players) // 2
             ta, tb = players[:split], players[split:]
 
-            is_role_pick = bool("role_pick" in t.keys() and t["role_pick"])
             LANES = ["上路/Top", "打野/Jungle", "中路/Mid", "下路/ADC", "辅助/Support"]
             lane_map = {}
 
-            if is_role_pick:
-                for team_players in (ta, tb):
-                    _random.shuffle(LANES)
-                    for i, player in enumerate(team_players):
-                        if i < len(LANES):
-                            lane_map[player] = LANES[i]
-                            cur2.execute(
-                                "UPDATE registrations SET lane=? WHERE tournament_id=? AND discord_id=?",
-                                (LANES[i], mid, player),
-                            )
+            for team_players in (ta, tb):
+                _random.shuffle(LANES)
+                for i, player in enumerate(team_players):
+                    if i < len(LANES):
+                        lane_map[player] = LANES[i]
+                        cur2.execute(
+                            "UPDATE registrations SET lane=? WHERE tournament_id=? AND discord_id=?",
+                            (LANES[i], mid, player),
+                        )
 
             cur2.execute("DELETE FROM teams WHERE tournament_id=?", (mid,))
             cur2.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (mid, "A 队 Team A"))
@@ -3036,7 +3034,7 @@ class MatchViewWithID(discord.ui.View):
             f"🔵 **A 队 Team A** (ID:{aid}): {' '.join(a_mentions)}\n"
             f"🔴 **B 队 Team B** (ID:{bid}): {' '.join(b_mentions)}\n"
         )
-        if is_role_pick and lane_map:
+        if lane_map:
             embed_desc += "\n**分路 / Lanes:**\n"
             for team_label, team_players in [("🔵 A 队", ta), ("🔴 B 队", tb)]:
                 player_lanes = [f"<@{u}>({lane_map.get(u, '未分配')})" for u in team_players]
