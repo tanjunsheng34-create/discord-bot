@@ -558,8 +558,8 @@ class TeamAssignView(discord.ui.View):
         embed = self._build_embed()
         embed.title = f"Teams Confirmed — {self.match_name}"
         embed.description = (
-            f"🔵 **A 队 Team A** (ID:{aid}): {' '.join(a_mentions)}\n"
-            f"🔴 **B 队 Team B** (ID:{bid}): {' '.join(b_mentions)}\n\n"
+            f"🔵 **A 队 Team A** (ID:{aid}):\n{chr(10).join(f'- {m}' for m in a_mentions)}\n"
+            f"🔴 **B 队 Team B** (ID:{bid}):\n{chr(10).join(f'- {m}' for m in b_mentions)}\n\n"
             f"Settle: `/gmpt-lol lol-settle {self.match_id} <win_team_id>`"
         )
         embed.color = discord.Color.green()
@@ -987,8 +987,8 @@ class ReShuffleView(discord.ui.View):
         embed = discord.Embed(
             title=f"🔄 重新分队 — {match_name}",
             description=(
-                f"🔵 **A 队 Team A** (ID:{aid}): {' '.join(a_mentions)}\n"
-                f"🔴 **B 队 Team B** (ID:{bid}): {' '.join(b_mentions)}\n\n"
+                f"🔵 **A 队 Team A** (ID:{aid}):\n{chr(10).join(f'- {m}' for m in a_mentions)}\n"
+                f"🔴 **B 队 Team B** (ID:{bid}):\n{chr(10).join(f'- {m}' for m in b_mentions)}\n\n"
                 f"Match ID: {new_mid}\n"
                 f"Settle: `/gmpt-lol lol-settle {new_mid} <win_team_id>`"
             ),
@@ -1876,8 +1876,8 @@ class ManualTeamView(discord.ui.View):
         embed = self._build_embed()
         embed.title = f"✋ 手动分队完成 — {self.match_name}"
         embed.description = (
-            f"🔵 **A 队 Team A** (ID:{aid}): {' '.join(a_mentions)}\n"
-            f"🔴 **B 队 Team B** (ID:{bid}): {' '.join(b_mentions)}\n\n"
+            f"🔵 **A 队 Team A** (ID:{aid}):\n{chr(10).join(f'- {m}' for m in a_mentions)}\n"
+            f"🔴 **B 队 Team B** (ID:{bid}):\n{chr(10).join(f'- {m}' for m in b_mentions)}\n\n"
             f"Match ID: {new_mid}\n"
             f"Settle: `/gmpt-lol lol-settle {new_mid} <win_team_id>`"
         )
@@ -2100,8 +2100,8 @@ class CaptainDraftView(discord.ui.View):
         embed = discord.Embed(
             title=f"👑 队长分队完成 — {self.match_name}",
             description=(
-                f"🔵 **A 队 Team A** (ID:{aid}, 队长 <@{self.captain_a}>): {' '.join(a_mentions)}\n"
-                f"🔴 **B 队 Team B** (ID:{bid}, 队长 <@{self.captain_b}>): {' '.join(b_mentions)}\n\n"
+                f"🔵 **A 队 Team A** (ID:{aid}, 队长 <@{self.captain_a}>):\n{chr(10).join(f'- {m}' for m in a_mentions)}\n"
+                f"🔴 **B 队 Team B** (ID:{bid}, 队长 <@{self.captain_b}>):\n{chr(10).join(f'- {m}' for m in b_mentions)}\n\n"
                 f"Match ID: {new_mid}\n"
                 f"Settle: `/gmpt-lol lol-settle {new_mid} <win_team_id>`"
             ),
@@ -2931,8 +2931,8 @@ class MatchViewWithID(discord.ui.View):
         embed = discord.Embed(
             title=f"🔄 重新分队 — {match_name}",
             description=(
-                f"🔵 **A 队 Team A** (ID:{aid}): {' '.join(a_mentions)}\n"
-                f"🔴 **B 队 Team B** (ID:{bid}): {' '.join(b_mentions)}\n\n"
+                f"🔵 **A 队 Team A** (ID:{aid}):\n{chr(10).join(f'- {m}' for m in a_mentions)}\n"
+                f"🔴 **B 队 Team B** (ID:{bid}):\n{chr(10).join(f'- {m}' for m in b_mentions)}\n\n"
                 f"Match ID: {mid}\n"
                 f"Settle: `/gmpt-lol lol-settle {mid} <win_team_id>`"
             ),
@@ -4075,8 +4075,8 @@ class ReadyCheckView(discord.ui.View):
         embed = discord.Embed(
             title=f"\u2705 Ready Check Complete \u2014 {self.match_name}",
             description=(
-                f"\U0001f7e2 **A \u961f Team A** (ID:{aid}): {' '.join(a_mentions)}\n"
-                f"\U0001f534 **B \u961f Team B** (ID:{bid}): {' '.join(b_mentions)}\n\n"
+                f"\U0001f7e2 **A \u961f Team A** (ID:{aid}):\n{chr(10).join(f'- {m}' for m in a_mentions)}\n"
+                f"\U0001f534 **B \u961f Team B** (ID:{bid}):\n{chr(10).join(f'- {m}' for m in b_mentions)}\n\n"
                 "All confirmed. Auto-shuffle complete."
             ),
             color=discord.Color.green(),
@@ -5456,8 +5456,8 @@ class DashboardView(discord.ui.View):
             embed = discord.Embed(
                 title=f"Shuffle — {t['name']}",
                 description=(
-                    f"🔵 **A 队 Team A** (ID:{aid}): {' '.join(a_mentions)}\n"
-                    f"🔴 **B 队 Team B** (ID:{bid}): {' '.join(b_mentions)}\n\n"
+                    f"🔵 **A 队 Team A** (ID:{aid}):\n{chr(10).join(f'- {m}' for m in a_mentions)}\n"
+                    f"🔴 **B 队 Team B** (ID:{bid}):\n{chr(10).join(f'- {m}' for m in b_mentions)}\n\n"
                     f"Settle: `/gmpt-lol lol-settle {mid} <win_team_id>`"
                 ),
                 color=discord.Color.gold(),
@@ -5768,8 +5768,8 @@ class DashboardView(discord.ui.View):
             embed = discord.Embed(
                 title=f"拉入语音 — {t['name'] if t else f'Match #{mid}'}",
                 description=(
-                    f"🔵 **A 队**:{' '.join(a_mentions) if a_mentions else '(无)'}\n"
-                    f"🔴 **B 队**:{' '.join(b_mentions) if b_mentions else '(无)'}"
+                    f"🔵 **A 队**:\n{chr(10).join(f'- {m}' for m in a_mentions) if a_mentions else '(无)'}\n"
+                    f"🔴 **B 队**:\n{chr(10).join(f'- {m}' for m in b_mentions) if b_mentions else '(无)'}"
                 ),
                 color=discord.Color.blurple(),
             )
