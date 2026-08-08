@@ -3030,12 +3030,10 @@ class MatchViewWithID(discord.ui.View):
                     raise
 
         match_name = t["name"]
-        a_mentions = [f"<@{u}>" for u in ta]
-        b_mentions = [f"<@{u}>" for u in tb]
 
         embed_desc = (
-            f"🔵 **A 队 Team A** (ID:{aid}): {' '.join(a_mentions)}\n"
-            f"🔴 **B 队 Team B** (ID:{bid}): {' '.join(b_mentions)}\n"
+            f"🔵 **A 队 Team A** (ID:{aid}):\n" + "\n".join(f"- <@{u}>" for u in ta) + "\n"
+            f"🔴 **B 队 Team B** (ID:{bid}):\n" + "\n".join(f"- <@{u}>" for u in tb) + "\n"
         )
         if lane_map:
             embed_desc += "\n**分路 / Lanes:**\n"
