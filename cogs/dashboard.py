@@ -2988,19 +2988,22 @@ class MatchViewWithID(discord.ui.View):
             if len(players) % 2 != 0:
                 players.pop()
 
-            import random as _random
-            _random.shuffle(players)
+            random.shuffle(players)
             split = len(players) // 2
             ta, tb = players[:split], players[split:]
 
             LANES = ["上路/Top", "打野/Jungle", "中路/Mid", "下路/ADC", "辅助/Support"]
+            LANE_SHORT = ["Top", "JG", "Mid", "ADC", "Sup"]
             lane_map = {}
+            team_lanes_a, team_lanes_b = {}, {}
 
-            for team_players in (ta, tb):
-                _random.shuffle(LANES)
+            for team_idx, team_players in enumerate((ta, tb)):
+                random.shuffle(LANES)
+                target = team_lanes_a if team_idx == 0 else team_lanes_b
                 for i, player in enumerate(team_players):
                     if i < len(LANES):
                         lane_map[player] = LANES[i]
+                        target[LANE_SHORT[i]] = player
                         cur2.execute(
                             "UPDATE registrations SET lane=? WHERE tournament_id=? AND discord_id=?",
                             (LANES[i], mid, player),
@@ -3036,9 +3039,11 @@ class MatchViewWithID(discord.ui.View):
         )
         if lane_map:
             embed_desc += "\n**分路 / Lanes:**\n"
-            for team_label, team_players in [("🔵 A 队", ta), ("🔴 B 队", tb)]:
-                player_lanes = [f"<@{u}>({lane_map.get(u, '未分配')})" for u in team_players]
-                embed_desc += f"**{team_label}:** {', '.join(player_lanes)}\n"
+            for team_label, team_lanes in [("🔵 A 队", team_lanes_a), ("🔴 B 队", team_lanes_b)]:
+                embed_desc += f"**{team_label}:**\n"
+                for ls in LANE_SHORT:
+                    player = team_lanes.get(ls)
+                    embed_desc += f"{ls} - <@{player}>\n" if player else f"{ls} - 未分配\n"
 
         embed_desc += (
             f"\nMatch ID: {mid}\n"
