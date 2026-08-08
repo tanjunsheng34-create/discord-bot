@@ -1785,7 +1785,7 @@ class BossCog(CogBase):
                         "difficulty_raw": diff_key,
                         "diff": diff_key,
                         "diff_color": diff_cfg["color"],
-                        "difficulty_label": diff_cfg["label"],
+                        "diff_label": diff_cfg["label"],
                         "multiplayer": True,
                         "players": {},
                         "boss_hp": hp,
