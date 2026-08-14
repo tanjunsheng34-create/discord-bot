@@ -2306,15 +2306,17 @@ class MatchViewWithID(discord.ui.View):
                 ts = t["team_size"] or 5
                 num_lanes = min(ts, len(LANES))
                 for team_idx, team_players in enumerate((ta, tb)):
-                    random.shuffle(LANES)
+                    # 用副本打乱, 避免原地修改模块级 LANES 常量破坏索引对齐
+                    lanes = LANES[:]
+                    random.shuffle(lanes)
                     target = team_lanes_a if team_idx == 0 else team_lanes_b
                     for i, player in enumerate(team_players):
                         if i < num_lanes:
-                            lane_map[player] = LANES[i]
+                            lane_map[player] = lanes[i]
                             target[LANE_SHORT[i]] = player
                             cur.execute(
                                 "UPDATE registrations SET lane=? WHERE tournament_id=? AND discord_id=?",
-                                (LANES[i], mid, player),
+                                (lanes[i], mid, player),
                             )
             else:
                 # 保留已有 lane 信息 (reshuffle 不重新分配分路)
