@@ -15,10 +15,17 @@ from discord.ext import commands
 from database import get_db, get_db_ctx, init_db
 from init_new_cogs import init_all_new_tables
 from utils.logger import log_error
-from config import TOKEN, BACKUP_CHANNEL_ID, BACKUP_INTERVAL, BACKUP_TABLES, GUILD_ID
+from config import (
+    TOKEN, BACKUP_CHANNEL_ID, BACKUP_INTERVAL, BACKUP_TABLES, GUILD_ID,
+    SPAM_DETECT_WINDOW, SPAM_DETECT_THRESHOLD, SPAM_ACTION,
+    SPAM_IGNORE_CHANNELS, SPAM_MUTE_DURATION,
+)
 
 # Text XP cooldown: user_id -> last_xp_time
 _msg_xp_cooldowns: dict[str, float] = {}
+
+# 重复消息刷屏检测: user_id -> [(content, timestamp), ...]
+_msg_spam_tracker: dict[str, list] = {}
 
 # Image mode toggle (set in on_ready based on font availability)
 IMAGE_MODE = True
@@ -608,6 +615,46 @@ async def on_message(message):
     if message.author.bot:
         return
     uid = str(message.author.id)
+
+    # ── 重复消息刷屏检测 (防 hack 账号一直发相同内容) ──
+    try:
+        if message.channel.id not in SPAM_IGNORE_CHANNELS:
+            content = message.content.strip()
+            if content:
+                now = time.time()
+                # 清理窗口外的过期记录
+                recent = [(c, ts) for c, ts in _msg_spam_tracker.get(uid, []) if now - ts <= SPAM_DETECT_WINDOW]
+                recent.append((content, now))
+                _msg_spam_tracker[uid] = recent
+                # 统计窗口内相同内容次数
+                same_count = sum(1 for c, _ in recent if c == content)
+                if same_count >= SPAM_DETECT_THRESHOLD:
+                    logger.warning(
+                        f"[spam] user {uid} sent identical message {same_count}x in {SPAM_DETECT_WINDOW}s: {content[:80]!r}"
+                    )
+                    if SPAM_ACTION in ("warn", "mute"):
+                        try:
+                            await message.channel.send(
+                                f"<@{uid}> 检测到重复刷屏, 请勿发送相同内容 / Stop spamming identical messages.",
+                                delete_after=5,
+                            )
+                        except Exception:
+                            pass
+                    if SPAM_ACTION == "mute":
+                        try:
+                            await message.author.timeout(
+                                datetime.timedelta(seconds=SPAM_MUTE_DURATION),
+                                reason="重复消息刷屏 / Spam identical messages",
+                            )
+                        except Exception as e:
+                            logger.warning(f"[spam] timeout failed for {uid}: {e}")
+                    try:
+                        await message.delete()
+                    except Exception:
+                        pass
+                    return  # 丢弃该消息, 不处理 weekly/xp
+    except Exception as e:
+        log_error("main", "on_message_spam", e)
 
     try:
         from cogs.economy import update_weekly_progress

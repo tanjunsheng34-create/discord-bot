@@ -178,6 +178,22 @@ EVENT_BOSS_SURVIVAL: int = 7200
 # Weekend double drop event (random: 20% chance each Saturday/Sunday)
 DOUBLE_DROP_WEEKEND_CHANCE: float = 0.20
 
+# ══════════════════════════════════════════════════════════════
+# 重复消息刷屏检测 (防 hack 账号一直发相同内容)
+# ══════════════════════════════════════════════════════════════
+# 检测窗口 (秒): 窗口内同一用户发送相同内容达到阈值即触发
+SPAM_DETECT_WINDOW: int = int(os.getenv("SPAM_DETECT_WINDOW", "10"))
+# 窗口内相同内容消息次数阈值
+SPAM_DETECT_THRESHOLD: int = int(os.getenv("SPAM_DETECT_THRESHOLD", "5"))
+# 处理策略: discard=静默丢弃 / warn=警告并丢弃 / mute=警告并禁言(需管理员权限)
+SPAM_ACTION: str = os.getenv("SPAM_ACTION", "warn").strip().lower()
+# 忽略的频道 ID 列表 (逗号分隔, 如游戏中心等允许刷屏的频道)
+SPAM_IGNORE_CHANNELS: list = [
+    int(x) for x in os.getenv("SPAM_IGNORE_CHANNELS", "").split(",") if x.strip().isdigit()
+]
+# 禁言时长 (秒), 仅 SPAM_ACTION=mute 时生效
+SPAM_MUTE_DURATION: int = int(os.getenv("SPAM_MUTE_DURATION", "300"))
+
 # Ensure database directory exists
 _db_dir = os.path.dirname(DATABASE)
 if _db_dir:

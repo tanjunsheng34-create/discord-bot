@@ -40,6 +40,8 @@ logger = logging.getLogger(__name__)
 # ── 分路常量 (统一来源) ──
 LANES = ["上路/Top", "打野/Jungle", "中路/Mid", "下路/ADC", "辅助/Support"]
 LANE_SHORT = ["Top", "JG", "Mid", "ADC", "Sup"]
+# 全名 → 短名 映射 (DB 统一存短名, 兼容历史全名数据)
+LANE_FULL_TO_SHORT = {full: short for full, short in zip(LANES, LANE_SHORT)}
 
 # ── 防滥用 / 限流 (共享模块) ──
 from utils.ratelimit import (
@@ -272,7 +274,7 @@ class LaneSelectView(discord.ui.View):
                 discord.SelectOption(label="JG", emoji="🌲", description="打野 / Jungle"),
                 discord.SelectOption(label="Mid", emoji="⚔️", description="中路"),
                 discord.SelectOption(label="ADC", emoji="🏹", description="下路射手"),
-                discord.SelectOption(label="Support", emoji="🛡️", description="辅助"),
+                discord.SelectOption(label="Sup", emoji="🛡️", description="辅助"),
             ],
         )
         lane_select.callback = self.lane_callback
@@ -636,6 +638,43 @@ def remove_player_list_msg(match_id: int):
     _player_list_msgs.pop(match_id, None)
 
 
+# ══════════ 竞猜/MVP 投票消息缓存(match_id → message_id,分队时复用编辑而非新建)══════════
+_vote_msgs: dict[int, int] = {}
+_mvp_vote_msgs: dict[int, int] = {}
+
+def get_vote_msg(match_id: int) -> int | None:
+    return _vote_msgs.get(match_id)
+
+def set_vote_msg(match_id: int, msg_id: int):
+    _vote_msgs[match_id] = msg_id
+
+def remove_vote_msg(match_id: int):
+    _vote_msgs.pop(match_id, None)
+
+def get_mvp_vote_msg(match_id: int) -> int | None:
+    return _mvp_vote_msgs.get(match_id)
+
+def set_mvp_vote_msg(match_id: int, msg_id: int):
+    _mvp_vote_msgs[match_id] = msg_id
+
+def remove_mvp_vote_msg(match_id: int):
+    _mvp_vote_msgs.pop(match_id, None)
+
+
+# ── 共用:玩家列表构建 (main/sub 分组, _refresh_list / view_signups_btn 共用) ──
+def _build_player_lists(guild, rows):
+    """Split registration rows into (main_names, sub_names) using resolve_name."""
+    main_names = []
+    sub_names = []
+    for r in rows:
+        name = resolve_name(guild, r["discord_id"])
+        if r["is_sub"]:
+            sub_names.append(name)
+        else:
+            main_names.append(name)
+    return main_names, sub_names
+
+
 def get_match_panel_msg_id(match_id: int) -> int | None:
     """查询比赛面板消息 ID（match_view_state 中的 message_id）。"""
     with db_context() as cur:
@@ -913,6 +952,10 @@ class ReShuffleView(discord.ui.View):
 
         with db_context() as cur:
             cur.execute("UPDATE tournaments SET status='finished' WHERE id=?", (self.match_id,))
+
+        # 比赛已完赛, 清理投票消息缓存
+        remove_vote_msg(self.match_id)
+        remove_mvp_vote_msg(self.match_id)
 
         # Disable all buttons on this view
         for child in self.children:
@@ -2224,6 +2267,124 @@ class BetModal(discord.ui.Modal, title="下注 / Place Bet"):
         logger.error(f"[BetModal] error: {error}", exc_info=True)
         await interaction.response.send_message("下注失败 / Bet failed.", ephemeral=True)
 
+
+# ── 共用:全局消息发送限流 (防 hack 刷屏, MatchView / PostSettleView 共用) ──
+async def _safe_send_channel(channel, *args, **kwargs):
+    """Send a message gated by GLOBAL_SEND_LIMITER. Returns None if rate-limited."""
+    if not GLOBAL_SEND_LIMITER.allow("global_send"):
+        logger.warning("[_safe_send] global send rate limit hit, message dropped")
+        return None
+    return await channel.send(*args, **kwargs)
+
+
+# ── 共用:按钮限流检查 (MatchView / PostSettleView 共用) ──
+async def _check_rate_global(interaction: discord.Interaction, action: str) -> bool:
+    """Check button rate limit. Returns True if allowed, False if rate-limited."""
+    key = f"{action}:{interaction.user.id}"
+    if not BUTTON_RATE_LIMITER.allow(key):
+        try:
+            await interaction.response.send_message(
+                "操作过于频繁，请稍后再试 / Too many requests, please slow down.",
+                ephemeral=True,
+            )
+        except Exception:
+            pass
+        return False
+    return True
+
+
+# ── 共用:分队核心逻辑 (MatchView.reshuffle_btn / shuffle_lane_btn / PostSettleView.reshuffle 共用) ──
+async def _do_shuffle_teams(mid: int, t, guild, assign_lanes: bool = False):
+    """Fetch non-sub players, split into A/B teams, persist, optionally assign lanes.
+    Returns (ta, tb, aid, bid, lane_map, team_lanes_a, team_lanes_b) or None if <2 players."""
+    with get_db_ctx() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT discord_id FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0)",
+            (mid,),
+        )
+        players = [r["discord_id"] for r in cur.fetchall()]
+        if len(players) < 2:
+            return None
+        if len(players) % 2 != 0:
+            players.pop()
+
+        random.shuffle(players)
+        split = len(players) // 2
+        ta, tb = players[:split], players[split:]
+
+        lane_map = {}
+        team_lanes_a, team_lanes_b = {}, {}
+        if assign_lanes:
+            ts = t["team_size"] or 5
+            num_lanes = min(ts, len(LANES))
+            for team_idx, team_players in enumerate((ta, tb)):
+                # 用副本打乱, 避免原地修改模块级 LANES 常量破坏索引对齐
+                lanes = LANES[:]
+                random.shuffle(lanes)
+                target = team_lanes_a if team_idx == 0 else team_lanes_b
+                for i, player in enumerate(team_players):
+                    if i < num_lanes:
+                        short = LANE_SHORT[i]
+                        lane_map[player] = short
+                        target[short] = player
+                        cur.execute(
+                            "UPDATE registrations SET lane=? WHERE tournament_id=? AND discord_id=?",
+                            (short, mid, player),
+                        )
+        else:
+            # 保留已有 lane 信息 (reshuffle 不重新分配分路)
+            for team_idx, team_players in enumerate((ta, tb)):
+                target = team_lanes_a if team_idx == 0 else team_lanes_b
+                for i, player in enumerate(team_players):
+                    cur.execute(
+                        "SELECT lane FROM registrations WHERE tournament_id=? AND discord_id=?",
+                        (mid, player),
+                    )
+                    row = cur.fetchone()
+                    lane = row["lane"] if row else None
+                    if lane:
+                        short = LANE_FULL_TO_SHORT.get(lane, lane)
+                        if short in LANE_SHORT:
+                            lane_map[player] = short
+                            target[short] = player
+
+        # 清理指向旧 team_id 的孤儿下注记录
+        cur.execute("DELETE FROM active_bets WHERE match_id=?", (mid,))
+
+        cur.execute("DELETE FROM teams WHERE tournament_id=?", (mid,))
+        cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (mid, "A 队 Team A"))
+        aid = cur.lastrowid
+        for u in ta:
+            cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (aid, mid, u))
+        cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (mid, "B 队 Team B"))
+        bid = cur.lastrowid
+        for u in tb:
+            cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (bid, mid, u))
+        for attempt in range(3):
+            try:
+                conn.commit()
+                break
+            except sqlite3.OperationalError as e:
+                if "locked" in str(e).lower() and attempt < 2:
+                    time_mod.sleep(0.2 * (attempt + 1))
+                    continue
+                raise
+
+    return ta, tb, aid, bid, lane_map, team_lanes_a, team_lanes_b
+
+
+# ── 共用:分队后处理 (VoicePull + VoteView, 走全局发送限流) ──
+async def _send_shuffle_post_global(channel, ta, tb, guild, mid: int, match_name: str):
+    """Send VoicePullView + VoteView after a shuffle (gated by global send limiter)."""
+    try:
+        voice_view = VoicePullView(ta, tb, guild)
+        await _safe_send_channel(channel, "📢 点击按钮将玩家拉入对应语音频道:", view=voice_view)
+    except Exception as e:
+        log_error("dashboard", "shuffle_post", e)
+    await VoteView.send_vote(match_id=mid, match_name=match_name, channel=channel)
+
+
 class MatchViewWithID(discord.ui.View):
     """
     持久化比赛视图:通过 message_id → DB 反查 match_id,Bot 重启后按钮仍可响应。
@@ -2239,23 +2400,6 @@ class MatchViewWithID(discord.ui.View):
             return (None, None, interaction.guild)
         t = get_match_row(mid)
         return (mid, t, interaction.guild)
-
-    async def _get_betting_stats(self, match_id: int):
-        """Return (a_count, a_total, b_count, b_total) for betting display."""
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT id FROM teams WHERE tournament_id=? ORDER BY id ASC", (match_id,))
-            team_ids = [r["id"] for r in cur.fetchall()]
-            cur.execute(
-                "SELECT team_id, COUNT(*) as cnt, SUM(amount) as total FROM active_bets WHERE match_id=? GROUP BY team_id",
-                (match_id,),
-            )
-            rows = {r["team_id"]: (r["cnt"], r["total"] or 0) for r in cur.fetchall()}
-        a_id = team_ids[0] if len(team_ids) > 0 else None
-        b_id = team_ids[1] if len(team_ids) > 1 else None
-        a_cnt, a_total = rows.get(a_id, (0, 0))
-        b_cnt, b_total = rows.get(b_id, (0, 0))
-        return a_cnt, a_total, b_cnt, b_total
 
     # ── 防滥用:按钮限流检查 ──
     async def _check_rate(self, interaction: discord.Interaction, action: str) -> bool:
@@ -2275,98 +2419,7 @@ class MatchViewWithID(discord.ui.View):
     # ── 防滥用:全局消息发送限流 (防 hack 刷屏) ──
     async def _safe_send(self, channel, *args, **kwargs):
         """Send a message gated by GLOBAL_SEND_LIMITER. Returns None if rate-limited."""
-        if not GLOBAL_SEND_LIMITER.allow("global_send"):
-            logger.warning("[_safe_send] global send rate limit hit, message dropped")
-            return None
-        return await channel.send(*args, **kwargs)
-
-    # ── 共用:分队核心逻辑 (reshuffle_btn / shuffle_lane_btn 共用) ──
-    async def _do_shuffle(self, mid: int, t, guild, assign_lanes: bool = False):
-        """Fetch non-sub players, split into A/B teams, persist, optionally assign lanes.
-        Returns (ta, tb, aid, bid, lane_map, team_lanes_a, team_lanes_b) or None if <2 players."""
-        with get_db_ctx() as conn:
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT discord_id FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0)",
-                (mid,),
-            )
-            players = [r["discord_id"] for r in cur.fetchall()]
-            if len(players) < 2:
-                return None
-            if len(players) % 2 != 0:
-                players.pop()
-
-            random.shuffle(players)
-            split = len(players) // 2
-            ta, tb = players[:split], players[split:]
-
-            lane_map = {}
-            team_lanes_a, team_lanes_b = {}, {}
-            if assign_lanes:
-                ts = t["team_size"] or 5
-                num_lanes = min(ts, len(LANES))
-                for team_idx, team_players in enumerate((ta, tb)):
-                    # 用副本打乱, 避免原地修改模块级 LANES 常量破坏索引对齐
-                    lanes = LANES[:]
-                    random.shuffle(lanes)
-                    target = team_lanes_a if team_idx == 0 else team_lanes_b
-                    for i, player in enumerate(team_players):
-                        if i < num_lanes:
-                            lane_map[player] = lanes[i]
-                            target[LANE_SHORT[i]] = player
-                            cur.execute(
-                                "UPDATE registrations SET lane=? WHERE tournament_id=? AND discord_id=?",
-                                (lanes[i], mid, player),
-                            )
-            else:
-                # 保留已有 lane 信息 (reshuffle 不重新分配分路)
-                for team_idx, team_players in enumerate((ta, tb)):
-                    target = team_lanes_a if team_idx == 0 else team_lanes_b
-                    for i, player in enumerate(team_players):
-                        cur.execute(
-                            "SELECT lane FROM registrations WHERE tournament_id=? AND discord_id=?",
-                            (mid, player),
-                        )
-                        row = cur.fetchone()
-                        lane = row["lane"] if row else None
-                        if lane and lane in LANES:
-                            short = LANE_SHORT[LANES.index(lane)]
-                            lane_map[player] = lane
-                            target[short] = player
-
-            # 清理指向旧 team_id 的孤儿下注记录
-            cur.execute("DELETE FROM active_bets WHERE match_id=?", (mid,))
-
-            cur.execute("DELETE FROM teams WHERE tournament_id=?", (mid,))
-            cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (mid, "A 队 Team A"))
-            aid = cur.lastrowid
-            for u in ta:
-                cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (aid, mid, u))
-            cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (mid, "B 队 Team B"))
-            bid = cur.lastrowid
-            for u in tb:
-                cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (bid, mid, u))
-            for attempt in range(3):
-                try:
-                    conn.commit()
-                    break
-                except sqlite3.OperationalError as e:
-                    if "locked" in str(e).lower() and attempt < 2:
-                        time_mod.sleep(0.2 * (attempt + 1))
-                        continue
-                    raise
-
-        return ta, tb, aid, bid, lane_map, team_lanes_a, team_lanes_b
-
-    # ── 共用:分队后处理 (VoicePull + VoteView) ──
-    async def _send_shuffle_post(self, channel, ta, tb, guild, mid: int, match_name: str):
-        """Send VoicePullView + VoteView after a shuffle (gated by global send limiter)."""
-        try:
-            voice_view = VoicePullView(ta, tb, guild)
-            await self._safe_send(channel, "📢 点击按钮将玩家拉入对应语音频道:", view=voice_view)
-        except Exception as e:
-            log_error("dashboard", "shuffle_post", e)
-        await VoteView.send_vote(match_id=mid, match_name=match_name, channel=channel)
+        return await _safe_send_channel(channel, *args, **kwargs)
 
     # ── 辅助:更新报名列表 ──
     async def _refresh_list(self, interaction: discord.Interaction, match_id: int):
@@ -2406,8 +2459,8 @@ class MatchViewWithID(discord.ui.View):
                     sub_names.append(name)
                 else:
                     lane = r["lane"] or "未选 / None"
-                    # DB 存全名(如"上路/Top"), 映射到短名(如"Top")再分组
-                    short = LANE_SHORT[LANES.index(lane)] if lane in LANES else lane
+                    # DB 统一存短名(如"Top"), 兼容历史全名(如"上路/Top")再分组
+                    short = LANE_FULL_TO_SHORT.get(lane, lane)
                     if short in lane_players:
                         lane_players[short].append(name)
                     else:
@@ -2430,14 +2483,7 @@ class MatchViewWithID(discord.ui.View):
             desc = "\n".join(desc_parts)
             color = discord.Color.purple()
         else:
-            main_names = []
-            sub_names = []
-            for r in rows:
-                name = resolve_name(interaction.guild, r["discord_id"])
-                if r["is_sub"]:
-                    sub_names.append(name)
-                else:
-                    main_names.append(name)
+            main_names, sub_names = _build_player_lists(interaction.guild, rows)
 
             count = len(main_names)
             desc_parts = []
@@ -2505,26 +2551,24 @@ class MatchViewWithID(discord.ui.View):
                 if cur.fetchone():
                     return await interaction.followup.send("你已经报过名了 / Already signed up.", ephemeral=True)
 
-                # 选路比赛:弹出路线选择
+                # 选路比赛:弹出路线选择 (复用外层连接, 容量用 team_size)
                 if t["role_pick"]:
-                    LANES = ["Top", "JG", "Mid", "ADC", "Sup"]
+                    lane_cap = t["team_size"] or 2
                     lane_counts = {}
-                    with get_db_ctx() as lane_conn:
-                        lane_cur = lane_conn.cursor()
-                        for lane in LANES:
-                            lane_cur.execute(
-                                "SELECT COUNT(*) as cnt FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0) AND lane=?",
-                                (mid, lane),
-                            )
-                            lane_counts[lane] = lane_cur.fetchone()["cnt"]
+                    for lane in LANE_SHORT:
+                        cur.execute(
+                            "SELECT COUNT(*) as cnt FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0) AND lane=?",
+                            (mid, lane),
+                        )
+                        lane_counts[lane] = cur.fetchone()["cnt"]
 
                     lane_options = []
-                    for lane in LANES:
-                        full = lane_counts[lane] >= 2
+                    for lane in LANE_SHORT:
+                        full = lane_counts[lane] >= lane_cap
                         lane_options.append(discord.SelectOption(
                             label=lane,
                             value=lane,
-                            description=f"{lane_counts[lane]}/2" + (" (已满)" if full else ""),
+                            description=f"{lane_counts[lane]}/{lane_cap}" + (" (已满)" if full else ""),
                         ))
 
                     lane_select = discord.ui.Select(
@@ -2541,7 +2585,7 @@ class MatchViewWithID(discord.ui.View):
                                 "SELECT COUNT(*) as cnt FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0) AND lane=?",
                                 (mid, chosen_lane),
                             )
-                            if lcur.fetchone()["cnt"] >= 2:
+                            if lcur.fetchone()["cnt"] >= lane_cap:
                                 return await lane_interaction.response.send_message(
                                     f"该路线已满 / Lane {chosen_lane} is full. 请重新选择 / Please pick another lane.", ephemeral=True
                                 )
@@ -2597,14 +2641,7 @@ class MatchViewWithID(discord.ui.View):
             if not rows:
                 return await interaction.followup.send("暂无玩家报名 / No signups yet.", ephemeral=True)
 
-            main_names = []
-            sub_names = []
-            for r in rows:
-                name = resolve_name(guild, r["discord_id"])
-                if r["is_sub"]:
-                    sub_names.append(name)
-                else:
-                    main_names.append(name)
+            main_names, sub_names = _build_player_lists(guild, rows)
 
             text = "\n".join(f"{i+1}. {n}" for i, n in enumerate(main_names))
             if sub_names:
@@ -2768,25 +2805,11 @@ class MatchViewWithID(discord.ui.View):
                             content="结算已取消 / Settle cancelled.", embed=None, view=None
                         )
 
-                    # BO series check
+                    # BO series check (共用逻辑)
                     with get_db_ctx() as conn_bo:
                         cur_bo = conn_bo.cursor()
-                        cur_bo.execute("SELECT bo_type, team_a_wins, team_b_wins, current_game FROM tournaments WHERE id=?", (mid,))
-                        bo_row = cur_bo.fetchone()
-                        bo_type = bo_row["bo_type"] if bo_row and bo_row["bo_type"] else "BO1"
-                        team_a_wins = bo_row["team_a_wins"] if bo_row else 0
-                        team_b_wins = bo_row["team_b_wins"] if bo_row else 0
-                        current_game = bo_row["current_game"] if bo_row else 1
-                        wins_needed = {"BO1": 1, "BO3": 2, "BO5": 3}.get(bo_type, 1)
-
-                        # Determine which team won (A or B) by checking team order
-                        cur_bo.execute("SELECT id, name FROM teams WHERE tournament_id=? ORDER BY id ASC", (mid,))
-                        all_teams = cur_bo.fetchall()
-                        is_team_a = (all_teams[0]["id"] == flow.win_team_id) if len(all_teams) >= 2 else True
-                        new_a_wins = team_a_wins + (1 if is_team_a else 0)
-                        new_b_wins = team_b_wins + (0 if is_team_a else 1)
-                        new_game = current_game + 1
-                        series_decided = (new_a_wins >= wins_needed) or (new_b_wins >= wins_needed)
+                        bo_type, new_a_wins, new_b_wins, new_game, wins_needed, series_decided = _advance_bo_state(conn_bo, mid, flow.win_team_id)
+                        current_game = new_game - 1
 
                         if bo_type == "BO1" or series_decided:
                             # Finalize settlement
@@ -3040,7 +3063,7 @@ class MatchViewWithID(discord.ui.View):
         if not interaction.user.guild_permissions.administrator and not is_participant:
             return await interaction.followup.send("仅参赛者或管理员可操作", ephemeral=True)
 
-        result = await self._do_shuffle(mid, t, guild, assign_lanes=False)
+        result = await _do_shuffle_teams(mid, t, guild, assign_lanes=False)
         if result is None:
             return await interaction.followup.send("参赛人数不足 (至少2人) / Not enough players (min 2).", ephemeral=True)
         ta, tb, aid, bid, lane_map, team_lanes_a, team_lanes_b = result
@@ -3069,7 +3092,7 @@ class MatchViewWithID(discord.ui.View):
         )
         await self._safe_send(interaction.channel, embed=embed)
 
-        await self._send_shuffle_post(interaction.channel, ta, tb, guild, mid, match_name)
+        await _send_shuffle_post_global(interaction.channel, ta, tb, guild, mid, match_name)
 
         # 更新原面板 embed footer
         try:
@@ -3108,7 +3131,7 @@ class MatchViewWithID(discord.ui.View):
         if not interaction.user.guild_permissions.administrator and not is_participant:
             return await interaction.followup.send("仅参赛者或管理员可操作", ephemeral=True)
 
-        result = await self._do_shuffle(mid, t, guild, assign_lanes=True)
+        result = await _do_shuffle_teams(mid, t, guild, assign_lanes=True)
         if result is None:
             return await interaction.followup.send("参赛人数不足 (至少2人) / Not enough players (min 2).", ephemeral=True)
         ta, tb, aid, bid, lane_map, team_lanes_a, team_lanes_b = result
@@ -3139,7 +3162,7 @@ class MatchViewWithID(discord.ui.View):
         )
         await self._safe_send(interaction.channel, embed=embed)
 
-        await self._send_shuffle_post(interaction.channel, ta, tb, guild, mid, match_name)
+        await _send_shuffle_post_global(interaction.channel, ta, tb, guild, mid, match_name)
 
         # 更新原面板 embed footer
         try:
@@ -3668,7 +3691,7 @@ class MvpVoteView(discord.ui.View):
 
     @classmethod
     async def send_vote(cls, match_id: int, match_name: str, channel, guild):
-        """发送 MVP 投票消息。"""
+        """发送 MVP 投票消息 (复用已有消息, 避免刷屏)。"""
         with get_db_ctx() as conn:
             cur = conn.cursor()
             cur.execute(
@@ -3694,7 +3717,20 @@ class MvpVoteView(discord.ui.View):
         embed.set_footer(text=f"Match ID: {match_id}")
 
         view = cls(match_id, match_name, player_ids, guild)
+
+        # 复用已有 MVP 投票消息 (避免重复发送刷屏)
+        existing_id = get_mvp_vote_msg(match_id)
+        if existing_id:
+            try:
+                msg = await channel.fetch_message(existing_id)
+                await msg.edit(embed=embed, view=view)
+                view._message = msg
+                return
+            except Exception:
+                remove_mvp_vote_msg(match_id)  # 消息已删除/不可达, 重新发送
+
         view._message = await channel.send(embed=embed, view=view)
+        set_mvp_vote_msg(match_id, view._message.id)
 
 
 # =============================================================================
@@ -3736,10 +3772,11 @@ async def _execute_settle(match_id, win_team_id, mvp_id, guild, match_name, bot=
         cur.execute("INSERT INTO results (tournament_id,team_id,rank,score_awarded) VALUES (?,?,1,?)", (match_id, win_team_id, MATCH_WIN_COINS))
 
         cur.execute("UPDATE tournaments SET status='finished' WHERE id=?", (match_id,))
-        try:
-            conn.commit()
-        finally:
-            conn.close()
+        conn.commit()
+
+    # 比赛已结束, 清理投票消息缓存 (避免残留引用)
+    remove_vote_msg(match_id)
+    remove_mvp_vote_msg(match_id)
 
     # Achievement checks — batch query to avoid N+1
     all_participants = winner_ids + loser_ids
@@ -3870,6 +3907,36 @@ async def _execute_settle(match_id, win_team_id, mvp_id, guild, match_name, bot=
     return analysis_embed
 
 
+# ── 共用:BO 系列状态读取与推进 (settle_btn / DashboardView 共用) ──
+def _get_bo_state(conn, mid: int):
+    """Read BO series state from tournaments row.
+    Returns (bo_type, team_a_wins, team_b_wins, current_game, wins_needed)."""
+    cur = conn.cursor()
+    cur.execute("SELECT bo_type, team_a_wins, team_b_wins, current_game FROM tournaments WHERE id=?", (mid,))
+    bo_row = cur.fetchone()
+    bo_type = bo_row["bo_type"] if bo_row and bo_row["bo_type"] else "BO1"
+    team_a_wins = bo_row["team_a_wins"] if bo_row else 0
+    team_b_wins = bo_row["team_b_wins"] if bo_row else 0
+    current_game = bo_row["current_game"] if bo_row else 1
+    wins_needed = {"BO1": 1, "BO3": 2, "BO5": 3}.get(bo_type, 1)
+    return bo_type, team_a_wins, team_b_wins, current_game, wins_needed
+
+
+def _advance_bo_state(conn, mid: int, win_team_id: int):
+    """Advance BO series state after a game.
+    Returns (bo_type, new_a_wins, new_b_wins, new_game, wins_needed, series_decided)."""
+    cur = conn.cursor()
+    bo_type, team_a_wins, team_b_wins, current_game, wins_needed = _get_bo_state(conn, mid)
+    cur.execute("SELECT id, name FROM teams WHERE tournament_id=? ORDER BY id ASC", (mid,))
+    all_teams = cur.fetchall()
+    is_team_a = (all_teams[0]["id"] == win_team_id) if len(all_teams) >= 2 else True
+    new_a_wins = team_a_wins + (1 if is_team_a else 0)
+    new_b_wins = team_b_wins + (0 if is_team_a else 1)
+    new_game = current_game + 1
+    series_decided = (new_a_wins >= wins_needed) or (new_b_wins >= wins_needed)
+    return bo_type, new_a_wins, new_b_wins, new_game, wins_needed, series_decided
+
+
 class PostSettleView(discord.ui.View):
     """Consolidated post-settle actions as buttons in a single view."""
     def __init__(self, match_id: int, match_name: str, guild: discord.Guild, include_kill_report: bool = False):
@@ -3881,6 +3948,8 @@ class PostSettleView(discord.ui.View):
 
     @discord.ui.button(label="MVP 投票 / MVP Vote", style=discord.ButtonStyle.primary, emoji="🏅", row=0)
     async def mvp_vote(self, interaction: discord.Interaction, button):
+        if not await _check_rate_global(interaction, "postsettle_mvp_vote"):
+            return
         try:
             await MvpVoteView.send_vote(
                 match_id=self.match_id, match_name=self.match_name,
@@ -3893,17 +3962,53 @@ class PostSettleView(discord.ui.View):
 
     @discord.ui.button(label="重新分队 / Reshuffle", style=discord.ButtonStyle.secondary, emoji="🔄", row=0)
     async def reshuffle(self, interaction: discord.Interaction, button):
+        """复用主面板分队逻辑:原地重新分队 + 发送 VoicePull/Vote (走全局限流)。"""
+        if not await _check_rate_global(interaction, "postsettle_reshuffle"):
+            return
+        await interaction.response.defer(ephemeral=True)
         try:
-            reshuffle_view = ReShuffleView(match_id=self.match_id, guild=self.guild)
-            reshuffle_embed = reshuffle_view._build_player_list_embed()
-            await interaction.channel.send(embed=reshuffle_embed, view=reshuffle_view)
-            await interaction.response.send_message("重新分队面板已发送 / Reshuffle panel sent!", ephemeral=True)
+            mid = self.match_id
+            t = get_match_row(mid)
+            if not t:
+                return await interaction.followup.send("比赛不存在 / Match not found.", ephemeral=True)
+
+            result = await _do_shuffle_teams(mid, t, self.guild, assign_lanes=False)
+            if result is None:
+                return await interaction.followup.send("参赛人数不足 (至少2人) / Not enough players (min 2).", ephemeral=True)
+            ta, tb, aid, bid, lane_map, team_lanes_a, team_lanes_b = result
+
+            match_name = t["name"]
+            embed_desc = (
+                f"🔵 **A 队 Team A** (ID:{aid}):\n" + "\n".join(f"- <@{u}>" for u in ta) + "\n"
+                f"🔴 **B 队 Team B** (ID:{bid}):\n" + "\n".join(f"- <@{u}>" for u in tb) + "\n"
+            )
+            if lane_map:
+                embed_desc += "\n**分路 / Lanes:**\n"
+                for team_label, team_lanes in [("🔵 A 队", team_lanes_a), ("🔴 B 队", team_lanes_b)]:
+                    embed_desc += f"**{team_label}:**\n"
+                    for ls in LANE_SHORT:
+                        player = team_lanes.get(ls)
+                        embed_desc += f"{ls} - <@{player}>\n" if player else f"{ls} - 未分配\n"
+            embed_desc += (
+                f"\nMatch ID: {mid}\n"
+                f"Settle: `/gmpt-lol lol-settle {mid} <win_team_id>`"
+            )
+            embed = discord.Embed(
+                title=f"🔄 重新分队 — {match_name}",
+                description=embed_desc,
+                color=discord.Color.gold(),
+            )
+            await _safe_send_channel(interaction.channel, embed=embed)
+            await _send_shuffle_post_global(interaction.channel, ta, tb, self.guild, mid, match_name)
+            await interaction.followup.send("重新分队完成!", ephemeral=True)
         except Exception as e:
             logger.error(f"[PostSettleView] reshuffle error: {e}")
-            await interaction.response.send_message("重新分队失败 / Reshuffle failed.", ephemeral=True)
+            await interaction.followup.send("重新分队失败 / Reshuffle failed.", ephemeral=True)
 
     @discord.ui.button(label="再来一局 / Rematch", style=discord.ButtonStyle.success, emoji="🔁", row=0)
     async def rematch(self, interaction: discord.Interaction, button):
+        if not await _check_rate_global(interaction, "postsettle_rematch"):
+            return
         try:
             rematch_view = RematchView(match_id=self.match_id, guild=self.guild, match_name=self.match_name)
             await interaction.channel.send(
@@ -3917,6 +4022,8 @@ class PostSettleView(discord.ui.View):
 
     @discord.ui.button(label="赛后拉语音 / Post-Match VC", style=discord.ButtonStyle.secondary, emoji="🎙️", row=1)
     async def pull_vc(self, interaction: discord.Interaction, button):
+        if not await _check_rate_global(interaction, "postsettle_pull_vc"):
+            return
         try:
             post_match_view = PostMatchPullView(guild=self.guild)
             await interaction.channel.send(
@@ -3932,6 +4039,8 @@ class PostSettleView(discord.ui.View):
     async def kill_report(self, interaction: discord.Interaction, button):
         if not self.include_kill_report:
             return await interaction.response.send_message("此功能未启用 / This feature is disabled.", ephemeral=True)
+        if not await _check_rate_global(interaction, "postsettle_kill_report"):
+            return
         try:
             kill_report_view = KillReportView(match_id=self.match_id, guild=self.guild)
             await interaction.channel.send(
@@ -3993,7 +4102,7 @@ async def _post_settle_actions(match_id, match_name, guild, channel, analysis_em
             match_id=match_id, match_name=match_name, guild=guild,
             include_kill_report=include_kill_report,
         )
-        await channel.send(embed=merged_embed, view=post_view)
+        await _safe_send_channel(channel, embed=merged_embed, view=post_view)
 
         # Send to result-room channel
         result_channel = guild.get_channel(RESULT_CHANNEL_ID)
@@ -4003,7 +4112,7 @@ async def _post_settle_actions(match_id, match_name, guild, channel, analysis_em
                 description=f"**胜方:** {win_name}\n**败方:** {lose_name}",
                 color=discord.Color.gold(),
             ).set_footer(text=f"Match ID: {match_id}")
-            await result_channel.send(embed=result_summary)
+            await _safe_send_channel(result_channel, embed=result_summary)
     except Exception as e:
         logger.error(f"[_post_settle] merged actions error: {e}", exc_info=True)
 
@@ -4401,7 +4510,7 @@ class VoteView(discord.ui.View):
 
     @staticmethod
     async def send_vote(match_id: int, match_name: str, channel):
-        """Send a VoteView to a channel. Uses fresh DB query for team names."""
+        """Send a VoteView to a channel. Reuses existing vote message if cached (avoid spam)."""
         with get_db_ctx() as conn:
             cur = conn.cursor()
             cur.execute("SELECT id, name FROM teams WHERE tournament_id=? ORDER BY id ASC", (match_id,))
@@ -4412,25 +4521,30 @@ class VoteView(discord.ui.View):
         team_a_name = teams[0]["name"]
         team_b_name = teams[1]["name"]
 
+        view = VoteView(match_id, match_name, team_a_name, team_b_name)
+        embed = view.build_embed()
+
+        # 复用已有投票消息 (分队时编辑而非新建, 避免刷屏)
+        existing_id = get_vote_msg(match_id)
+        if existing_id:
+            try:
+                msg = await channel.fetch_message(existing_id)
+                await msg.edit(embed=embed, view=view)
+                return msg
+            except Exception:
+                remove_vote_msg(match_id)  # 消息已删除/不可达, 重新发送
+
         # Check if votes already exist for this match (avoid duplicates)
         with get_db_ctx() as conn2:
             cur2 = conn2.cursor()
             cur2.execute("SELECT COUNT(*) as cnt FROM votes WHERE tournament_id=?", (match_id,))
             vote_exists = cur2.fetchone()["cnt"] > 0
+        if vote_exists:
+            return None  # Skip re-sending; existing message handles it
 
-        # Also check if vote message already sent by scanning recent messages (best-effort)
-        # We use a simple DB-only check; if votes exist we skip.
-        try:
-            if vote_exists:
-                # Votes exist but message might be gone — update label counts on existing message if found
-                return None  # Skip re-sending; existing message handles it
-        except Exception as e:
-            log_error("dashboard", "send_vote", e)
-
-        view = VoteView(match_id, match_name, team_a_name, team_b_name)
-        embed = view.build_embed()
         try:
             msg = await channel.send(embed=embed, view=view)
+            set_vote_msg(match_id, msg.id)
             return msg
         except Exception:
             return None
