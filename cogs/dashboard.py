@@ -37,6 +37,19 @@ import time as time_mod
 from utils.animations import (slot_spin_animation, coin_flip_animation, dice_roll_animation, roulette_spin_animation, scratch_reveal_animation, horse_race_animation, crash_countdown_animation, dice_duel_animation, game_info_animation, COIN_FLIP_FRAMES, HR_FRAMES, DICE_FACE)
 logger = logging.getLogger(__name__)
 
+# ── 分路常量 (统一来源) ──
+LANES = ["上路/Top", "打野/Jungle", "中路/Mid", "下路/ADC", "辅助/Support"]
+LANE_SHORT = ["Top", "JG", "Mid", "ADC", "Sup"]
+
+# ── 防滥用 / 限流 (共享模块) ──
+from utils.ratelimit import (
+    RateLimiter,
+    BUTTON_RATE_LIMITER,
+    COMMAND_RATE_LIMITER,
+    SENSITIVE_ACTION_LIMITER,
+    GLOBAL_SEND_LIMITER,
+)
+
 class CreateMatchModal(discord.ui.Modal, title="创建比赛 / Create Match"):
     match_name = discord.ui.TextInput(
         label="比赛名称 / Match Name",
@@ -2244,6 +2257,115 @@ class MatchViewWithID(discord.ui.View):
         b_cnt, b_total = rows.get(b_id, (0, 0))
         return a_cnt, a_total, b_cnt, b_total
 
+    # ── 防滥用:按钮限流检查 ──
+    async def _check_rate(self, interaction: discord.Interaction, action: str) -> bool:
+        """Check button rate limit. Returns True if allowed, False if rate-limited."""
+        key = f"{action}:{interaction.user.id}"
+        if not BUTTON_RATE_LIMITER.allow(key):
+            try:
+                await interaction.response.send_message(
+                    "操作过于频繁，请稍后再试 / Too many requests, please slow down.",
+                    ephemeral=True,
+                )
+            except Exception:
+                pass
+            return False
+        return True
+
+    # ── 防滥用:全局消息发送限流 (防 hack 刷屏) ──
+    async def _safe_send(self, channel, *args, **kwargs):
+        """Send a message gated by GLOBAL_SEND_LIMITER. Returns None if rate-limited."""
+        if not GLOBAL_SEND_LIMITER.allow("global_send"):
+            logger.warning("[_safe_send] global send rate limit hit, message dropped")
+            return None
+        return await channel.send(*args, **kwargs)
+
+    # ── 共用:分队核心逻辑 (reshuffle_btn / shuffle_lane_btn 共用) ──
+    async def _do_shuffle(self, mid: int, t, guild, assign_lanes: bool = False):
+        """Fetch non-sub players, split into A/B teams, persist, optionally assign lanes.
+        Returns (ta, tb, aid, bid, lane_map, team_lanes_a, team_lanes_b) or None if <2 players."""
+        with get_db_ctx() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT discord_id FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0)",
+                (mid,),
+            )
+            players = [r["discord_id"] for r in cur.fetchall()]
+            if len(players) < 2:
+                return None
+            if len(players) % 2 != 0:
+                players.pop()
+
+            random.shuffle(players)
+            split = len(players) // 2
+            ta, tb = players[:split], players[split:]
+
+            lane_map = {}
+            team_lanes_a, team_lanes_b = {}, {}
+            if assign_lanes:
+                ts = t["team_size"] or 5
+                num_lanes = min(ts, len(LANES))
+                for team_idx, team_players in enumerate((ta, tb)):
+                    random.shuffle(LANES)
+                    target = team_lanes_a if team_idx == 0 else team_lanes_b
+                    for i, player in enumerate(team_players):
+                        if i < num_lanes:
+                            lane_map[player] = LANES[i]
+                            target[LANE_SHORT[i]] = player
+                            cur.execute(
+                                "UPDATE registrations SET lane=? WHERE tournament_id=? AND discord_id=?",
+                                (LANES[i], mid, player),
+                            )
+            else:
+                # 保留已有 lane 信息 (reshuffle 不重新分配分路)
+                for team_idx, team_players in enumerate((ta, tb)):
+                    target = team_lanes_a if team_idx == 0 else team_lanes_b
+                    for i, player in enumerate(team_players):
+                        cur.execute(
+                            "SELECT lane FROM registrations WHERE tournament_id=? AND discord_id=?",
+                            (mid, player),
+                        )
+                        row = cur.fetchone()
+                        lane = row["lane"] if row else None
+                        if lane and lane in LANES:
+                            short = LANE_SHORT[LANES.index(lane)]
+                            lane_map[player] = lane
+                            target[short] = player
+
+            # 清理指向旧 team_id 的孤儿下注记录
+            cur.execute("DELETE FROM active_bets WHERE match_id=?", (mid,))
+
+            cur.execute("DELETE FROM teams WHERE tournament_id=?", (mid,))
+            cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (mid, "A 队 Team A"))
+            aid = cur.lastrowid
+            for u in ta:
+                cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (aid, mid, u))
+            cur.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (mid, "B 队 Team B"))
+            bid = cur.lastrowid
+            for u in tb:
+                cur.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (bid, mid, u))
+            for attempt in range(3):
+                try:
+                    conn.commit()
+                    break
+                except sqlite3.OperationalError as e:
+                    if "locked" in str(e).lower() and attempt < 2:
+                        time_mod.sleep(0.2 * (attempt + 1))
+                        continue
+                    raise
+
+        return ta, tb, aid, bid, lane_map, team_lanes_a, team_lanes_b
+
+    # ── 共用:分队后处理 (VoicePull + VoteView) ──
+    async def _send_shuffle_post(self, channel, ta, tb, guild, mid: int, match_name: str):
+        """Send VoicePullView + VoteView after a shuffle (gated by global send limiter)."""
+        try:
+            voice_view = VoicePullView(ta, tb, guild)
+            await self._safe_send(channel, "📢 点击按钮将玩家拉入对应语音频道:", view=voice_view)
+        except Exception as e:
+            log_error("dashboard", "shuffle_post", e)
+        await VoteView.send_vote(match_id=mid, match_name=match_name, channel=channel)
+
     # ── 辅助:更新报名列表 ──
     async def _refresh_list(self, interaction: discord.Interaction, match_id: int):
         old_msg_id = _player_list_msgs.get(match_id)
@@ -2268,12 +2390,12 @@ class MatchViewWithID(discord.ui.View):
             cur.execute("SELECT max_teams, team_size, role_pick FROM tournaments WHERE id=?", (match_id,))
             t = cur.fetchone()
         max_p = (t["max_teams"] * t["team_size"]) if t else 0
-        is_role_pick = t["role_pick"] if t else 0
+        # 只要有人已分配分路就按路线分组显示 (不依赖 role_pick 开关)
+        has_lanes = any(r["lane"] for r in rows if not r["is_sub"])
 
-        if is_role_pick:
-            # 选路比赛:按路线分组显示
-            LANES = ["Top", "JG", "Mid", "ADC", "Sup"]
-            lane_players = {lane: [] for lane in LANES}
+        if has_lanes:
+            # 按路线分组显示
+            lane_players = {lane: [] for lane in LANE_SHORT}
             sub_names = []
             main_count = 0
             for r in rows:
@@ -2282,18 +2404,21 @@ class MatchViewWithID(discord.ui.View):
                     sub_names.append(name)
                 else:
                     lane = r["lane"] or "未选 / None"
-                    if lane in lane_players:
-                        lane_players[lane].append(name)
+                    # DB 存全名(如"上路/Top"), 映射到短名(如"Top")再分组
+                    short = LANE_SHORT[LANES.index(lane)] if lane in LANES else lane
+                    if short in lane_players:
+                        lane_players[short].append(name)
                     else:
-                        lane_players[lane] = [name]
+                        lane_players[short] = [name]
                     main_count += 1
 
             count = main_count
             desc_parts = ["🎯 路线分配 / Lane Distribution"]
-            for lane in LANES:
+            lane_cap = t["team_size"] if t and t["team_size"] else 2
+            for lane in LANE_SHORT:
                 players = lane_players[lane]
                 names_line = ", ".join(players) if players else "-"
-                desc_parts.append(f"{lane}:    {names_line}    ({len(players)}/2)")
+                desc_parts.append(f"{lane}:    {names_line}    ({len(players)}/{lane_cap})")
             desc_parts.append("")
             desc_parts.append(f"总计 / Total: {count}/{max_p}")
             if sub_names:
@@ -2330,8 +2455,9 @@ class MatchViewWithID(discord.ui.View):
             description=desc,
             color=color,
         )
-        new_msg = await interaction.channel.send(embed=embed)
-        _player_list_msgs[match_id] = new_msg.id
+        new_msg = await self._safe_send(interaction.channel, embed=embed)
+        if new_msg:
+            _player_list_msgs[match_id] = new_msg.id
         # Also persist player_list_msg_id in DB
         # 优先用 match_id 反查 panel message_id,避免非面板交互时写错记录
         with get_db_ctx() as conn2:
@@ -2351,6 +2477,13 @@ class MatchViewWithID(discord.ui.View):
 
     @discord.ui.button(label="报名 Sign Up", style=discord.ButtonStyle.success, emoji="✋", row=0, custom_id="matchv2_signup")
     async def signup_btn(self, interaction: discord.Interaction, button):
+        if not await self._check_rate(interaction, "signup"):
+            return
+        if not SENSITIVE_ACTION_LIMITER.allow(f"signup:{interaction.user.id}"):
+            return await interaction.response.send_message(
+                "检测到异常高频报名，已临时限制 / Suspicious signup activity, temporarily limited.",
+                ephemeral=True,
+            )
         await interaction.response.defer(ephemeral=True)
         try:
             mid, t, guild = await self._get_context(interaction)
@@ -2484,6 +2617,13 @@ class MatchViewWithID(discord.ui.View):
     @discord.ui.button(label="替补 / Substitute", style=discord.ButtonStyle.primary, emoji="📋", row=0, custom_id="matchv2_sub_signup")
     async def sub_signup_btn(self, interaction: discord.Interaction, button):
         """任何玩家点击直接以 is_sub=1 报名。"""
+        if not await self._check_rate(interaction, "sub_signup"):
+            return
+        if not SENSITIVE_ACTION_LIMITER.allow(f"sub_signup:{interaction.user.id}"):
+            return await interaction.response.send_message(
+                "检测到异常高频操作，已临时限制 / Suspicious activity, temporarily limited.",
+                ephemeral=True,
+            )
         await interaction.response.defer(ephemeral=True)
         try:
             mid, t, guild = await self._get_context(interaction)
@@ -2549,7 +2689,6 @@ class MatchViewWithID(discord.ui.View):
             flow = SettleFlow()
 
             async def win_callback(sel_int: discord.Interaction):
-                from cogs.shared_views import ConfirmView  # lazy import
                 flow.win_team_id = int(sel_int.data["values"][0])
 
                 with get_db_ctx() as conn2:
@@ -2568,7 +2707,6 @@ class MatchViewWithID(discord.ui.View):
                 )
 
                 async def mvp_callback(mvp_int: discord.Interaction):
-                    from cogs.shared_views import ConfirmView  # lazy import
                     val = mvp_int.data["values"][0]
                     if val != "__none__":
                         flow.mvp_id = val
@@ -2710,6 +2848,13 @@ class MatchViewWithID(discord.ui.View):
     @discord.ui.button(label="退出 Leave", style=discord.ButtonStyle.danger, emoji="🚪", row=1, custom_id="matchv2_leave")
     async def leave_btn(self, interaction: discord.Interaction, button):
         from cogs.shared_views import ConfirmView  # lazy import
+        if not await self._check_rate(interaction, "leave"):
+            return
+        if not SENSITIVE_ACTION_LIMITER.allow(f"leave:{interaction.user.id}"):
+            return await interaction.response.send_message(
+                "检测到异常高频退赛，已临时限制 / Suspicious leave activity, temporarily limited.",
+                ephemeral=True,
+            )
         await interaction.response.defer(ephemeral=True)
         try:
             mid, t, guild = await self._get_context(interaction)
@@ -2750,6 +2895,8 @@ class MatchViewWithID(discord.ui.View):
 
     @discord.ui.button(label="下注 A队 / Bet Team A", style=discord.ButtonStyle.primary, emoji="🔵", row=3, custom_id="matchv2_bet_a")
     async def bet_a_btn(self, interaction: discord.Interaction, button):
+        if not await self._check_rate(interaction, "bet"):
+            return
         mid, t, guild = await self._get_context(interaction)
         if not mid:
             return await interaction.response.send_message("比赛不存在", ephemeral=True)
@@ -2765,6 +2912,8 @@ class MatchViewWithID(discord.ui.View):
 
     @discord.ui.button(label="下注 B队 / Bet Team B", style=discord.ButtonStyle.danger, emoji="🔴", row=3, custom_id="matchv2_bet_b")
     async def bet_b_btn(self, interaction: discord.Interaction, button):
+        if not await self._check_rate(interaction, "bet"):
+            return
         mid, t, guild = await self._get_context(interaction)
         if not mid:
             return await interaction.response.send_message("比赛不存在", ephemeral=True)
@@ -2782,16 +2931,17 @@ class MatchViewWithID(discord.ui.View):
     async def kick_btn(self, interaction: discord.Interaction, button):
         """Admin-only: select a player or sub to kick from the match."""
         from cogs.shared_views import ConfirmView  # lazy import
+        if not await self._check_rate(interaction, "kick"):
+            return
+        await interaction.response.defer(ephemeral=True)
         if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("管理员专用 / Admin only.", ephemeral=True)
+            return await interaction.followup.send("管理员专用 / Admin only.", ephemeral=True)
 
         mid, t, guild = await self._get_context(interaction)
         if not t:
-            return await interaction.response.send_message("比赛不存在 / Match not found.", ephemeral=True)
+            return await interaction.followup.send("比赛不存在 / Match not found.", ephemeral=True)
         if t["status"] != "open":
-            return await interaction.response.send_message("报名已关闭 / Signup closed.", ephemeral=True)
-
-        await interaction.response.defer(ephemeral=True)
+            return await interaction.followup.send("报名已关闭 / Signup closed.", ephemeral=True)
 
         # Get all registrations
         with get_db_ctx() as conn:
@@ -2865,6 +3015,8 @@ class MatchViewWithID(discord.ui.View):
     @discord.ui.button(label="🔄 重新分队 / Reshuffle", style=discord.ButtonStyle.secondary, emoji="🎲", row=2, custom_id="matchv2_reshuffle")
     async def reshuffle_btn(self, interaction: discord.Interaction, button):
         """Re-shuffle existing registered players into new teams (in-place)."""
+        if not await self._check_rate(interaction, "reshuffle"):
+            return
         await interaction.response.defer(ephemeral=True)
         try:
             mid, t, guild = await self._get_context(interaction)
@@ -2886,75 +3038,54 @@ class MatchViewWithID(discord.ui.View):
         if not interaction.user.guild_permissions.administrator and not is_participant:
             return await interaction.followup.send("仅参赛者或管理员可操作", ephemeral=True)
 
-        # Get all non-sub players
-        with get_db_ctx() as conn2:
-            cur2 = conn2.cursor()
-            cur2.execute(
-                "SELECT discord_id FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0)",
-                (mid,),
-            )
-            players = [r["discord_id"] for r in cur2.fetchall()]
-            if len(players) < 2:
-                return await interaction.followup.send("参赛人数不足 (至少2人) / Not enough players (min 2).", ephemeral=True)
-
-            if len(players) % 2 != 0:
-                players = players[:-1]
-
-            import random as _random
-            _random.shuffle(players)
-            split = len(players) // 2
-            ta, tb = players[:split], players[split:]
-
-            cur2.execute("DELETE FROM teams WHERE tournament_id=?", (mid,))
-            cur2.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (mid, "A 队 Team A"))
-            aid = cur2.lastrowid
-            for u in ta:
-                cur2.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (aid, mid, u))
-            cur2.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (mid, "B 队 Team B"))
-            bid = cur2.lastrowid
-            for u in tb:
-                cur2.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (bid, mid, u))
-            for attempt in range(3):
-                try:
-                    conn2.commit()
-                    break
-                except sqlite3.OperationalError as e:
-                    if "locked" in str(e).lower() and attempt < 2:
-                        time_mod.sleep(0.2 * (attempt + 1))
-                        continue
-                    raise
+        result = await self._do_shuffle(mid, t, guild, assign_lanes=False)
+        if result is None:
+            return await interaction.followup.send("参赛人数不足 (至少2人) / Not enough players (min 2).", ephemeral=True)
+        ta, tb, aid, bid, lane_map, team_lanes_a, team_lanes_b = result
 
         match_name = t["name"]
 
-        a_mentions = [f"<@{uid}>" for uid in ta]
-        b_mentions = [f"<@{uid}>" for uid in tb]
+        embed_desc = (
+            f"🔵 **A 队 Team A** (ID:{aid}):\n" + "\n".join(f"- <@{u}>" for u in ta) + "\n"
+            f"🔴 **B 队 Team B** (ID:{bid}):\n" + "\n".join(f"- <@{u}>" for u in tb) + "\n"
+        )
+        if lane_map:
+            embed_desc += "\n**分路 / Lanes:**\n"
+            for team_label, team_lanes in [("🔵 A 队", team_lanes_a), ("🔴 B 队", team_lanes_b)]:
+                embed_desc += f"**{team_label}:**\n"
+                for ls in LANE_SHORT:
+                    player = team_lanes.get(ls)
+                    embed_desc += f"{ls} - <@{player}>\n" if player else f"{ls} - 未分配\n"
+        embed_desc += (
+            f"\nMatch ID: {mid}\n"
+            f"Settle: `/gmpt-lol lol-settle {mid} <win_team_id>`"
+        )
         embed = discord.Embed(
             title=f"🔄 重新分队 — {match_name}",
-            description=(
-                f"🔵 **A 队 Team A** (ID:{aid}):\n{chr(10).join(f'- {m}' for m in a_mentions)}\n"
-                f"🔴 **B 队 Team B** (ID:{bid}):\n{chr(10).join(f'- {m}' for m in b_mentions)}\n\n"
-                f"Match ID: {mid}\n"
-                f"Settle: `/gmpt-lol lol-settle {mid} <win_team_id>`"
-            ),
+            description=embed_desc,
             color=discord.Color.gold(),
         )
-        await interaction.channel.send(embed=embed)
+        await self._safe_send(interaction.channel, embed=embed)
 
-        # Send voice pull view
+        await self._send_shuffle_post(interaction.channel, ta, tb, guild, mid, match_name)
+
+        # 更新原面板 embed footer
         try:
-            voice_view = VoicePullView(ta, tb, guild)
-            await interaction.channel.send("📢 点击按钮将玩家拉入对应语音频道:", view=voice_view)
+            if interaction.message and interaction.message.embeds:
+                panel_embed = interaction.message.embeds[0]
+                now_str = datetime.now().strftime("%H:%M:%S")
+                panel_embed.set_footer(text=f"🔄 已重新分队 | {now_str}")
+                await interaction.message.edit(embed=panel_embed)
         except Exception as e:
-            log_error("dashboard", "reshuffle_btn", e)
-
-        # Send vote view
-        await VoteView.send_vote(match_id=mid, match_name=match_name, channel=interaction.channel)
+            log_error("dashboard", "reshuffle_btn_panel", e)
 
         await interaction.followup.send("重新分队完成!", ephemeral=True)
 
     @discord.ui.button(label="🎲 随机分队+分路 / Shuffle+Lane", style=discord.ButtonStyle.primary, emoji="🎯", row=2, custom_id="matchv2_shuffle_lane")
     async def shuffle_lane_btn(self, interaction: discord.Interaction, button):
         """Randomly assign players to teams + auto lane assignment for role-pick matches."""
+        if not await self._check_rate(interaction, "shuffle_lane"):
+            return
         await interaction.response.defer(ephemeral=True)
         try:
             mid, t, guild = await self._get_context(interaction)
@@ -2975,59 +3106,10 @@ class MatchViewWithID(discord.ui.View):
         if not interaction.user.guild_permissions.administrator and not is_participant:
             return await interaction.followup.send("仅参赛者或管理员可操作", ephemeral=True)
 
-        with get_db_ctx() as conn2:
-            cur2 = conn2.cursor()
-            cur2.execute(
-                "SELECT discord_id FROM registrations WHERE tournament_id=? AND (is_sub IS NULL OR is_sub=0)",
-                (mid,),
-            )
-            players = [r["discord_id"] for r in cur2.fetchall()]
-            if len(players) < 2:
-                return await interaction.followup.send("参赛人数不足 (至少2人) / Not enough players (min 2).", ephemeral=True)
-
-            if len(players) % 2 != 0:
-                players.pop()
-
-            random.shuffle(players)
-            split = len(players) // 2
-            ta, tb = players[:split], players[split:]
-
-            LANES = ["上路/Top", "打野/Jungle", "中路/Mid", "下路/ADC", "辅助/Support"]
-            LANE_SHORT = ["Top", "JG", "Mid", "ADC", "Sup"]
-            lane_map = {}
-            team_lanes_a, team_lanes_b = {}, {}
-
-            for team_idx, team_players in enumerate((ta, tb)):
-                random.shuffle(LANES)
-                target = team_lanes_a if team_idx == 0 else team_lanes_b
-                for i, player in enumerate(team_players):
-                    if i < len(LANES):
-                        lane_map[player] = LANES[i]
-                        target[LANE_SHORT[i]] = player
-                        cur2.execute(
-                            "UPDATE registrations SET lane=? WHERE tournament_id=? AND discord_id=?",
-                            (LANES[i], mid, player),
-                        )
-
-            cur2.execute("DELETE FROM teams WHERE tournament_id=?", (mid,))
-            cur2.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (mid, "A 队 Team A"))
-            aid = cur2.lastrowid
-            for u in ta:
-                cur2.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (aid, mid, u))
-            cur2.execute("INSERT INTO teams (tournament_id, name) VALUES (?,?)", (mid, "B 队 Team B"))
-            bid = cur2.lastrowid
-            for u in tb:
-                cur2.execute("UPDATE registrations SET team_id=? WHERE tournament_id=? AND discord_id=?", (bid, mid, u))
-
-            for attempt in range(3):
-                try:
-                    conn2.commit()
-                    break
-                except sqlite3.OperationalError as e:
-                    if "locked" in str(e).lower() and attempt < 2:
-                        time_mod.sleep(0.2 * (attempt + 1))
-                        continue
-                    raise
+        result = await self._do_shuffle(mid, t, guild, assign_lanes=True)
+        if result is None:
+            return await interaction.followup.send("参赛人数不足 (至少2人) / Not enough players (min 2).", ephemeral=True)
+        ta, tb, aid, bid, lane_map, team_lanes_a, team_lanes_b = result
 
         match_name = t["name"]
 
@@ -3053,15 +3135,20 @@ class MatchViewWithID(discord.ui.View):
             description=embed_desc,
             color=discord.Color.purple(),
         )
-        await interaction.channel.send(embed=embed)
+        await self._safe_send(interaction.channel, embed=embed)
 
+        await self._send_shuffle_post(interaction.channel, ta, tb, guild, mid, match_name)
+
+        # 更新原面板 embed footer
         try:
-            voice_view = VoicePullView(ta, tb, guild)
-            await interaction.channel.send("📢 点击按钮将玩家拉入对应语音频道:", view=voice_view)
+            if interaction.message and interaction.message.embeds:
+                panel_embed = interaction.message.embeds[0]
+                now_str = datetime.now().strftime("%H:%M:%S")
+                panel_embed.set_footer(text=f"🎲 已随机分队+分路 | {now_str}")
+                await interaction.message.edit(embed=panel_embed)
         except Exception as e:
-            log_error("dashboard", "shuffle_lane_btn", e)
+            log_error("dashboard", "shuffle_lane_btn_panel", e)
 
-        await VoteView.send_vote(match_id=mid, match_name=match_name, channel=interaction.channel)
         await interaction.followup.send("随机分队+分路完成!", ephemeral=True)
 
     @discord.ui.button(label="管理员加人 / Add Player", style=discord.ButtonStyle.primary, emoji="➕", row=2, custom_id="matchv2_admin_add")
@@ -3173,25 +3260,23 @@ class MatchViewWithID(discord.ui.View):
     @discord.ui.button(label="开始比赛 Start", style=discord.ButtonStyle.success, emoji="▶️", row=2, custom_id="matchv2_start")
     async def start_btn(self, interaction: discord.Interaction, button):
         """正式开赛：锁定报名，不能再报名或退出。"""
+        if not await self._check_rate(interaction, "start"):
+            return
+        await interaction.response.defer(ephemeral=True)
         mid, t, guild = await self._get_context(interaction)
         if not t:
-            return await interaction.response.send_message("比赛不存在 / Match not found.", ephemeral=True)
+            return await interaction.followup.send("比赛不存在 / Match not found.", ephemeral=True)
         if t["status"] != "open":
-            return await interaction.response.send_message("比赛已开始或已结束 / Match already started or finished.", ephemeral=True)
+            return await interaction.followup.send("比赛已开始或已结束 / Match already started or finished.", ephemeral=True)
         if str(interaction.user.id) != t["created_by"] and not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("仅创建者或管理员可操作 / Creator or admin only.", ephemeral=True)
-
-        await interaction.response.defer(ephemeral=True)
+            return await interaction.followup.send("仅创建者或管理员可操作 / Creator or admin only.", ephemeral=True)
 
         from datetime import datetime
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with get_db_ctx() as conn:
-            try:
-                cur = conn.cursor()
-                cur.execute("UPDATE tournaments SET status='closed', started_at=? WHERE id=?", (now, mid))
-                conn.commit()
-            finally:
-                conn.close()
+            cur = conn.cursor()
+            cur.execute("UPDATE tournaments SET status='closed', started_at=? WHERE id=?", (now, mid))
+            conn.commit()
 
         await interaction.followup.send(
             "▶️ **比赛已开始！报名已锁定。** / Match started! Signups are now locked.\n"
@@ -3199,9 +3284,9 @@ class MatchViewWithID(discord.ui.View):
             ephemeral=True,
         )
 
-        # 发送通知到通知频道
+        # 发送通知到通知频道 (可配置)
         try:
-            notify_ch = guild.get_channel(POST_MATCH_VC_TEAM_A)
+            notify_ch = guild.get_channel(MATCH_START_NOTIFY_CHANNEL_ID)
             if notify_ch:
                 await notify_ch.send(
                     f"@here 🚨 比赛即将开始！| Match starting soon!\n"

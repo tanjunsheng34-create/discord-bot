@@ -11,11 +11,42 @@ from utils.cog_base import CogBase
 from config import RIOT_API_KEY
 from cogs.economy import check_achievement, add_coins, MATCH_WIN_COINS, MATCH_PARTICIPATE_COINS, BetView
 from cogs.match_autocomplete import match_id_autocomplete
+from utils.ratelimit import COMMAND_RATE_LIMITER, SENSITIVE_ACTION_LIMITER, GLOBAL_SEND_LIMITER
 import aiohttp
 
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+async def _check_command_rate(interaction: discord.Interaction, action: str) -> bool:
+    """命令调用限流检查。返回 True 表示允许, False 表示被限流。"""
+    key = f"{action}:{interaction.user.id}"
+    if not COMMAND_RATE_LIMITER.allow(key):
+        try:
+            await interaction.response.send_message(
+                "操作过于频繁，请稍后再试 / Too many requests, please slow down.",
+                ephemeral=True,
+            )
+        except Exception:
+            pass
+        return False
+    return True
+
+
+async def _check_sensitive_rate(interaction: discord.Interaction, action: str) -> bool:
+    """敏感操作异常检测 (报名/退赛/分队/下注等)。返回 True 表示允许。"""
+    key = f"{action}:{interaction.user.id}"
+    if not SENSITIVE_ACTION_LIMITER.allow(key):
+        try:
+            await interaction.response.send_message(
+                "检测到异常高频操作，已临时限制 / Suspicious activity detected, temporarily limited.",
+                ephemeral=True,
+            )
+        except Exception:
+            pass
+        return False
+    return True
 
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -565,6 +596,10 @@ class GMPT(CogBase):
     @app_commands.describe(match_id="Match ID")
     @app_commands.autocomplete(match_id=match_id_autocomplete)
     async def shuffle(self, interaction: discord.Interaction, match_id: int):
+        if not await _check_command_rate(interaction, "shuffle"):
+            return
+        if not await _check_sensitive_rate(interaction, "shuffle"):
+            return
         with get_db_ctx() as conn:
             cur = conn.cursor()
             cur.execute("SELECT * FROM tournaments WHERE id=?", (match_id,))
@@ -743,6 +778,8 @@ class GMPT(CogBase):
     @app_commands.describe(match_id="Match ID")
     @app_commands.autocomplete(match_id=match_id_autocomplete)
     async def players(self, interaction: discord.Interaction, match_id: int):
+        if not await _check_command_rate(interaction, "players"):
+            return
         with get_db_ctx() as conn:
             cur = conn.cursor()
             cur.execute("SELECT * FROM tournaments WHERE id=?", (match_id,))
@@ -789,6 +826,10 @@ class GMPT(CogBase):
     @app_commands.describe(match_id="Match ID")
     @app_commands.autocomplete(match_id=match_id_autocomplete)
     async def cancel(self, interaction: discord.Interaction, match_id: int):
+        if not await _check_command_rate(interaction, "cancel"):
+            return
+        if not await _check_sensitive_rate(interaction, "cancel"):
+            return
         with get_db_ctx() as conn:
             cur = conn.cursor()
             cur.execute("SELECT created_by, status FROM tournaments WHERE id=?", (match_id,))
@@ -1286,6 +1327,8 @@ class GMPT(CogBase):
     @app_commands.describe(match_id="Match ID / 比赛ID")
     @app_commands.autocomplete(match_id=match_id_autocomplete)
     async def custom_team(self, interaction: discord.Interaction, match_id: int):
+        if not await _check_command_rate(interaction, "custom_team"):
+            return
         with get_db_ctx() as conn:
             cur = conn.cursor()
             await interaction.response.defer()
